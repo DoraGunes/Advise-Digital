@@ -31,11 +31,18 @@ export async function ensureAdmin() {
       createdAt: new Date().toISOString()
     });
     await saveUsers(users);
-  } else if (!existing.tenantId || existing.role !== 'ADMIN') {
-    existing.tenantId = 'system';
-    existing.role = 'ADMIN';
-    existing.active = true;
-    await saveUsers(users);
+  } else {
+    let changed = false;
+    if (!existing.tenantId) { existing.tenantId = 'system'; changed = true; }
+    if (existing.role !== 'ADMIN') { existing.role = 'ADMIN'; changed = true; }
+    if (existing.active === false) { existing.active = true; changed = true; }
+    // Keep the persisted admin password aligned with ADMIN_PASSWORD from .env.
+    // This also repairs a stale/overwritten users.json without exposing the password.
+    if (!(await bcrypt.compare(config.adminPassword, existing.passwordHash || ''))) {
+      existing.passwordHash = await bcrypt.hash(config.adminPassword, 12);
+      changed = true;
+    }
+    if (changed) await saveUsers(users);
   }
 }
 
