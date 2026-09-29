@@ -1,0 +1,29 @@
+AdVise AI V15 toplu güncelleme
+
+- 12 saatlik reklam karar motoru gerçek scheduler'a bağlandı.
+- META_ACCESS_TOKEN ve INSTAGRAM_ACCESS_TOKEN ayrımı korunup sağlık kontrolü eklendi.
+- /api/meta/health eklendi.
+- Instagram yayın katmanına timeout ve health check eklendi.
+- Carousel yayın altyapısı eklendi (2-10 HTTPS görsel URL).
+- AI caption varyasyon endpointi eklendi.
+- Creative scoring endpointi eklendi.
+- Video -> REELS medya seçimi sunucu tarafında korunuyor.
+- Duplicate protection, retry, audit log ve queue korunuyor.
+- Meta bağlantı ekranındaki eski OAuth açıklamaları düzeltildi.
+
+Gerçek backend/.env bu pakete dahil değildir; mevcut .env dosyanı koru.
+Bu çalışma ortamında Flutter SDK olmadığı için APK burada derlenmedi; backend JS syntax kontrolü başarılı.
+
+Windows:
+cd C:\Users\ANL\Desktop\meta\backend
+npm.cmd start
+
+Yeni PowerShell:
+cd C:\Users\ANL\Desktop\meta\mobile
+flutter clean
+flutter pub get
+flutter analyze
+flutter test
+flutter build apk --release
+
+APK: mobile\build\app\outputs\flutter-apk\app-release.apk

@@ -1,0 +1,30 @@
+{
+  "system": {
+    "weeklyBudget": 1000,
+    "messageCostLimit": 8,
+    "minSpendBeforeDecision": 50,
+    "autoPause": true,
+    "autoReallocate": true,
+    "weeklyDay": 1,
+    "startHour": 19,
+    "startMinute": 0,
+    "durationHours": 24,
+    "minDailyBudget": 50,
+    "maxDailyBudget": 500,
+    "earlyWindowHours": 12,
+    "earlyMinSpendBeforeDecision": 50,
+    "earlyMessageCostLimit": 8,
+    "earlyNoMessageSpendThreshold": 75,
+    "earlyBudgetReductionPercent": 30,
+    "autoPublish": true,
+    "enabled": false,
+    "autoBestTime": true,
+    "timezone": "Europe/Istanbul",
+    "selection": {
+      "messageCostWeight": 0.55,
+      "ctrWeight": 0.2,
+      "messagesWeight": 0.2,
+      "explorationWeight": 0.05
+    }
+  }
+}

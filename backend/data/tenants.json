@@ -1,0 +1,55 @@
+[
+  {
+    "id": "system",
+    "companyName": "Advise Digital System",
+    "plan": "AGENCY",
+    "active": true,
+    "subscriptionStart": "2026-09-26T07:28:00.413Z",
+    "subscriptionEnd": null,
+    "createdAt": "2026-09-26T07:28:00.414Z",
+    "archivedAt": null,
+    "meta": {
+      "connected": true,
+      "source": "INSTAGRAM_ENV",
+      "accessToken": "EAAPIiSIvjKcBSgu855aRyIZAzDvcxWtSpmZASAmyfZARcZCMNMOOihUM5xoIEdTZBEaT9t2rEL1DPg7ABLCSZB0ftoJjZBZBrZCoMbot1ZBxXNh9Fo0kL5s8Li4wRRtW4ueA6FinSciqRzCuWDE5etVzw4CVGTdy2Cq782hFPBIdzhJTOv4MmZCcr9qVF5YfQmORdiV64chtFTW0ahojfEZBNaa98zKZAIEvW0ZBQAYUbH2ZAbk9nXVey87ZBvvi6bgzjcjquQ4Q5t64midb4KyvaKiQ6xHHBZCAj64liL5euUAZDZD",
+      "metaAccessToken": "EAAPIiSIvjKcBSgu855aRyIZAzDvcxWtSpmZASAmyfZARcZCMNMOOihUM5xoIEdTZBEaT9t2rEL1DPg7ABLCSZB0ftoJjZBZBrZCoMbot1ZBxXNh9Fo0kL5s8Li4wRRtW4ueA6FinSciqRzCuWDE5etVzw4CVGTdy2Cq782hFPBIdzhJTOv4MmZCcr9qVF5YfQmORdiV64chtFTW0ahojfEZBNaa98zKZAIEvW0ZBQAYUbH2ZAbk9nXVey87ZBvvi6bgzjcjquQ4Q5t64midb4KyvaKiQ6xHHBZCAj64liL5euUAZDZD",
+      "instagramAccessToken": "IGAAP4PGN6iFFBZAGIyU1plQlhucUlLdDNmR2x5ekRJQVJEbm8tOVBRWmJsNWVkcE16N0Y1WVNoNUNQNzZAxSVo0Nk1sZAU5uWFRJb1BzdkFEVGlGMDhHU3p5X2Q2dmI4cTF3VklWbzVNZAVhOLW14NFZAjZAlA3eEJlWHVUXzRYTFA1QQZDZD",
+      "adAccountId": "1627930699026624",
+      "pageId": "",
+      "instagramUserId": "38818932237721499",
+      "instagramUsername": "poyrazteknikservis.com.tr",
+      "businessId": "2327995664603987",
+      "connectedAt": "2026-09-29T08:00:43.368Z"
+    },
+    "branding": {
+      "appName": "Advise Digital",
+      "logoUrl": "",
+      "primaryColor": "#4F46E5",
+      "supportEmail": ""
+    },
+    "notificationPrefs": {
+      "email": true,
+      "push": true,
+      "highCost": true,
+      "subscription": true
+    },
+    "limits": {
+      "maxMetaAccounts": 20,
+      "maxAds": 500,
+      "maxUsers": 25
+    },
+    "features": {
+      "automation": true,
+      "analytics": true,
+      "bestTime": true,
+      "budgetReallocation": true,
+      "advancedReports": true,
+      "aiInsights": true,
+      "aiContent": true,
+      "autoMediaType": true,
+      "smartPublish": true,
+      "whiteLabel": true,
+      "apiAccess": true
+    }
+  }
+]

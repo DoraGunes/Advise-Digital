@@ -1,0 +1,154 @@
+[
+  {
+    "type": "META_CONNECTED",
+    "source": "INSTAGRAM_ENV",
+    "adAccountId": "1627930699026624",
+    "instagramUserId": "38818932237721499",
+    "tenantId": "system",
+    "at": "2026-09-29T08:00:43.373Z"
+  },
+  {
+    "type": "META_DISCONNECTED",
+    "previousAdAccountId": "1627930699026624",
+    "tenantId": "system",
+    "at": "2026-09-29T08:00:41.921Z"
+  },
+  {
+    "type": "META_CONNECTED",
+    "source": "INSTAGRAM_ENV",
+    "adAccountId": "1627930699026624",
+    "instagramUserId": "38818932237721499",
+    "tenantId": "system",
+    "at": "2026-09-29T07:04:39.958Z"
+  },
+  {
+    "type": "META_DISCONNECTED",
+    "previousAdAccountId": "1627930699026624",
+    "tenantId": "system",
+    "at": "2026-09-29T07:04:38.809Z"
+  },
+  {
+    "type": "META_CONNECTED",
+    "source": "INSTAGRAM_ENV",
+    "adAccountId": "1627930699026624",
+    "instagramUserId": "38818932237721499",
+    "tenantId": "system",
+    "at": "2026-09-29T07:04:18.504Z"
+  },
+  {
+    "type": "META_CONNECTED",
+    "source": "INSTAGRAM_ENV",
+    "adAccountId": "1627930699026624",
+    "instagramUserId": "38818932237721499",
+    "tenantId": "system",
+    "at": "2026-09-29T06:53:27.033Z"
+  },
+  {
+    "type": "META_CONNECTED",
+    "source": "INSTAGRAM_ENV",
+    "adAccountId": "1627930699026624",
+    "instagramUserId": "38818932237721499",
+    "tenantId": "system",
+    "at": "2026-09-29T06:53:25.387Z"
+  },
+  {
+    "type": "META_CONNECTED",
+    "source": "INSTAGRAM_ENV",
+    "adAccountId": "1627930699026624",
+    "instagramUserId": "38818932237721499",
+    "tenantId": "system",
+    "at": "2026-09-29T06:53:22.051Z"
+  },
+  {
+    "type": "META_DISCONNECTED",
+    "previousAdAccountId": "1627930699026624",
+    "tenantId": "system",
+    "at": "2026-09-29T06:53:20.627Z"
+  },
+  {
+    "type": "META_CONNECTED",
+    "source": "INSTAGRAM_ENV",
+    "adAccountId": "1627930699026624",
+    "instagramUserId": "38818932237721499",
+    "tenantId": "system",
+    "at": "2026-09-28T14:47:21.756Z"
+  },
+  {
+    "type": "META_CONNECTED",
+    "source": "INSTAGRAM_ENV",
+    "adAccountId": "1627930699026624",
+    "instagramUserId": "38818932237721499",
+    "tenantId": "system",
+    "at": "2026-09-28T14:44:38.119Z"
+  },
+  {
+    "type": "META_CONNECTED",
+    "source": "INSTAGRAM_ENV",
+    "adAccountId": "1627930699026624",
+    "instagramUserId": "38818932237721499",
+    "tenantId": "system",
+    "at": "2026-09-28T14:44:36.624Z"
+  },
+  {
+    "type": "META_CONNECTED",
+    "source": "INSTAGRAM_ENV",
+    "adAccountId": "1627930699026624",
+    "instagramUserId": "38818932237721499",
+    "tenantId": "system",
+    "at": "2026-09-28T14:44:34.949Z"
+  },
+  {
+    "type": "CUSTOMER_DELETED",
+    "tenantId": "system",
+    "companyName": "poyraz",
+    "at": "2026-09-28T14:09:18.159Z"
+  },
+  {
+    "type": "CUSTOMER_DELETED",
+    "tenantId": "system",
+    "companyName": "poyrax",
+    "at": "2026-09-28T14:09:16.998Z"
+  },
+  {
+    "type": "CUSTOMER_DELETED",
+    "tenantId": "system",
+    "companyName": "ahahah",
+    "at": "2026-09-28T14:09:15.252Z"
+  },
+  {
+    "type": "CUSTOMER_CREATED",
+    "tenantId": "system",
+    "username": "deneme",
+    "at": "2026-09-28T10:56:07.081Z"
+  },
+  {
+    "type": "CUSTOMER_TOGGLED",
+    "tenantId": "system",
+    "active": false,
+    "at": "2026-09-28T10:53:07.251Z"
+  },
+  {
+    "type": "CUSTOMER_CREATED",
+    "tenantId": "system",
+    "username": "bycalp",
+    "at": "2026-09-28T10:52:57.993Z"
+  },
+  {
+    "type": "CUSTOMER_TOGGLED",
+    "tenantId": "system",
+    "active": true,
+    "at": "2026-09-26T08:20:13.340Z"
+  },
+  {
+    "type": "CUSTOMER_TOGGLED",
+    "tenantId": "system",
+    "active": false,
+    "at": "2026-09-26T08:20:12.243Z"
+  },
+  {
+    "type": "CUSTOMER_CREATED",
+    "tenantId": "system",
+    "username": "poyrazemre",
+    "at": "2026-09-26T08:04:00.687Z"
+  }
+]

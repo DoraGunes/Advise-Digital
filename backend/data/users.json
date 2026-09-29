@@ -1,0 +1,12 @@
+[
+  {
+    "id": "admin",
+    "username": "admin",
+    "passwordHash": "$2a$12$vVcWaO3s4zGNdAjNoWTUy.VyRSZvcMm36FDxccRI8BW0fKe4hNjzi",
+    "role": "ADMIN",
+    "createdAt": "2026-09-25T12:24:39.743Z",
+    "tenantId": "system",
+    "active": true,
+    "lastLoginAt": "2026-09-29T08:21:32.246Z"
+  }
+]

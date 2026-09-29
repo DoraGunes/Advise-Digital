@@ -1,0 +1,12 @@
+<!--
+Flutter `flutter create .` yaptıktan sonra:
+android/app/src/main/AndroidManifest.xml içine
+<uses-permission android:name="android.permission.INTERNET"/>
+ekle.
+
+Development için fiziksel telefonda http://192.168.x.x:3000 kullanıyorsan
+<application android:usesCleartextTraffic="true" ...>
+ekle.
+
+Release ortamında HTTPS kullanman önerilir.
+-->
