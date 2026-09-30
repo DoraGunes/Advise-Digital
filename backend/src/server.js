@@ -13,7 +13,7 @@ import {
   getTenant, updateTenant, getCustomerSummaries, adminStats, getUsersForTenant, getUserById, saveUser, publicUser,
   createLicense, getLicenses, assignLicense, deleteTenantCascade
 } from './store.js';
-import {getCampaigns, getAdSets, getAds, insights, setStatus, updateAdSetBudget, metaHealth} from './meta.js';
+import {getCampaigns, getAdSets, getAds, insights, setStatus, updateAdSetBudget, metaHealth, getInstagramMedia, createCampaign, createAdSet, createAdCreativeFromInstagramMedia, createAd} from './meta.js';
 import {optimizeAds} from './optimizer.js';
 import {startScheduler, scheduleUploadedPost, publishDuePosts} from './scheduler.js';
 import {analyticsSummary, aiInsights, billingSummary, brandingSummary, saveBranding, notificationPrefs, saveNotificationPrefs, securityOverview, planCatalog, adminOverview} from './v78.js';
@@ -182,6 +182,89 @@ app.get('/api/ads', async (req, res) => {
     res.json(await getAds(credentials || {}));
   } catch (e) { res.status(502).json({error: e.message}); }
 });
+app.get('/api/instagram/media', async (req, res) => {
+  try {
+    const tenant = await getTenant(req.user.tenantId);
+    const credentials = req.user.tenantId === 'system' ? {} : (tenant?.meta || {});
+    const limit = Math.max(1, Math.min(100, Number(req.query.limit || 50)));
+    res.json(await getInstagramMedia(credentials, limit));
+  } catch (e) { res.status(502).json({error: e.message}); }
+});
+
+app.post('/api/ads/create', allowRoles('ADMIN','CUSTOMER_ADMIN','OPERATOR'), async (req, res) => {
+  try {
+    const tenantId = req.user.tenantId;
+    const tenant = await getTenant(tenantId);
+    const credentials = tenantId === 'system' ? {} : (tenant?.meta || {});
+    const mediaId = String(req.body?.instagramMediaId || '').trim();
+    const dailyBudget = Number(req.body?.dailyBudget);
+    if (!mediaId) return res.status(400).json({error: 'Instagram gönderisi seçmelisin.'});
+    if (!Number.isFinite(dailyBudget) || dailyBudget < 1) return res.status(400).json({error: 'Günlük bütçe en az 1 TL olmalı.'});
+
+    const campaignName = String(req.body?.campaignName || 'AdVise AI Kampanyası').trim().slice(0, 120);
+    const adSetName = String(req.body?.adSetName || 'AdVise AI Ad Set').trim().slice(0, 120);
+    const adName = String(req.body?.adName || 'AdVise AI Reklamı').trim().slice(0, 120);
+    const activate = req.body?.activate !== false;
+
+    const campaign = await createCampaign({
+      name: campaignName,
+      objective: 'OUTCOME_ENGAGEMENT',
+      status: 'PAUSED',
+      credentials
+    });
+
+    const adSet = await createAdSet({
+      name: adSetName,
+      campaignId: campaign.id,
+      dailyBudget,
+      optimizationGoal: 'CONVERSATIONS',
+      billingEvent: 'IMPRESSIONS',
+      credentials
+    });
+
+    const creative = await createAdCreativeFromInstagramMedia({
+      name: adName,
+      instagramMediaId: mediaId,
+      instagramUserId: tenantId === 'system' ? config.instagramUserId : tenant?.meta?.instagramUserId,
+      pageId: tenantId === 'system' ? config.metaPageId : tenant?.meta?.pageId,
+      credentials
+    });
+
+    const ad = await createAd({
+      name: adName,
+      adsetId: adSet.id,
+      creativeId: creative.id,
+      status: 'PAUSED',
+      credentials
+    });
+
+    if (activate) {
+      await setStatus(ad.id, 'ACTIVE', credentials);
+    }
+
+    await addLog(tenantId, {
+      type: 'WEEKLY_LAUNCH',
+      source: 'APP_AD_CREATE',
+      adId: ad.id,
+      adSetId: adSet.id,
+      campaignId: campaign.id,
+      instagramMediaId: mediaId,
+      launchAt: new Date().toISOString(),
+      selectionScore: 1
+    });
+
+    res.status(201).json({
+      campaign,
+      adset: adSet,
+      creative,
+      ad: {...ad, status: activate ? 'ACTIVE' : 'PAUSED'},
+      activated: activate
+    });
+  } catch (e) {
+    res.status(502).json({error: e.message});
+  }
+});
+
 app.get('/api/insights/:id', async (req, res) => {
   try {
     const days = Math.max(1, Math.min(30, Number(req.query.days || 7)));
