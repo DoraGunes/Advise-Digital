@@ -2105,3 +2105,4 @@ class _PoweredBy extends StatelessWidget {
     );
   }
 }
+// CI verification: keep this file syntax-checked on every PR.
