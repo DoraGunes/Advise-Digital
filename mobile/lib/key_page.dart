@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'config.dart';
 
 import 'api.dart';
 
@@ -106,7 +107,7 @@ class _KeyPageState extends State<KeyPage> {
                 const SizedBox(height: 7),
                 Text('Gerçek telefon örneği: http://192.168.1.61:3001', style: TextStyle(color: Colors.grey.shade700)),
                 const SizedBox(height: 12),
-                TextField(controller: _controller, keyboardType: TextInputType.url, autocorrect: false, decoration: InputDecoration(labelText: 'Backend URL', hintText: 'http://192.168.1.61:3001', errorText: _error)),
+                TextField(controller: _controller, keyboardType: TextInputType.url, autocorrect: false, decoration: InputDecoration(labelText: 'Backend URL', hintText: AppConfig.defaultApiBaseUrl, errorText: _error)),
                 const SizedBox(height: 12),
                 Row(
                   children: [

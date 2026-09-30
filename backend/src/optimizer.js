@@ -35,9 +35,15 @@ export async function optimizeAds(tenantId='system') {
   for(const ad of ads) {
     if(ad.status!=='ACTIVE') continue;
     try {
-      const launch=launchByAd.get(ad.id);
+      const launch=launchByAd.get(ad.id) || (
+        ad.created_time ? {adId:ad.id,launchAt:ad.created_time,source:'META_CREATED_TIME'} : null
+      );
       if(!launch) { results.push({adId:ad.id,name:ad.name,action:'WAIT_NO_LAUNCH_RECORD'}); continue; }
       const launchAt=new Date(launch.launchAt);
+      if(!Number.isFinite(launchAt.getTime())) {
+        results.push({adId:ad.id,name:ad.name,action:'WAIT_INVALID_LAUNCH_TIME'}); 
+        continue;
+      }
       const ageHours=(Date.now()-launchAt.getTime())/3600000;
       if(ageHours < Number(settings.earlyWindowHours||12)) {
         results.push({adId:ad.id,name:ad.name,action:'WAIT_12H',hoursElapsed:Number(ageHours.toFixed(2))});

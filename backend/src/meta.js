@@ -60,7 +60,7 @@ export async function getAdSets(credentials={}) {
 
 export async function getAds(credentials={}) {
   const c=requireMeta(credentials);
-  return request(`act_${c.adAccountId}/ads`,{credentials:c,query:{fields:'id,name,status,effective_status,campaign_id,adset_id,creative{id,name,object_story_id,thumbnail_url}',limit:500}});
+  return request(`act_${c.adAccountId}/ads`,{credentials:c,query:{fields:'id,name,status,effective_status,campaign_id,adset_id,created_time,creative{id,name,object_story_id,thumbnail_url,effective_instagram_media_id,source_instagram_media_id}',limit:500}});
 }
 
 export async function insights(id,level='ad',days=7,credentials={}) {
@@ -93,7 +93,7 @@ export async function createCampaign({name,objective='OUTCOME_ENGAGEMENT',status
 export async function createAdSet({name,campaignId,dailyBudget,targeting,optimizationGoal='CONVERSATIONS',billingEvent='IMPRESSIONS',instagramActorId,pageId,credentials={}}) {
   const c=requireMeta(credentials);
   const body={name,campaign_id:campaignId,daily_budget:Math.round(dailyBudget),billing_event:billingEvent,optimization_goal:optimizationGoal,bid_strategy:'LOWEST_COST_WITHOUT_CAP',targeting:targeting||{geo_locations:{countries:['TR']}},status:'PAUSED'};
-  if(instagramActorId||c.instagramUserId) body.instagram_actor_id=instagramActorId||c.instagramUserId;
+  if(instagramActorId||c.instagramUserId) body.instagram_user_id=instagramActorId||c.instagramUserId;
   if(pageId||c.pageId) body.promoted_object={page_id:pageId||c.pageId};
   return request(`act_${c.adAccountId}/adsets`,{method:'POST',credentials:c,body});
 }
@@ -116,7 +116,7 @@ export async function createAdCreative({name,instagramActorId,pageId,imageHash,m
   const objectStorySpec={link_data:{image_hash:imageHash,message,link:linkUrl||'https://instagram.com/'}};
   const actor=instagramActorId||c.instagramUserId;
   const page=pageId||c.pageId;
-  if(actor) objectStorySpec.instagram_actor_id=actor;
+  if(actor) objectStorySpec.instagram_user_id=actor;
   if(page) objectStorySpec.page_id=page;
   return request(`act_${c.adAccountId}/adcreatives`,{method:'POST',credentials:c,body:{name,object_story_spec:objectStorySpec}});
 }
@@ -157,6 +157,38 @@ async function waitForReel(containerId,accessToken) {
     await new Promise(r=>setTimeout(r,3000));
   }
   throw new Error('Instagram Reel hazırlama zaman aşımına uğradı.');
+}
+
+export async function getInstagramMedia(credentials={}, limit=50) {
+  const c=resolveCredentials(credentials);
+  if(!c.instagramUserId || !c.instagramAccessToken) throw new Error('Instagram bağlantısı için kullanıcı ID ve erişim tokenı gerekli.');
+  const n=Math.max(1, Math.min(100, Number(limit)||50));
+  return instagramRequest(`${c.instagramUserId}/media`, {
+    accessToken:c.instagramAccessToken,
+    body:{
+      fields:'id,caption,media_type,media_url,thumbnail_url,permalink,timestamp,username',
+      limit:n
+    }
+  });
+}
+
+export async function createAdCreativeFromInstagramMedia({name,instagramMediaId,instagramUserId,pageId,credentials={}}) {
+  const c=requireMeta(credentials);
+  const mediaId=String(instagramMediaId||'').trim();
+  if(!mediaId) throw new Error('Instagram gönderisi seçilmedi.');
+  const igUser=String(instagramUserId||c.instagramUserId||'').trim();
+  const page=String(pageId||c.pageId||'').trim();
+  if(!igUser) throw new Error('Instagram kullanıcı ID bulunamadı.');
+
+  const body={
+    name,
+    source_instagram_media_id:mediaId,
+    object_story_spec:{
+      instagram_user_id:igUser,
+      ...(page ? {page_id:page} : {})
+    }
+  };
+  return request(`act_${c.adAccountId}/adcreatives`,{method:'POST',credentials:c,body});
 }
 
 export async function instagramPublishMedia({mediaType='IMAGE',imageUrl,videoUrl,caption,carouselUrls=[],credentials={}}) {

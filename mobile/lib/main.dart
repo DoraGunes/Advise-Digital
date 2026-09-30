@@ -8,6 +8,7 @@ import 'config.dart';
 import 'key_page.dart';
 import 'v78_pages.dart';
 import 'v13_pro.dart';
+import 'social_ads_page.dart';
 
 void main() => runApp(const AdviseDigitalApp());
 void _mainGoHome(BuildContext context) {
@@ -421,6 +422,7 @@ class _AdminDashboardState extends State<AdminDashboard> {
       appBar: AppBar(
         leading: _mainHomeLeading(context),
         title: const Text('Sistem Yönetimi', style: TextStyle(fontWeight: FontWeight.w800)),
+        leading: Builder(builder: (ctx) => IconButton(tooltip: 'Menü', icon: const Icon(Icons.menu_rounded), onPressed: () => Scaffold.of(ctx).openDrawer())),
         actions: [IconButton(onPressed: loading ? null : _load, icon: const Icon(Icons.refresh_rounded)), IconButton(onPressed: _logout, icon: const Icon(Icons.logout_rounded))],
       ),
       drawer: _MainDrawer(admin: true, onAccount: _accountPage),
@@ -694,7 +696,7 @@ class _CustomerDashboardState extends State<CustomerDashboard> {
     final automationEnabled = settings['enabled'] == true;
 
     return Scaffold(
-      appBar: AppBar(leading: _mainHomeLeading(context), title: Text(tenant['companyName']?.toString() ?? 'AdVise AI', style: const TextStyle(fontWeight: FontWeight.w800)), actions: [IconButton(onPressed: _load, icon: const Icon(Icons.refresh_rounded))]),
+      appBar: AppBar(leading: Builder(builder: (ctx) => IconButton(tooltip: 'Menü', icon: const Icon(Icons.menu_rounded), onPressed: () => Scaffold.of(ctx).openDrawer())), title: Text(tenant['companyName']?.toString() ?? 'AdVise AI', style: const TextStyle(fontWeight: FontWeight.w800)), actions: [IconButton(onPressed: _load, icon: const Icon(Icons.refresh_rounded))]),
       drawer: _MainDrawer(admin: false, onAccount: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const AccountPage()))),
       floatingActionButton: FloatingActionButton.extended(onPressed: _upload, icon: const Icon(Icons.add_photo_alternate_rounded), label: const Text('İçerik ekle')),
       body: loading
@@ -726,6 +728,7 @@ class _CustomerDashboardState extends State<CustomerDashboard> {
                   _SectionHeader(title: 'Hızlı işlemler'),
                   _QuickGrid(items: [
                     _QuickAction(title: 'İçerik yükle', icon: Icons.add_photo_alternate_rounded, onTap: _upload),
+                    _QuickAction(title: 'Instagram & Reklamlar', icon: Icons.campaign_outlined, onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const SocialAdsPage()))),
                     _QuickAction(title: 'Karar merkezi', icon: Icons.insights_rounded, onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const DecisionHubPage()))),
                     _QuickAction(title: 'Otomasyon', icon: Icons.bolt_rounded, onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const SettingsPage())).then((_) => _load())),
                     _QuickAction(title: 'Ekip yönetimi', icon: Icons.groups_rounded, onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const UsersPage()))),
@@ -1323,6 +1326,7 @@ class _MainDrawer extends StatelessWidget {
               ListTile(leading: const Icon(Icons.people_outline), title: const Text('Müşteriler'), onTap: () => _go(context, const AdminCustomersPage())),
               ListTile(leading: const Icon(Icons.vpn_key_outlined), title: const Text('Lisanslar'), onTap: () => _go(context, const AdminLicensesPage())),
               ListTile(leading: const Icon(Icons.auto_graph_outlined), title: const Text('Reklam karar merkezi'), onTap: () => _go(context, const DecisionHubPage(admin: true))),
+              ListTile(leading: const Icon(Icons.campaign_outlined), title: const Text('Instagram & Reklamlar'), onTap: () => _go(context, const SocialAdsPage())),
               ListTile(leading: const Icon(Icons.tune_outlined), title: const Text('Sistem ayarları'), onTap: () => _go(context, const SettingsPage(admin: true))),
               ListTile(leading: const Icon(Icons.link_outlined), title: const Text('Meta & Instagram bağlantısı'), onTap: () => _go(context, const MetaConnectionPage())),
               ListTile(leading: const Icon(Icons.auto_awesome_outlined), title: const Text('V7 + V8 kontrol merkezi'), onTap: () => _go(context, const V78HubPage(admin: true))),
@@ -1331,6 +1335,7 @@ class _MainDrawer extends StatelessWidget {
             ] else ...[
               ListTile(leading: const Icon(Icons.dashboard_outlined), title: const Text('Ana panel'), onTap: () => Navigator.pop(context)),
               ListTile(leading: const Icon(Icons.photo_library_outlined), title: const Text('İçerikler'), onTap: () => _go(context, const PostsPage())),
+              ListTile(leading: const Icon(Icons.campaign_outlined), title: const Text('Instagram & Reklamlar'), onTap: () => _go(context, const SocialAdsPage())),
               ListTile(leading: const Icon(Icons.auto_graph_outlined), title: const Text('Karar merkezi'), onTap: () => _go(context, const DecisionHubPage())),
               ListTile(leading: const Icon(Icons.groups_outlined), title: const Text('Ekip ve kullanıcılar'), onTap: () => _go(context, const UsersPage())),
               ListTile(leading: const Icon(Icons.tune_outlined), title: const Text('Otomasyon ayarları'), onTap: () => _go(context, const SettingsPage())),

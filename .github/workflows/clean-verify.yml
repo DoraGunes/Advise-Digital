@@ -1,0 +1,57 @@
+name: AdVise AI Clean Verify
+
+on:
+  push:
+    branches: [clean-final-20260930]
+  workflow_dispatch:
+
+jobs:
+  backend-verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Node syntax check
+        run: |
+          node --check backend/src/config.js
+          node --check backend/src/db.js
+          node --check backend/src/meta.js
+          node --check backend/src/rules.js
+          node --check backend/src/store.js
+          node --check backend/src/optimizer.js
+          node --check backend/src/scheduler.js
+          node --check backend/src/server.js
+
+  flutter-verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.47.5'
+          channel: stable
+          cache: true
+      - name: Flutter pub get
+        working-directory: mobile
+        run: flutter pub get
+      - name: Flutter analyze
+        working-directory: mobile
+        run: flutter analyze
+      - name: Flutter build APK
+        working-directory: mobile
+        run: flutter build apk --release --dart-define=ADVISE_API_URL=https://childhood-stored-maintenance-cell.trycloudflare.com
+      - name: Package clean mobile
+        run: |
+          mkdir -p /tmp/advise-clean
+          rsync -a --exclude='build' --exclude='.dart_tool' mobile/ /tmp/advise-clean/mobile/
+          cd /tmp/advise-clean
+          zip -qr advise-ai-clean-mobile.zip mobile
+      - name: Upload clean mobile
+        uses: actions/upload-artifact@v4
+        with:
+          name: advise-ai-clean-mobile
+          path: /tmp/advise-clean/advise-ai-clean-mobile.zip
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: advise-ai-release-apk
+          path: mobile/build/app/outputs/flutter-apk/app-release.apk

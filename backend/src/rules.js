@@ -21,7 +21,7 @@ export function earlyAdDecision(metrics, settings) {
   const messages=Number(metrics.messages||0);
   const cost=metrics.messageCost==null?null:Number(metrics.messageCost);
   if(spend < Number(settings.earlyMinSpendBeforeDecision||50)) return {action:'WAIT',reason:'İlk 12 saat minimum harcama eşiği aşılmadı.'};
-  if(cost!==null && cost >= Number(settings.earlyMessageCostLimit||8)) {
+  if(cost!==null && cost >= Number(settings.earlyMessageCostLimit||2)) {
     return {action:'REDUCE',reason:`İlk ${settings.earlyWindowHours||12} saatte mesaj maliyeti ${cost.toFixed(2)} TL oldu. Reklam kapatılacak ve serbest kalan bütçe uygun reklama aktarılacak.`};
   }
   if(messages===0 && spend >= Number(settings.earlyNoMessageSpendThreshold||75)) {

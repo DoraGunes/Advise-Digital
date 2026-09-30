@@ -46,7 +46,7 @@ export const PLAN_DEFINITIONS = {
 
 const defaults = {
   weeklyBudget: 1000,
-  messageCostLimit: 8,
+  messageCostLimit: 2,
   minSpendBeforeDecision: 50,
   autoPause: true,
   autoReallocate: true,
@@ -58,7 +58,7 @@ const defaults = {
   maxDailyBudget: 500,
   earlyWindowHours: 12,
   earlyMinSpendBeforeDecision: 50,
-  earlyMessageCostLimit: 8,
+  earlyMessageCostLimit: 2,
   earlyNoMessageSpendThreshold: 75,
   earlyBudgetReductionPercent: 30,
   autoPublish: true,
@@ -357,7 +357,12 @@ export async function getSettings(tenantId = SYSTEM_TENANT_ID) {
     map[tenantId] = clone(defaults);
     await writeJson(settingsFile, map);
   }
-  return clone({...defaults, ...map[tenantId], selection: {...defaults.selection, ...(map[tenantId].selection || {})}});
+  const resolved = {...defaults, ...map[tenantId], selection: {...defaults.selection, ...(map[tenantId].selection || {})}};
+  // Keep the first-release default aligned with the product rule. Existing installations
+  // that still carry the old 8 TL default are migrated to 2 TL automatically.
+  if (Number(resolved.messageCostLimit) === 8) resolved.messageCostLimit = 2;
+  if (Number(resolved.earlyMessageCostLimit) === 8) resolved.earlyMessageCostLimit = 2;
+  return clone(resolved);
 }
 
 export async function saveSettings(tenantId, input) {
