@@ -2,7 +2,9 @@ name: AdVise AI Clean Verify
 
 on:
   push:
-    branches: [clean-final-20260930]
+    branches: [clean-final-20260930, clean-build-proof-20260930]
+  pull_request:
+    branches: [main]
   workflow_dispatch:
 
 jobs:
