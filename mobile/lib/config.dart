@@ -1,4 +1,7 @@
 class AppConfig {
-  static const String defaultApiBaseUrl = 'http://192.168.1.14:3001';
-  static const String appName = 'Advise Digital';
+  static const String defaultApiBaseUrl = String.fromEnvironment(
+    'ADVISE_API_URL',
+    defaultValue: 'https://childhood-stored-maintenance-cell.trycloudflare.com',
+  );
+  static const String appName = 'AdVise AI';
 }
