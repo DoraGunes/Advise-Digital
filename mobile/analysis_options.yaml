@@ -18,3 +18,5 @@ analyzer:
     unused_element: ignore
     unused_local_variable: ignore
     use_build_context_synchronously: ignore
+
+# verified CI artifact trigger
