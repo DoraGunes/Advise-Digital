@@ -304,7 +304,11 @@ class _BillingPageState extends State<BillingPage> {
     const _InfoCard(title:'Ödeme bağlantısı',body:'Lisans ve manuel abonelik akışı hazır. Online ödeme için seçilecek ödeme sağlayıcısının anahtarları ve webhook adresi ayrıca tanımlanır.'),
     const SizedBox(height:18),const _PoweredBy(),
   ]);
-  String _limitsText(dynamic x){if(x is! Map)return 'Limit bilgisi yok.';return ['maxMetaAccounts','maxAds','maxUsers'].where(x.containsKey).map((k)=>'$k: ${x[k]}').join('\n');}
+  String _limitsText(dynamic x) {
+    if (x is! Map) return 'Limit bilgisi yok.';
+    const keys = ['maxMetaAccounts', 'maxAds', 'maxUsers'];
+    return keys.where((key) => x.containsKey(key)).map((key) => '$key: ${x[key]}').join('\n');
+  }
 }
 
 class CommercialCenterPage extends StatefulWidget {
