@@ -20,7 +20,7 @@ class _SocialAdsPageState extends State<SocialAdsPage> {
   final adSetName = TextEditingController(text: 'AdVise AI 150 TL Ad Set');
   final adName = TextEditingController(text: 'AdVise AI Instagram Reklamı');
   final budget = TextEditingController(text: '150');
-  bool activate = true;
+  bool activateAd = true;
 
   @override
   void initState() {
@@ -82,7 +82,7 @@ class _SocialAdsPageState extends State<SocialAdsPage> {
         adSetName: adSetName.text.trim(),
         adName: adName.text.trim(),
         dailyBudget: dailyBudget,
-        activate: activate,
+        activate: activateAd,
       );
       if (!mounted) return;
       await showDialog<void>(
@@ -360,8 +360,8 @@ class _SocialAdsPageState extends State<SocialAdsPage> {
                 contentPadding: EdgeInsets.zero,
                 title: const Text('Oluşturunca hemen yayınla'),
                 subtitle: const Text('Kapalıysa reklam Meta tarafında PAUSED oluşturulur.'),
-                value: activate,
-                onChanged: creating ? null : (v) => setState(() => activate = v),
+                value: activateAd,
+                onChanged: creating ? null : (v) => setState(() => activateAd = v),
               ),
               const SizedBox(height: 6),
               SizedBox(
