@@ -60,7 +60,7 @@ export async function getAdSets(credentials={}) {
 
 export async function getAds(credentials={}) {
   const c=requireMeta(credentials);
-  return request(`act_${c.adAccountId}/ads`,{credentials:c,query:{fields:'id,name,status,effective_status,campaign_id,adset_id,creative{id,name,object_story_id,thumbnail_url}',limit:500}});
+  return request(`act_${c.adAccountId}/ads`,{credentials:c,query:{fields:'id,name,status,effective_status,campaign_id,adset_id,created_time,creative{id,name,object_story_id,thumbnail_url,effective_instagram_media_id,source_instagram_media_id}',limit:500}});
 }
 
 export async function insights(id,level='ad',days=7,credentials={}) {
