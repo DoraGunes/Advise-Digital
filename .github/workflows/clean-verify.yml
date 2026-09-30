@@ -24,3 +24,19 @@ jobs:
       - name: Flutter build APK
         working-directory: mobile
         run: flutter build apk --release --dart-define=ADVISE_API_URL=https://childhood-stored-maintenance-cell.trycloudflare.com
+      - name: Package clean mobile
+        run: |
+          mkdir -p /tmp/advise-clean
+          rsync -a --exclude='build' --exclude='.dart_tool' mobile/ /tmp/advise-clean/mobile/
+          cd /tmp/advise-clean
+          zip -qr advise-ai-clean-mobile.zip mobile
+      - name: Upload clean mobile
+        uses: actions/upload-artifact@v4
+        with:
+          name: advise-ai-clean-mobile
+          path: /tmp/advise-clean/advise-ai-clean-mobile.zip
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: advise-ai-release-apk
+          path: mobile/build/app/outputs/flutter-apk/app-release.apk
