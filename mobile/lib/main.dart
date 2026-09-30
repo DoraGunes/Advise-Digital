@@ -420,9 +420,8 @@ class _AdminDashboardState extends State<AdminDashboard> {
 
     return Scaffold(
       appBar: AppBar(
-        leading: _mainHomeLeading(context),
-        title: const Text('Sistem Yönetimi', style: TextStyle(fontWeight: FontWeight.w800)),
         leading: Builder(builder: (ctx) => IconButton(tooltip: 'Menü', icon: const Icon(Icons.menu_rounded), onPressed: () => Scaffold.of(ctx).openDrawer())),
+        title: const Text('Sistem Yönetimi', style: TextStyle(fontWeight: FontWeight.w800)),
         actions: [IconButton(onPressed: loading ? null : _load, icon: const Icon(Icons.refresh_rounded)), IconButton(onPressed: _logout, icon: const Icon(Icons.logout_rounded))],
       ),
       drawer: _MainDrawer(admin: true, onAccount: _accountPage),
