@@ -6,6 +6,21 @@ on:
   workflow_dispatch:
 
 jobs:
+  backend-verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Node syntax check
+        run: |
+          node --check backend/src/config.js
+          node --check backend/src/db.js
+          node --check backend/src/meta.js
+          node --check backend/src/rules.js
+          node --check backend/src/store.js
+          node --check backend/src/optimizer.js
+          node --check backend/src/scheduler.js
+          node --check backend/src/server.js
+
   flutter-verify:
     runs-on: ubuntu-latest
     steps:
