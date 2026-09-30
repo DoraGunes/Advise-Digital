@@ -25,4 +25,11 @@ jobs:
         run: flutter analyze
       - name: Flutter build APK
         working-directory: mobile
-        run: flutter build apk --release --dart-define=ADVISE_API_URL=https://childhood-stored-maintenance-cell.trycloudflare.com
+        run: flutter build apk --release
+
+      - name: Upload verified APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: advise-ai-verified-apk
+          path: mobile/build/app/outputs/flutter-apk/app-release.apk
+          if-no-files-found: error
