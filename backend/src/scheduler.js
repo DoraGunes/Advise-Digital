@@ -1,6 +1,6 @@
 import cron from 'node-cron';
 import {getSettings,getPosts,getLogs,addLog,savePosts,getTenants,getTenant} from './store.js';
-import {createCampaign,createAdSet,uploadAdImage,createAdCreative,createAd,setStatus,instagramPublishMedia} from './meta.js';
+import {createCampaign,createAdSet,uploadAdImage,createAdCreative,createAdCreativeFromInstagramMedia,createAd,setStatus,instagramPublishMedia} from './meta.js';
 import {config} from './config.js';
 import {seedTimeScore} from './rules.js';
 import {optimizeAds} from './optimizer.js';
@@ -70,7 +70,7 @@ export async function publishDuePosts(tenantId='system') {
       if(!/^https:\/\//i.test(String(post.publicUrl||''))) throw new Error('Instagram otomatik paylaşımı için PUBLIC_BASE_URL HTTPS olmalı.');
       post.publishAttempts=Number(post.publishAttempts||0)+1;
       const result=await instagramPublishMedia({mediaType:post.mediaType||'POST',imageUrl:post.publicUrl,videoUrl:post.publicUrl,caption:post.caption||'',credentials});
-      post.publishStatus='PUBLISHED'; post.publishedAt=new Date().toISOString(); post.instagramPublishResult=result; changed=true; published++;
+      post.publishStatus='PUBLISHED'; post.publishedAt=new Date().toISOString(); post.instagramPublishResult=result; post.instagramMediaId=String(result?.id||'').trim(); changed=true; published++;
       await addLog(tenantId,{type:'INSTAGRAM_POST_PUBLISHED',postId:post.id,mediaType:post.mediaType||'POST',attempt:post.publishAttempts,instagramResult:result});
     } catch(e) {
       post.publishError=e.message; changed=true;
@@ -107,11 +107,31 @@ export async function weeklySchedulerTick(tenantId='system') {
   try {
     const campaign=await createCampaign({name:`Advise Digital Weekly ${currentWeek}`,objective:'OUTCOME_ENGAGEMENT',status:'PAUSED',credentials});
     const adset=await createAdSet({name:`Weekly ${post.title||post.id}`,campaignId:campaign.id,dailyBudget,optimizationGoal:'CONVERSATIONS',billingEvent:'IMPRESSIONS',instagramActorId:credentials.instagramUserId||config.instagramUserId,pageId:credentials.pageId,credentials});
-    const buffer=await fs.readFile(path.resolve(post.filePath));
-    const upload=await uploadAdImage(buffer,path.basename(post.filePath),credentials);
-    const imageHash=upload?.images?Object.values(upload.images)[0]?.hash:upload?.hash;
-    if(!imageHash) throw new Error('Meta image upload hash alınamadı.');
-    const creative=await createAdCreative({name:`Creative ${post.title||post.id}`,instagramActorId:credentials.instagramUserId||config.instagramUserId,pageId:credentials.pageId,imageHash,message:post.caption||post.title||'',linkUrl:post.linkUrl||'https://instagram.com/',credentials});
+    const instagramMediaId=String(post.instagramMediaId||post.instagramPublishResult?.id||'').trim();
+    let creative;
+    if(instagramMediaId) {
+      creative=await createAdCreativeFromInstagramMedia({
+        name:`Creative ${post.title||post.id}`,
+        instagramMediaId,
+        instagramUserId:credentials.instagramUserId||config.instagramUserId,
+        pageId:credentials.pageId,
+        credentials
+      });
+    } else {
+      const buffer=await fs.readFile(path.resolve(post.filePath));
+      const upload=await uploadAdImage(buffer,path.basename(post.filePath),credentials);
+      const imageHash=upload?.images?Object.values(upload.images)[0]?.hash:upload?.hash;
+      if(!imageHash) throw new Error('Meta image upload hash alınamadı.');
+      creative=await createAdCreative({
+        name:`Creative ${post.title||post.id}`,
+        instagramActorId:credentials.instagramUserId||config.instagramUserId,
+        pageId:credentials.pageId,
+        imageHash,
+        message:post.caption||post.title||'',
+        linkUrl:post.linkUrl||'https://instagram.com/',
+        credentials
+      });
+    }
     const ad=await createAd({name:`Ad ${post.title||post.id}`,adsetId:adset.id,creativeId:creative.id,status:'ACTIVE',credentials});
     await setStatus(campaign.id,'ACTIVE',credentials);
     const selectionScore=Number(post.performanceScore||0);
