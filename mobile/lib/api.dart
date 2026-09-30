@@ -17,23 +17,14 @@ class ApiException implements Exception {
 }
 
 class Api {
-  static const String _urlKey = 'apiBaseUrl';
   static const String _tokenKey = 'authToken';
   static Future<SharedPreferences> _prefs() => SharedPreferences.getInstance();
   static String _cleanBaseUrl(String value) => value.trim().replaceFirst(RegExp(r'/+$'), '');
 
+  static String? _runtimeBaseUrl;
+
   static Future<String> baseUrl() async {
-    final prefs = await _prefs();
-    final saved = prefs.getString(_urlKey);
-
-    // Bilgisayarın LAN IP'si değiştiğinde daha önce kaydedilmiş eski
-    // 192.168.1.61 adresini otomatik olarak güncel varsayılan adrese taşı.
-    if (saved == 'http://192.168.1.61:3001') {
-      await prefs.setString(_urlKey, AppConfig.defaultApiBaseUrl);
-      return _cleanBaseUrl(AppConfig.defaultApiBaseUrl);
-    }
-
-    return _cleanBaseUrl(saved ?? AppConfig.defaultApiBaseUrl);
+    return _cleanBaseUrl(_runtimeBaseUrl ?? AppConfig.defaultApiBaseUrl);
   }
 
   static Future<void> setBaseUrl(String value) async {
@@ -42,8 +33,7 @@ class Api {
     if (uri == null || (uri.scheme != 'http' && uri.scheme != 'https') || uri.host.isEmpty) {
       throw const ApiException('Backend URL http:// veya https:// ile başlamalı.');
     }
-    final prefs = await _prefs();
-    await prefs.setString(_urlKey, v);
+    _runtimeBaseUrl = v;
   }
 
   static Future<void> setToken(String token) async {
@@ -90,6 +80,7 @@ class Api {
     Map<String, dynamic>? body,
     Map<String, String>? query,
     bool retry = true,
+    bool includeAuth = true,
   }) async {
     final base = await baseUrl();
     final uri = _uri(base, path, query);
@@ -98,7 +89,7 @@ class Api {
       'Accept': 'application/json',
       'Content-Type': 'application/json',
     };
-    if (authToken.isNotEmpty) headers['Authorization'] = 'Bearer $authToken';
+    if (includeAuth && authToken.isNotEmpty) headers['Authorization'] = 'Bearer $authToken';
 
     try {
       late final http.Response response;
@@ -123,7 +114,7 @@ class Api {
       if (response.statusCode >= 200 && response.statusCode < 300) return data;
       if (retry && const {502, 503, 504}.contains(response.statusCode)) {
         await Future<void>.delayed(const Duration(milliseconds: 800));
-        return await _request(method, path, body: body, query: query, retry: false);
+        return await _request(method, path, body: body, query: query, retry: false, includeAuth: includeAuth);
       }
       throw ApiException(_error(data), statusCode: response.statusCode, details: response.body);
     } on ApiException {
@@ -148,7 +139,14 @@ class Api {
   }
 
   static Future<Map<String, dynamic>> login(String username, String password) async {
-    final data = await _request('POST', '/api/auth/login', body: {'username': username, 'password': password});
+    final prefs = await _prefs();
+    await prefs.remove(_tokenKey);
+    final data = await _request(
+      'POST',
+      '/api/auth/login',
+      body: {'username': username.trim(), 'password': password},
+      includeAuth: false,
+    );
     if (data is! Map) throw const ApiException('Sunucudan geçersiz giriş cevabı geldi.');
     final tokenValue = data['token']?.toString() ?? '';
     if (tokenValue.isEmpty) throw ApiException(data['error']?.toString() ?? 'Giriş yapılamadı.');
