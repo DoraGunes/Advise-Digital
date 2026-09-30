@@ -167,6 +167,26 @@ class Api {
     if (data is! Map) return <dynamic>[];
     return List<dynamic>.from(data['data'] ?? const []);
   }
+  static Future<List<dynamic>> instagramMedia({int limit = 50}) async =>
+      List<dynamic>.from((await _request('GET', '/api/instagram/media?limit=$limit'))['data'] ?? const []);
+
+  static Future<Map<String, dynamic>> createAdFromInstagramPost({
+    required String instagramMediaId,
+    required String campaignName,
+    required String adSetName,
+    required String adName,
+    required double dailyBudget,
+    bool activate = true,
+  }) async =>
+      Map<String, dynamic>.from(await _request('POST', '/api/ads/create', body: {
+        'instagramMediaId': instagramMediaId,
+        'campaignName': campaignName,
+        'adSetName': adSetName,
+        'adName': adName,
+        'dailyBudget': dailyBudget,
+        'activate': activate,
+      }));
+
   static Future<Map<String, dynamic>> insights(String id) async {
     final data = await _request('GET', '/api/insights/$id');
     if (data is! Map) throw const ApiException('Sunucudan geçersiz insight cevabı geldi.');
