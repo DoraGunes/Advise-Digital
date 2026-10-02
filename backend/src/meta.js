@@ -93,7 +93,6 @@ export async function createCampaign({name,objective='OUTCOME_ENGAGEMENT',status
 export async function createAdSet({name,campaignId,dailyBudget,targeting,optimizationGoal='CONVERSATIONS',billingEvent='IMPRESSIONS',instagramActorId,pageId,credentials={}}) {
   const c=requireMeta(credentials);
   const body={name,campaign_id:campaignId,daily_budget:Math.round(dailyBudget),billing_event:billingEvent,optimization_goal:optimizationGoal,bid_strategy:'LOWEST_COST_WITHOUT_CAP',targeting:targeting||{geo_locations:{countries:['TR']}},status:'PAUSED'};
-  if(instagramActorId||c.instagramUserId) body.instagram_user_id=instagramActorId||c.instagramUserId;
   if(pageId||c.pageId) body.promoted_object={page_id:pageId||c.pageId};
   return request(`act_${c.adAccountId}/adsets`,{method:'POST',credentials:c,body});
 }
