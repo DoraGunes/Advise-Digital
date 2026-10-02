@@ -326,7 +326,7 @@ class _AiAdvisorCard extends StatelessWidget {
               ...summary.take(5).map(
                 (item) => Padding(
                   padding: const EdgeInsets.only(top: 6),
-                  child: Text('• ' + item.toString()),
+                  child: Text('• ${item.toString()}'),
                 ),
               ),
           ],
