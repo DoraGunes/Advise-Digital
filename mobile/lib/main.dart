@@ -719,7 +719,7 @@ class _CustomerDashboardState extends State<CustomerDashboard> {
                     children: [
                       _MetricCard(data: _MetricData('İçerik', '${posts.length}', Icons.photo_library_outlined, 'Hazır')),
                       _MetricCard(data: _MetricData('İşlem', '${logs.length}', Icons.history_rounded, 'Kayıt')),
-                      _MetricCard(data: _MetricData('Hedef', '${settings['messageCostLimit'] ?? 8} TL', Icons.chat_bubble_outline_rounded, 'Mesaj maliyeti')),
+                      _MetricCard(data: _MetricData('Hedef', '${settings['messageCostLimit'] ?? 2} TL', Icons.chat_bubble_outline_rounded, 'Mesaj maliyeti')),
                       _MetricCard(data: _MetricData('Haftalık', '${settings['weeklyBudget'] ?? 0} TL', Icons.account_balance_wallet_outlined, 'Bütçe')),
                     ],
                   ),
@@ -768,7 +768,7 @@ class _RuleOverview extends StatelessWidget {
             Row(children: [const Icon(Icons.rule_folder_outlined), const SizedBox(width: 8), const Text('12 saatlik karar motoru', style: TextStyle(fontSize: 17, fontWeight: FontWeight.w800)), const Spacer(), _StatusBadge(text: settings['enabled'] == true ? 'AKTİF' : 'PASİF', positive: settings['enabled'] == true)]),
             const SizedBox(height: 12),
             _RuleLine(icon: Icons.timer_outlined, title: 'Erken pencere', value: '${settings['earlyWindowHours'] ?? 12} saat'),
-            _RuleLine(icon: Icons.currency_lira_rounded, title: 'Mesaj hedefi', value: '${settings['earlyMessageCostLimit'] ?? settings['messageCostLimit'] ?? 8} TL'),
+            _RuleLine(icon: Icons.currency_lira_rounded, title: 'Mesaj hedefi', value: '${settings['earlyMessageCostLimit'] ?? settings['messageCostLimit'] ?? 2} TL'),
             _RuleLine(icon: Icons.pause_circle_outline, title: 'Kötü reklam', value: settings['autoPause'] == true ? 'Otomatik durdur' : 'Manuel karar'),
             _RuleLine(icon: Icons.swap_horiz_rounded, title: 'Bütçe', value: features['budgetReallocation'] == true ? 'Yeniden dağıtım açık' : 'Paketinizde kapalı'),
             _RuleLine(icon: Icons.schedule_rounded, title: 'Meta bağlantısı', value: metaAvailable ? 'Bağlı / veri alınabilir' : 'Planlama modu'),
@@ -1196,11 +1196,11 @@ class _SettingsPageState extends State<SettingsPage> {
       if (!mounted) return;
       setState(() {
         weekly.text = '${s['weeklyBudget'] ?? 1000}';
-        limit.text = '${s['messageCostLimit'] ?? 8}';
+        limit.text = '${s['messageCostLimit'] ?? 2}';
         minSpend.text = '${s['minSpendBeforeDecision'] ?? 50}';
         earlyWindow.text = '${s['earlyWindowHours'] ?? 12}';
         earlyMinSpend.text = '${s['earlyMinSpendBeforeDecision'] ?? 50}';
-        earlyLimit.text = '${s['earlyMessageCostLimit'] ?? 8}';
+        earlyLimit.text = '${s['earlyMessageCostLimit'] ?? 2}';
         noMessageSpend.text = '${s['earlyNoMessageSpendThreshold'] ?? 75}';
         reducePercent.text = '${s['earlyBudgetReductionPercent'] ?? 30}';
         weeklyDay.text = '${s['weeklyDay'] ?? 1}';
