@@ -94,6 +94,9 @@ export async function weeklySchedulerTick(tenantId='system') {
   const tenant=await getTenant(tenantId);
   const credentials=tenantId==='system'?{}:(tenant?.meta||{});
   if(!settings.enabled) return {scheduled:false,reason:'disabled'};
+  const metaToken=String(credentials?.accessToken || credentials?.metaAccessToken || config.metaAccessToken || '').trim();
+  const adAccountId=String(credentials?.adAccountId || config.adAccountId || '').replace(/^act_/,'').trim();
+  if(!metaToken || !adAccountId) return {scheduled:false,reason:'Meta bağlantısı bekleniyor',mode:'PLANNING'};
   const logs=await getLogs(tenantId,500);
   const schedule=chooseBestStart(settings,logs), now=localParts();
   if(now.day!==schedule.day||now.hour!==schedule.hour||now.minute!==schedule.minute) return {scheduled:false};
