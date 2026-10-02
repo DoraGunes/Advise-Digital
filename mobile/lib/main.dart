@@ -1358,7 +1358,7 @@ const Padding(
       ),
     ),
   ],
-)), const SizedBox(height: 16), const _PoweredBy() ]));
+), const SizedBox(height: 16), const _PoweredBy() ]));
 }
 
 class _SettingsSection extends StatelessWidget { final String title; final IconData icon; final List<Widget> children; const _SettingsSection({required this.title, required this.icon, required this.children}); @override Widget build(BuildContext context) => _GlassCard(child: Padding(padding: const EdgeInsets.all(16), child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [Row(children: [Icon(icon), const SizedBox(width: 8), Text(title, style: const TextStyle(fontSize: 17, fontWeight: FontWeight.w800))]), const SizedBox(height: 10), ...children]))); }
