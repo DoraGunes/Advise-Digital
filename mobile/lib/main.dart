@@ -1187,6 +1187,7 @@ class _SettingsPageState extends State<SettingsPage> {
   final minDaily = TextEditingController();
   final maxDaily = TextEditingController();
   bool enabled = false, autoPause = true, autoReallocate = true, autoBestTime = true, autoPublish = true, aiEnabled = true, autoMediaType = true, preventDuplicate = true;
+  bool savingToggle = false;
 
   @override
   void initState() { super.initState(); _load(); }
@@ -1222,15 +1223,61 @@ class _SettingsPageState extends State<SettingsPage> {
   }
   @override
   void dispose() { for (final c in [weekly, limit, minSpend, earlyWindow, earlyMinSpend, earlyLimit, noMessageSpend, reducePercent, weeklyDay, startHour, startMinute, duration, minDaily, maxDaily]) { c.dispose(); } super.dispose(); }
+  Future<void> _saveToggle(String key, bool value, void Function(bool) setter) async {
+    if (savingToggle) return;
+
+    setState(() {
+      savingToggle = true;
+      setter(value);
+    });
+
+    try {
+      await Api.saveSettings({key: value});
+    } catch (e) {
+      if (mounted) {
+        setState(() => setter(!value));
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Ayar kaydedilemedi: $e')),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => savingToggle = false);
+    }
+  }
+
+  Future<void> _runAutomationNow() async {
+    try {
+      final result = await Api.runAutomation();
+      final mode = result['mode']?.toString() ?? '';
+      final message = result['message']?.toString();
+      if (!mounted) return;
+      if (mode == 'PLANNING') {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(message ?? 'Meta bağlantısı olmadan otomasyon planlama modunda.')),
+        );
+      } else {
+        final actionCount = result['actions'] is List ? (result['actions'] as List).length : 0;
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Otomasyon testi tamamlandı: $actionCount işlem değerlendirildi.')),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Otomasyon testi başarısız: $e')),
+        );
+      }
+    }
+  }
   Future<void> _save() async {
     try {
       await Api.saveSettings({
         'weeklyBudget': double.tryParse(weekly.text) ?? 1000,
-        'messageCostLimit': double.tryParse(limit.text) ?? 8,
+        'messageCostLimit': double.tryParse(limit.text) ?? 2,
         'minSpendBeforeDecision': double.tryParse(minSpend.text) ?? 50,
         'earlyWindowHours': int.tryParse(earlyWindow.text) ?? 12,
         'earlyMinSpendBeforeDecision': double.tryParse(earlyMinSpend.text) ?? 50,
-        'earlyMessageCostLimit': double.tryParse(earlyLimit.text) ?? 8,
+        'earlyMessageCostLimit': double.tryParse(earlyLimit.text) ?? 2,
         'earlyNoMessageSpendThreshold': double.tryParse(noMessageSpend.text) ?? 75,
         'earlyBudgetReductionPercent': double.tryParse(reducePercent.text) ?? 30,
         'weeklyDay': int.tryParse(weeklyDay.text) ?? 1,
@@ -1252,7 +1299,65 @@ class _SettingsPageState extends State<SettingsPage> {
     } catch (e) { if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.toString()))); }
   }
   @override
-  Widget build(BuildContext context) => Scaffold(appBar: AppBar(leading: _mainHomeLeading(context), title: Text(widget.admin ? 'Sistem Ayarları' : 'Otomasyon Ayarları', style: const TextStyle(fontWeight: FontWeight.w800)), actions: [IconButton(onPressed: _load, icon: const Icon(Icons.refresh_rounded))]), drawer: _MainDrawer(admin: widget.admin), body: ListView(padding: const EdgeInsets.fromLTRB(14, 10, 14, 40), children: [if (widget.admin) const _InfoCard(icon: Icons.settings_suggest_rounded, title: 'Sistem varsayılanları', body: 'Bu alan sistem yöneticisi için global davranış varsayılanlarını düzenler.'), const SizedBox(height: 12), _SettingsSection(title: 'Otomasyon', icon: Icons.bolt_rounded, children: [SwitchListTile(contentPadding: EdgeInsets.zero, title: const Text('Otomasyonu aktif et'), value: enabled, onChanged: (v) => setState(() => enabled = v)), SwitchListTile(contentPadding: EdgeInsets.zero, title: const Text('Hedefi aşan reklamı durdur'), value: autoPause, onChanged: (v) => setState(() => autoPause = v)), SwitchListTile(contentPadding: EdgeInsets.zero, title: const Text('Serbest bütçeyi yeniden dağıt'), value: autoReallocate, onChanged: (v) => setState(() => autoReallocate = v)), SwitchListTile(contentPadding: EdgeInsets.zero, title: const Text('En iyi saati otomatik öğren'), value: autoBestTime, onChanged: (v) => setState(() => autoBestTime = v)), SwitchListTile(contentPadding: EdgeInsets.zero, title: const Text('İçeriği otomatik planla'), value: autoPublish, onChanged: (v) => setState(() => autoPublish = v)) ]), const SizedBox(height: 12), _SettingsSection(title: 'AdVise AI ve akıllı yayın', icon: Icons.auto_awesome_rounded, children: [SwitchListTile(contentPadding: EdgeInsets.zero, title: const Text('AI modu'), subtitle: const Text('Caption, hook ve CTA üretimini aç'), value: aiEnabled, onChanged: (v) => setState(() => aiEnabled = v)), SwitchListTile(contentPadding: EdgeInsets.zero, title: const Text('Post / Reels formatını otomatik seç'), value: autoMediaType, onChanged: (v) => setState(() => autoMediaType = v)), SwitchListTile(contentPadding: EdgeInsets.zero, title: const Text('Tekrarlanan içeriği engelle'), value: preventDuplicate, onChanged: (v) => setState(() => preventDuplicate = v))]), const SizedBox(height: 12), _SettingsSection(title: 'Bütçe ve hedef', icon: Icons.account_balance_wallet_outlined, children: [_Field(controller: weekly, label: 'Haftalık toplam bütçe (TL)'), _Field(controller: limit, label: 'Genel mesaj maliyeti sınırı (TL)'), _Field(controller: minSpend, label: 'Karar için minimum harcama (TL)'), _Field(controller: minDaily, label: 'Minimum günlük bütçe (TL)'), _Field(controller: maxDaily, label: 'Maksimum günlük bütçe (TL)')]), const SizedBox(height: 12), _SettingsSection(title: '12 saatlik erken karar', icon: Icons.timer_outlined, children: [_Field(controller: earlyWindow, label: 'Kontrol penceresi (saat)'), _Field(controller: earlyMinSpend, label: 'Karar minimum harcaması (TL)'), _Field(controller: earlyLimit, label: 'Erken mesaj maliyeti hedefi (TL)'), _Field(controller: noMessageSpend, label: 'Mesajsız harcama eşiği (TL)'), _Field(controller: reducePercent, label: 'Kötü reklam bütçe azaltma yüzdesi (%)')]), const SizedBox(height: 12), _SettingsSection(title: 'Yayın planı', icon: Icons.schedule_rounded, children: [_Field(controller: weeklyDay, label: 'Haftanın günü (1=Pzt, 7=Paz)'), _Field(controller: startHour, label: 'Başlangıç saati (0-23)'), _Field(controller: startMinute, label: 'Başlangıç dakikası (0-59)'), _Field(controller: duration, label: 'Reklam süresi (saat)')]), const SizedBox(height: 18), SizedBox(height: 54, child: FilledButton.icon(onPressed: _save, icon: const Icon(Icons.save_rounded), label: const Text('AYARLARI KAYDET'))), const SizedBox(height: 16), const _PoweredBy() ]));
+  Widget build(BuildContext context) => Scaffold(appBar: AppBar(leading: _mainHomeLeading(context), title: Text(widget.admin ? 'Sistem Ayarları' : 'Otomasyon Ayarları', style: const TextStyle(fontWeight: FontWeight.w800)), actions: [IconButton(onPressed: _load, icon: const Icon(Icons.refresh_rounded))]), drawer: _MainDrawer(admin: widget.admin), body: ListView(padding: const EdgeInsets.fromLTRB(14, 10, 14, 40), children: [if (widget.admin) const _InfoCard(icon: Icons.settings_suggest_rounded, title: 'Sistem varsayılanları', body: 'Bu alan sistem yöneticisi için global davranış varsayılanlarını düzenler.'), const SizedBox(height: 12), _SettingsSection(title: 'Otomasyon', icon: Icons.bolt_rounded, children: [SwitchListTile(
+  contentPadding: EdgeInsets.zero,
+  title: const Text('Otomasyonu aktif et'),
+  value: enabled,
+  onChanged: savingToggle ? null : (v) => _saveToggle('enabled', v, (x) => enabled = x),
+),
+SwitchListTile(
+  contentPadding: EdgeInsets.zero,
+  title: const Text('Hedefi aşan reklamı durdur'),
+  value: autoPause,
+  onChanged: savingToggle ? null : (v) => _saveToggle('autoPause', v, (x) => autoPause = x),
+),
+SwitchListTile(
+  contentPadding: EdgeInsets.zero,
+  title: const Text('Serbest bütçeyi yeniden dağıt'),
+  value: autoReallocate,
+  onChanged: savingToggle ? null : (v) => _saveToggle('autoReallocate', v, (x) => autoReallocate = x),
+),
+SwitchListTile(
+  contentPadding: EdgeInsets.zero,
+  title: const Text('En iyi saati otomatik öğren'),
+  value: autoBestTime,
+  onChanged: savingToggle ? null : (v) => _saveToggle('autoBestTime', v, (x) => autoBestTime = x),
+),
+SwitchListTile(
+  contentPadding: EdgeInsets.zero,
+  title: const Text('İçeriği otomatik planla'),
+  value: autoPublish,
+  onChanged: savingToggle ? null : (v) => _saveToggle('autoPublish', v, (x) => autoPublish = x),
+),
+const Padding(
+  padding: EdgeInsets.only(top: 4),
+  child: Text(
+    'Aç/kapat değişiklikleri anında kaydedilir. Alt ayarlar için AYARLARI KAYDET düğmesini kullan.',
+    style: TextStyle(fontSize: 12, color: Colors.grey),
+  ),
+) ]), const SizedBox(height: 12), _SettingsSection(title: 'AdVise AI ve akıllı yayın', icon: Icons.auto_awesome_rounded, children: [SwitchListTile(contentPadding: EdgeInsets.zero, title: const Text('AI modu'), subtitle: const Text('Caption, hook ve CTA üretimini aç'), value: aiEnabled, onChanged: (v) => setState(() => aiEnabled = v)), SwitchListTile(contentPadding: EdgeInsets.zero, title: const Text('Post / Reels formatını otomatik seç'), value: autoMediaType, onChanged: (v) => setState(() => autoMediaType = v)), SwitchListTile(contentPadding: EdgeInsets.zero, title: const Text('Tekrarlanan içeriği engelle'), value: preventDuplicate, onChanged: (v) => setState(() => preventDuplicate = v))]), const SizedBox(height: 12), _SettingsSection(title: 'Bütçe ve hedef', icon: Icons.account_balance_wallet_outlined, children: [_Field(controller: weekly, label: 'Haftalık toplam bütçe (TL)'), _Field(controller: limit, label: 'Genel mesaj maliyeti sınırı (TL)'), _Field(controller: minSpend, label: 'Karar için minimum harcama (TL)'), _Field(controller: minDaily, label: 'Minimum günlük bütçe (TL)'), _Field(controller: maxDaily, label: 'Maksimum günlük bütçe (TL)')]), const SizedBox(height: 12), _SettingsSection(title: '12 saatlik erken karar', icon: Icons.timer_outlined, children: [_Field(controller: earlyWindow, label: 'Kontrol penceresi (saat)'), _Field(controller: earlyMinSpend, label: 'Karar minimum harcaması (TL)'), _Field(controller: earlyLimit, label: 'Erken mesaj maliyeti hedefi (TL)'), _Field(controller: noMessageSpend, label: 'Mesajsız harcama eşiği (TL)'), _Field(controller: reducePercent, label: 'Kötü reklam bütçe azaltma yüzdesi (%)')]), const SizedBox(height: 12), _SettingsSection(title: 'Yayın planı', icon: Icons.schedule_rounded, children: [_Field(controller: weeklyDay, label: 'Haftanın günü (1=Pzt, 7=Paz)'), _Field(controller: startHour, label: 'Başlangıç saati (0-23)'), _Field(controller: startMinute, label: 'Başlangıç dakikası (0-59)'), _Field(controller: duration, label: 'Reklam süresi (saat)')]), const SizedBox(height: 18), Column(
+  children: [
+    SizedBox(
+      width: double.infinity,
+      height: 54,
+      child: FilledButton.icon(
+        onPressed: _save,
+        icon: const Icon(Icons.save_rounded),
+        label: const Text('AYARLARI KAYDET'),
+      ),
+    ),
+    const SizedBox(height: 10),
+    SizedBox(
+      width: double.infinity,
+      height: 48,
+      child: OutlinedButton.icon(
+        onPressed: enabled && !savingToggle ? _runAutomationNow : null,
+        icon: const Icon(Icons.play_circle_outline_rounded),
+        label: const Text('OTOMASYONU ŞİMDİ TEST ET'),
+      ),
+    ),
+  ],
+)), const SizedBox(height: 16), const _PoweredBy() ]));
 }
 
 class _SettingsSection extends StatelessWidget { final String title; final IconData icon; final List<Widget> children; const _SettingsSection({required this.title, required this.icon, required this.children}); @override Widget build(BuildContext context) => _GlassCard(child: Padding(padding: const EdgeInsets.all(16), child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [Row(children: [Icon(icon), const SizedBox(width: 8), Text(title, style: const TextStyle(fontSize: 17, fontWeight: FontWeight.w800))]), const SizedBox(height: 10), ...children]))); }
