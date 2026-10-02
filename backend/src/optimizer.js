@@ -73,7 +73,7 @@ export async function optimizeAds(tenantId='system') {
       const row=(ir.data||[])[0];
       const m=metric(row);
       const decision=earlyAdDecision(m,settings);
-      if(decision.action==='REDUCE') {
+      if(decision.action==='REDUCE' && settings.autoPause !== false) {
         const set=setMap.get(ad.adset_id);
         let released=0;
         if(set) {
@@ -110,10 +110,24 @@ export async function optimizeAds(tenantId='system') {
             }
           }
         }
+      } else if(decision.action==='REDUCE' && settings.autoPause === false) {
+        results.push({
+          adId:ad.id,
+          name:ad.name,
+          action:'PAUSE_DISABLED',
+          metrics:m,
+          reason:'Mesaj maliyeti/mesaj sayısı kuralı durdurma eşiğine ulaştı ancak otomatik durdurma kapalı.'
+        });
       } else {
         results.push({adId:ad.id,name:ad.name,action:'KEEP_12H',metrics:m,reason:decision.reason});
       }
-      await addLog(tenantId,{type:'EARLY_REVIEW_DONE',adId:ad.id,reviewedAt:new Date().toISOString(),decision:decision.action,metrics:m});
+      await addLog(tenantId,{
+        type:'EARLY_REVIEW_DONE',
+        adId:ad.id,
+        reviewedAt:new Date().toISOString(),
+        decision:(decision.action==='REDUCE' && settings.autoPause === false) ? 'PAUSE_DISABLED' : decision.action,
+        metrics:m
+      });
     } catch(e) { results.push({adId:ad.id,name:ad.name,action:'ERROR',reason:e.message}); }
   }
   const result={enabled:true,ranAt:new Date().toISOString(),actions:results,postsConsidered:posts.length,rule:'12h_message_cost'};
