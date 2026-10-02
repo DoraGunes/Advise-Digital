@@ -50,9 +50,38 @@ const upload = multer({
   }
 });
 
+function hasMetaCredentials(credentials = {}) {
+  const accessToken = String(
+    credentials?.accessToken ||
+    credentials?.metaAccessToken ||
+    config.metaAccessToken ||
+    ''
+  ).trim();
+  const adAccountId = String(
+    credentials?.adAccountId ||
+    config.adAccountId ||
+    ''
+  ).replace(/^act_/, '').trim();
+  return Boolean(accessToken && adAccountId);
+}
+
+function hasInstagramCredentials(credentials = {}) {
+  const instagramUserId = String(
+    credentials?.instagramUserId ||
+    config.instagramUserId ||
+    ''
+  ).trim();
+  const instagramAccessToken = String(
+    credentials?.instagramAccessToken ||
+    config.instagramAccessToken ||
+    ''
+  ).trim();
+  return Boolean(instagramUserId && instagramAccessToken);
+}
 await ensureAdmin();
 
 const app = express();
+app.set('trust proxy', true);
 app.use(cors());
 app.use(express.json({limit: '2mb'}));
 app.use('/uploads', express.static(uploadDir));
@@ -141,7 +170,8 @@ app.get('/api/dashboard', async (req, res) => {
     const credentials = tenantId === 'system' ? {} : (tenantRaw?.meta?.connected ? tenantRaw.meta : null);
 
     let campaigns = [], adsets = [], ads = [];
-    if (req.user.role === 'ADMIN' || credentials) {
+    const metaReady = hasMetaCredentials(credentials || {});
+    if (metaReady) {
       const [campaignsResp, adsetsResp, adsResp] = await Promise.all([
         getCampaigns(credentials || {}),
         getAdSets(credentials || {}),
@@ -161,8 +191,8 @@ app.get('/api/dashboard', async (req, res) => {
       settings,
       logs,
       posts,
-      metaAvailable: Boolean(credentials) || (req.user.role === 'ADMIN' && Boolean(config.metaAccessToken && config.adAccountId)),
-      mode: credentials ? 'CONNECTED' : (req.user.role === 'ADMIN' && config.metaAccessToken ? 'ADMIN_META' : 'PLANNING')
+      metaAvailable: metaReady,
+      mode: metaReady ? 'CONNECTED' : 'PLANNING'
     });
   } catch (e) {
     res.status(502).json({error: e.message});
@@ -174,6 +204,9 @@ app.get('/api/campaigns', async (req, res) => {
   try {
     const tenant = await getTenant(req.user.tenantId);
     const credentials = req.user.tenantId === 'system' ? {} : tenant?.meta;
+    if (!hasMetaCredentials(credentials || {})) {
+      return res.json({data: [], connected: false, mode: 'PLANNING', reason: 'Meta bağlantısı kurulmadı.'});
+    }
     res.json(await getCampaigns(credentials || {}));
   } catch (e) { res.status(502).json({error: e.message}); }
 });
@@ -181,6 +214,9 @@ app.get('/api/adsets', async (req, res) => {
   try {
     const tenant = await getTenant(req.user.tenantId);
     const credentials = req.user.tenantId === 'system' ? {} : tenant?.meta;
+    if (!hasMetaCredentials(credentials || {})) {
+      return res.json({data: [], connected: false, mode: 'PLANNING', reason: 'Meta bağlantısı kurulmadı.'});
+    }
     res.json(await getAdSets(credentials || {}));
   } catch (e) { res.status(502).json({error: e.message}); }
 });
@@ -188,6 +224,9 @@ app.get('/api/ads', async (req, res) => {
   try {
     const tenant = await getTenant(req.user.tenantId);
     const credentials = req.user.tenantId === 'system' ? {} : tenant?.meta;
+    if (!hasMetaCredentials(credentials || {})) {
+      return res.json({data: [], connected: false, mode: 'PLANNING', reason: 'Meta bağlantısı kurulmadı.'});
+    }
     res.json(await getAds(credentials || {}));
   } catch (e) { res.status(502).json({error: e.message}); }
 });
@@ -196,6 +235,9 @@ app.get('/api/instagram/media', async (req, res) => {
     const tenant = await getTenant(req.user.tenantId);
     const credentials = req.user.tenantId === 'system' ? {} : (tenant?.meta || {});
     const limit = Math.max(1, Math.min(100, Number(req.query.limit || 50)));
+    if (!hasInstagramCredentials(credentials || {})) {
+      return res.json({data: [], connected: false, mode: 'PLANNING', reason: 'Instagram bağlantısı kurulmadı.'});
+    }
     res.json(await getInstagramMedia(credentials, limit));
   } catch (e) { res.status(502).json({error: e.message}); }
 });
@@ -523,6 +565,55 @@ app.post('/api/ai/content-pack', async (req, res) => {
     res.json(result);
   } catch(e) { res.status(400).json({error:e.message}); }
 });
+app.post('/api/ai/content-pack-from-file', upload.single('image'), async (req, res) => {
+  let filePath = '';
+  try {
+    if (!req.file) return res.status(400).json({error: 'AI görsel analizi için bir görsel gerekli.'});
+    filePath = req.file.path;
+
+    if (!String(req.file.mimetype || '').startsWith('image/')) {
+      return res.status(400).json({error: 'AI içerik stüdyosu için JPEG, PNG veya WebP görsel kullanmalısın.'});
+    }
+
+    const settings = await getSettings(req.user.tenantId);
+    if (settings.aiEnabled === false) {
+      return res.json({
+        source: 'DISABLED',
+        message: 'AI modu kapalı.',
+        recommendedFormat: String(req.body?.mediaType || 'IMAGE').toUpperCase() === 'VIDEO' ? 'REELS' : 'POST'
+      });
+    }
+
+    const publicUrl = publicBaseUrlForRequest(req) + '/uploads/' + encodeURIComponent(req.file.filename);
+    if (!/^https:\/\//i.test(publicUrl)) {
+      return res.status(503).json({error: 'AI görsel analizi için HTTPS erişilebilir public URL gerekli.'});
+    }
+
+    const result = await generateContentPack({
+      title: req.body?.title || req.file.originalname,
+      context: req.body?.context || '',
+      tone: req.body?.tone || settings.aiTone,
+      goal: req.body?.goal || settings.aiGoal,
+      language: req.body?.language || settings.aiLanguage,
+      mediaType: req.body?.mediaType || 'AUTO',
+      imageUrl: publicUrl
+    });
+
+    await addLog(req.user.tenantId, {
+      type: 'AI_CONTENT_GENERATED',
+      source: result.source,
+      mediaType: req.body?.mediaType || 'AUTO',
+      visualAnalysis: true
+    });
+
+    res.json({...result, visualAnalysis: true});
+  } catch (e) {
+    res.status(400).json({error: e.message});
+  } finally {
+    if (filePath) await fs.rm(filePath, {force:true}).catch(() => {});
+  }
+});
+
 app.post('/api/ai/caption', async (req, res) => {
   try {
     const settings=await getSettings(req.user.tenantId);
@@ -561,8 +652,15 @@ app.get('/api/pro/agency', async (_req,res)=>{ try{res.json(await agencyOverview
 
 app.post('/api/automation/run', async (req, res) => {
   try {
-    if (req.user.role !== 'ADMIN' && !req.tenant?.meta?.connected) {
-      return res.json({enabled: false, actions: [], mode: 'PLANNING', message: 'Meta bağlantısı kurulmadan gerçek reklam verisi kontrol edilemez.'});
+    const tenant = await getTenant(req.user.tenantId);
+    const credentials = req.user.tenantId === 'system' ? {} : (tenant?.meta || {});
+    if (!hasMetaCredentials(credentials || {})) {
+      return res.json({
+        enabled: true,
+        actions: [{action: 'WAIT_META_CONNECTION'}],
+        mode: 'PLANNING',
+        message: 'Meta bağlantısı kurulmadan gerçek reklam verisi kontrol edilemez.'
+      });
     }
     res.json(await optimizeAds(req.user.tenantId));
   } catch (e) { res.status(502).json({error: e.message}); }
