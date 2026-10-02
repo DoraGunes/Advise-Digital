@@ -77,7 +77,8 @@ OAuth ile alınan token backend tarafında tenant kaydına yazılır ve mobil AP
 ## Güvenlik / üretim notu
 Yerel geliştirmede JSON fallback kullanılır. Ticari üretimde HTTPS, PostgreSQL, güçlü secret yönetimi, token encryption/secret store, rate limiting, yedekleme ve izleme servisi eklenmelidir. Bu paket bu geçiş için şema ve DB health temelini içerir; JSON verisini otomatik olarak PostgreSQL'e taşıyan migration servisi henüz burada çalıştırılmıyor.
 
-
 ## Meta OAuth entegrasyonu
 
 Facebook Login for Business Configuration ID, App ID ve callback ayarları `META_CONNECTION_NOW.md` içinde güncel örneklerle bulunur. App Secret pakete dahil değildir.
+
+<!-- package-trigger -->
