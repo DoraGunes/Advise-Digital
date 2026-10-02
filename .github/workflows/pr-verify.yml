@@ -36,3 +36,33 @@ jobs:
       - name: Flutter build APK
         working-directory: mobile
         run: flutter build apk --release --no-pub
+      - name: Package direct-overwrite source
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf /tmp/advise-overwrite
+          mkdir -p /tmp/advise-overwrite/mobile/lib
+          mkdir -p /tmp/advise-overwrite/backend/src
+          cp mobile/lib/*.dart /tmp/advise-overwrite/mobile/lib/
+          cp mobile/pubspec.yaml /tmp/advise-overwrite/mobile/
+          cp backend/src/*.js /tmp/advise-overwrite/backend/src/
+          cp backend/package.json /tmp/advise-overwrite/backend/
+          cp backend/package-lock.json /tmp/advise-overwrite/backend/ 2>/dev/null || true
+          cat > /tmp/advise-overwrite/README.txt <<'EOF'
+AdVise AI - DIRECT OVERWRITE SOURCE
+Bu ZIP'i AdVise AI-FINAL proje klasörünün üzerine çıkart.
+ZIP yapısı doğrudan mobile/lib ve backend/src içindeki güncel dosyaları içerir.
+Gizli .env/token/secret dosyaları dahil değildir.
+EOF
+          cd /tmp/advise-overwrite
+          zip -qr /tmp/AdViseAI_CHANGED_FILES_DIRECT_OVERWRITE.zip mobile backend README.txt
+      - name: Upload direct-overwrite source
+        uses: actions/upload-artifact@v4
+        with:
+          name: advise-ai-direct-overwrite
+          path: /tmp/AdViseAI_CHANGED_FILES_DIRECT_OVERWRITE.zip
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: advise-ai-release-apk
+          path: mobile/build/app/outputs/flutter-apk/app-release.apk
