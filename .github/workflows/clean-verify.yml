@@ -1,81 +1,42 @@
-name: AdVise AI Clean Verify
+name: AdVise AI Direct Source Package
 
 on:
   push:
-    branches: [main, clean-final-20260930]
+    branches: [main]
   workflow_dispatch:
 
 jobs:
-
-  source-package:
+  package-source:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Package updated source
-        run: |
-          mkdir -p /tmp/advise-final/mobile /tmp/advise-final/backend
-          rsync -a --exclude='build' --exclude='.dart_tool' mobile/lib/ /tmp/advise-final/mobile/lib/
-          rsync -a mobile/pubspec.yaml /tmp/advise-final/mobile/
-          rsync -a backend/src/ /tmp/advise-final/backend/src/
-          rsync -a backend/package.json /tmp/advise-final/backend/
-          printf '%s
-' 'AdVise AI FINAL source package' > /tmp/advise-final/README.txt
-          printf '%s
-' 'Generated from main by GitHub Actions. No secrets are included.' >> /tmp/advise-final/README.txt
-          cd /tmp/advise-final
-          zip -qr advise-ai-final-source.zip mobile backend README.txt
-      - name: Upload final source
-        uses: actions/upload-artifact@v4
-        with:
-          name: advise-ai-final-source
-          path: /tmp/advise-final/advise-ai-final-source.zip
 
-  backend-verify:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - name: Node syntax check
+      - name: Build direct-overwrite ZIP
+        shell: bash
         run: |
-          node --check backend/src/config.js
-          node --check backend/src/db.js
-          node --check backend/src/meta.js
-          node --check backend/src/rules.js
-          node --check backend/src/store.js
-          node --check backend/src/optimizer.js
-          node --check backend/src/scheduler.js
-          node --check backend/src/server.js
+          set -euo pipefail
+          rm -rf /tmp/advise-overwrite
+          mkdir -p /tmp/advise-overwrite/mobile/lib
+          mkdir -p /tmp/advise-overwrite/backend/src
 
-  flutter-verify:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: subosito/flutter-action@v2
-        with:
-          flutter-version: '3.47.5'
-          channel: stable
-          cache: true
-      - name: Flutter pub get
-        working-directory: mobile
-        run: flutter pub get
-      - name: Flutter analyze
-        working-directory: mobile
-        run: flutter analyze
-      - name: Flutter build APK
-        working-directory: mobile
-        run: flutter build apk --release --dart-define=ADVISE_API_URL=https://childhood-stored-maintenance-cell.trycloudflare.com
-      - name: Package clean mobile
-        run: |
-          mkdir -p /tmp/advise-clean
-          rsync -a --exclude='build' --exclude='.dart_tool' mobile/ /tmp/advise-clean/mobile/
-          cd /tmp/advise-clean
-          zip -qr advise-ai-clean-mobile.zip mobile
-      - name: Upload clean mobile
+          cp mobile/lib/*.dart /tmp/advise-overwrite/mobile/lib/
+          cp mobile/pubspec.yaml /tmp/advise-overwrite/mobile/
+          cp backend/src/*.js /tmp/advise-overwrite/backend/src/
+          cp backend/package.json /tmp/advise-overwrite/backend/
+          cp backend/package-lock.json /tmp/advise-overwrite/backend/ 2>/dev/null || true
+
+          cat > /tmp/advise-overwrite/README.txt <<'EOF'
+AdVise AI - DIRECT OVERWRITE SOURCE
+Bu ZIP'teki klasör yapısını proje kökünün üzerine çıkart.
+Dosyalar doğrudan mobile/lib ve backend/src altındaki mevcut dosyaların üzerine yazılacak.
+Gizli .env/token/secret dosyaları pakete dahil değildir.
+EOF
+
+          cd /tmp/advise-overwrite
+          zip -qr /tmp/AdViseAI_CHANGED_FILES_DIRECT_OVERWRITE.zip mobile backend README.txt
+
+      - name: Upload direct-overwrite ZIP
         uses: actions/upload-artifact@v4
         with:
-          name: advise-ai-clean-mobile
-          path: /tmp/advise-clean/advise-ai-clean-mobile.zip
-      - name: Upload APK
-        uses: actions/upload-artifact@v4
-        with:
-          name: advise-ai-release-apk
-          path: mobile/build/app/outputs/flutter-apk/app-release.apk
+          name: advise-ai-direct-overwrite
+          path: /tmp/AdViseAI_CHANGED_FILES_DIRECT_OVERWRITE.zip
