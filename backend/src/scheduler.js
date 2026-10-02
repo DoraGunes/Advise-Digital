@@ -134,6 +134,7 @@ export async function weeklySchedulerTick(tenantId='system') {
     }
     const ad=await createAd({name:`Ad ${post.title||post.id}`,adsetId:adset.id,creativeId:creative.id,status:'ACTIVE',credentials});
     await setStatus(campaign.id,'ACTIVE',credentials);
+    await setStatus(adset.id,'ACTIVE',credentials);
     const selectionScore=Number(post.performanceScore||0);
     const launchAt=new Date().toISOString();
     const result={scheduled:true,campaignId:campaign.id,adsetId:adset.id,adId:ad.id,postId:post.id,week:currentWeek,selectionScore,schedule,launchAt};
