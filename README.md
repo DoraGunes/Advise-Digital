@@ -26,14 +26,14 @@ Telefon ve PC aynı ağda olmalı.
 
 APK için proje kökünden:
 ```powershell
-powershell -ExecutionPolicy Bypass -File .\BUILD_ADVISE_DIGITAL_APK.ps1
+powershell -ExecutionPolicy Bypass -File .\\BUILD_ADVISE_DIGITAL_APK.ps1
 ```
 
 İstersen manuel:
 ```powershell
 cd mobile
 flutter create --project-name advise_digital .
-powershell -ExecutionPolicy Bypass -File .\BRANDING_FIX.ps1
+powershell -ExecutionPolicy Bypass -File .\\BRANDING_FIX.ps1
 flutter pub get
 flutter analyze
 flutter test
@@ -81,3 +81,6 @@ Yerel geliştirmede JSON fallback kullanılır. Ticari üretimde HTTPS, PostgreS
 ## Meta OAuth entegrasyonu
 
 Facebook Login for Business Configuration ID, App ID ve callback ayarları `META_CONNECTION_NOW.md` içinde güncel örneklerle bulunur. App Secret pakete dahil değildir.
+
+
+<!-- source-package-trigger -->
