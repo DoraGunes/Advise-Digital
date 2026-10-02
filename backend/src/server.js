@@ -25,6 +25,15 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const uploadDir = path.resolve(__dirname, '../uploads');
 await fs.mkdir(uploadDir, {recursive: true});
 
+function publicBaseUrlForRequest(req) {
+  const forwardedProto = String(req.get('x-forwarded-proto') || '').split(',')[0].trim();
+  const forwardedHost = String(req.get('x-forwarded-host') || '').split(',')[0].trim();
+  const host = forwardedHost || String(req.get('host') || '').split(',')[0].trim();
+  const proto = forwardedProto || req.protocol || 'http';
+  if (host && proto === 'https') return `https://${host}`;
+  return config.publicBaseUrl;
+}
+
 const storage = multer.diskStorage({
   destination: (_req, _file, cb) => cb(null, uploadDir),
   filename: (_req, file, cb) => {
@@ -239,6 +248,9 @@ app.post('/api/ads/create', allowRoles('ADMIN','CUSTOMER_ADMIN','OPERATOR'), asy
     });
 
     if (activate) {
+      // Meta requires the parent campaign and ad set to be ACTIVE as well.
+      await setStatus(campaign.id, 'ACTIVE', credentials);
+      await setStatus(adSet.id, 'ACTIVE', credentials);
       await setStatus(ad.id, 'ACTIVE', credentials);
     }
 
@@ -582,7 +594,7 @@ app.post('/api/posts', upload.single('image'), async (req, res) => {
       linkUrl:String(req.body?.linkUrl||'').trim(),
       autoPublish:requestedAuto && settings.autoPublish !== false,
       filePath:req.file.path,
-      publicUrl:`${config.publicBaseUrl}/uploads/${encodeURIComponent(req.file.filename)}`,
+      publicUrl:`${publicBaseUrlForRequest(req)}/uploads/${encodeURIComponent(req.file.filename)}`,
       fileHash,
       mimeType:req.file.mimetype,
       mediaType,
