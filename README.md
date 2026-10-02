@@ -81,6 +81,3 @@ Yerel geliştirmede JSON fallback kullanılır. Ticari üretimde HTTPS, PostgreS
 ## Meta OAuth entegrasyonu
 
 Facebook Login for Business Configuration ID, App ID ve callback ayarları `META_CONNECTION_NOW.md` içinde güncel örneklerle bulunur. App Secret pakete dahil değildir.
-
-
-<!-- source-package-trigger -->
