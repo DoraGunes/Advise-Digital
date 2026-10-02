@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import 'api.dart';
+import 'v14_ai.dart';
 
 void _goHome(BuildContext context) {
   Navigator.of(context).popUntil((route) => route.isFirst);
@@ -233,6 +234,7 @@ class AiInsightsPage extends StatefulWidget {
 
 class _AiInsightsPageState extends State<AiInsightsPage> {
   List<dynamic> items = [];
+  Map<String, dynamic> advisor = {};
   bool loading = true;
   String? error;
 
@@ -242,7 +244,12 @@ class _AiInsightsPageState extends State<AiInsightsPage> {
   Future<void> _load() async {
     if (mounted) setState(() { loading = true; error = null; });
     try {
-      final x = await Api.aiInsights();
+      final result = await Future.wait([
+        Api.aiInsights(),
+        Api.proAi(),
+      ]);
+      final x = Map<String, dynamic>.from(result[0] as Map);
+      advisor = Map<String, dynamic>.from(result[1] as Map);
       items = x['insights'] is List ? List<dynamic>.from(x['insights']) : [];
     } catch (e) { error = e.toString(); }
     finally { if (mounted) setState(() => loading = false); }
@@ -257,12 +264,76 @@ class _AiInsightsPageState extends State<AiInsightsPage> {
     children: [
       const _PageHero(title: 'Veriden türetilen içgörüler', subtitle: 'Kural tabanlı öneriler; canlı Meta verisi geldikçe sinyaller genişler.', icon: Icons.auto_awesome_outlined, badge: 'AI'),
       const SizedBox(height: 14),
+      _AiAdvisorCard(advisor: advisor),
+      const SizedBox(height: 12),
+      SizedBox(
+        width: double.infinity,
+        height: 50,
+        child: OutlinedButton.icon(
+          onPressed: () => Navigator.push(
+            context,
+            MaterialPageRoute(builder: (_) => const AiContentStudioPage()),
+          ),
+          icon: const Icon(Icons.auto_awesome_rounded),
+          label: const Text('AI İÇERİK STÜDYOSUNU AÇ'),
+        ),
+      ),
+      const SizedBox(height: 14),
       if (items.isEmpty) const _EmptyCard(icon: Icons.lightbulb_outline, title: 'Henüz içgörü yok', body: 'Veri biriktikçe burada daha anlamlı açıklamalar görünür.'),
       ...items.map((x) => _InsightCard(item: x is Map ? Map<String,dynamic>.from(x) : const <String,dynamic>{})),
       const SizedBox(height: 18),
       const _PoweredBy(),
     ],
   );
+}
+
+class _AiAdvisorCard extends StatelessWidget {
+  final Map<String, dynamic> advisor;
+
+  const _AiAdvisorCard({required this.advisor});
+
+  @override
+  Widget build(BuildContext context) {
+    final score = advisor['score']?.toString() ?? '-';
+    final summary = advisor['summary'] is List
+        ? List<dynamic>.from(advisor['summary'])
+        : <dynamic>[];
+
+    return _GlassCard(
+      child: Padding(
+        padding: const EdgeInsets.all(15),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                const CircleAvatar(child: Icon(Icons.auto_awesome_rounded)),
+                const SizedBox(width: 10),
+                const Expanded(
+                  child: Text(
+                    'AdVise AI danışmanı',
+                    style: TextStyle(fontSize: 17, fontWeight: FontWeight.w900),
+                  ),
+                ),
+                if (score != '-')
+                  Chip(label: Text('Sinyal $score')),
+              ],
+            ),
+            const SizedBox(height: 8),
+            if (summary.isEmpty)
+              const Text('Henüz yeterli sinyal oluşmadı.')
+            else
+              ...summary.take(5).map(
+                (item) => Padding(
+                  padding: const EdgeInsets.only(top: 6),
+                  child: Text('• ' + item.toString()),
+                ),
+              ),
+          ],
+        ),
+      ),
+    );
+  }
 }
 
 class _InsightCard extends StatelessWidget {
