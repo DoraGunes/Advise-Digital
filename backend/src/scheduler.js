@@ -21,15 +21,64 @@ function weekKey(date=new Date()) {
 function chooseBestStart(settings,logs) {
   const fallback={day:settings.weeklyDay,hour:settings.startHour,minute:settings.startMinute};
   if(!settings.autoBestTime) return fallback;
-  const launches=logs.filter(x=>x.type==='WEEKLY_LAUNCH'&&x.at);
-  if(launches.length<4) return fallback;
-  const buckets=new Map();
-  for(const x of launches){const p=localParts(new Date(x.at));const key=`${p.day}-${p.hour}`;const old=buckets.get(key)||{count:0,score:0};old.count++;old.score+=Number(x.selectionScore||0);buckets.set(key,old);}
-  let best=null;
-  for(const [key,v] of buckets){if(v.count<2)continue;const [day,hour]=key.split('-').map(Number);const score=v.score/v.count;if(!best||score>best.score)best={day,hour,score};}
-  return best?{day:best.day,hour:best.hour,minute:settings.startMinute}:fallback;
-}
 
+  const launches=logs.filter(x=>x.type==='WEEKLY_LAUNCH'&&x.launchAt);
+  if(launches.length<4) return fallback;
+
+  const launchByAd=new Map(launches.filter(x=>x.adId).map(x=>[x.adId,x]));
+  const buckets=new Map();
+
+  const addBucket=(day,hour,score)=>{
+    const key=`${day}-${hour}`;
+    const old=buckets.get(key)||{count:0,score:0};
+    old.count++;
+    old.score+=Number(score)||0;
+    buckets.set(key,old);
+  };
+
+  // Existing launch history provides a fallback learning signal.
+  for(const launch of launches) {
+    const p=localParts(new Date(launch.launchAt||launch.at));
+    if(!p.day||!Number.isFinite(p.hour)) continue;
+    const score=Number(launch.selectionScore||0) || seedTimeScore(p.day,p.hour);
+    addBucket(p.day,p.hour,score);
+  }
+
+  // Once 12-hour reviews exist, prefer real performance over the seeded time model.
+  for(const review of logs.filter(x=>x.type==='EARLY_REVIEW_DONE'&&x.adId&&x.metrics)) {
+    const launch=launchByAd.get(review.adId);
+    if(!launch) continue;
+
+    const p=localParts(new Date(launch.launchAt));
+    const m=review.metrics||{};
+    const cost=m.messageCost==null ? null : Number(m.messageCost);
+    const ctr=Math.max(0,Number(m.ctr||0));
+    const messages=Math.max(0,Number(m.messages||0));
+
+    const costScore=cost==null ? 0.25 : 1/(1+Math.max(0,cost));
+    const ctrScore=Math.min(1,ctr/3);
+    const messageScore=Math.min(1,messages/20);
+    const score=
+      costScore*0.55+
+      ctrScore*0.20+
+      messageScore*0.20+
+      seedTimeScore(p.day,p.hour)*0.05;
+
+    addBucket(p.day,p.hour,score);
+  }
+
+  let best=null;
+  for(const [key,v] of buckets) {
+    if(v.count<2) continue;
+    const [day,hour]=key.split('-').map(Number);
+    const score=v.score/v.count;
+    if(!best||score>best.score) best={day,hour,score};
+  }
+
+  return best
+    ? {day:best.day,hour:best.hour,minute:settings.startMinute}
+    : fallback;
+}
 function nextOccurrence({day,hour,minute}) {
   const now=new Date();
   // Search minute-by-minute so the comparison is made in the configured
