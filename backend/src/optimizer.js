@@ -73,7 +73,7 @@ export async function optimizeAds(tenantId='system') {
             if(other.id===ad.id||other.status!=='ACTIVE') continue;
             try {
               const oir=await insights(other.id,'ad',1,credentials); const om=metric((oir.data||[])[0]);
-              if(om.messageCost!==null && om.messageCost < Number(settings.earlyMessageCostLimit||8)) {
+              if(om.messageCost!==null && om.messageCost < Number(settings.earlyMessageCostLimit||2)) {
                 candidates.push({ad:other,metrics:om,score:score(om,settings)});
               }
             } catch {}
