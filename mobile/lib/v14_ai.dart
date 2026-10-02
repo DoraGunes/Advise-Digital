@@ -637,7 +637,7 @@ class _AiContentStudioPageState extends State<AiContentStudioPage> {
                     style: const TextStyle(fontWeight: FontWeight.w700),
                   ),
                 ),
-                Text((raw[key]?.toString() ?? '-') + ' / 100'),
+                Text('${raw[key]?.toString() ?? '-'} / 100'),
               ],
             ),
           ),
