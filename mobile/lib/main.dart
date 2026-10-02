@@ -9,6 +9,7 @@ import 'key_page.dart';
 import 'v78_pages.dart';
 import 'v13_pro.dart';
 import 'social_ads_page.dart';
+import 'v14_ai.dart';
 
 void main() => runApp(const AdviseDigitalApp());
 void _mainGoHome(BuildContext context) {
@@ -1434,6 +1435,7 @@ class _MainDrawer extends StatelessWidget {
               ListTile(leading: const Icon(Icons.tune_outlined), title: const Text('Sistem ayarları'), onTap: () => _go(context, const SettingsPage(admin: true))),
               ListTile(leading: const Icon(Icons.link_outlined), title: const Text('Meta & Instagram bağlantısı'), onTap: () => _go(context, const MetaConnectionPage())),
               ListTile(leading: const Icon(Icons.auto_awesome_outlined), title: const Text('V7 + V8 kontrol merkezi'), onTap: () => _go(context, const V78HubPage(admin: true))),
+              ListTile(leading: const Icon(Icons.auto_awesome_rounded), title: const Text('AI İçerik Stüdyosu'), onTap: () => _go(context, const AiContentStudioPage())),
               ListTile(leading: const Icon(Icons.stars_rounded), title: const Text('Advise Pro Merkezi'), onTap: () => _go(context, const ProHubPage(admin: true))),
               ListTile(leading: const Icon(Icons.link_outlined), title: const Text('Bağlantı ayarları'), onTap: () => _go(context, const KeyPage())),
             ] else ...[
@@ -1447,6 +1449,7 @@ class _MainDrawer extends StatelessWidget {
               ListTile(leading: const Icon(Icons.link_outlined), title: const Text('Bağlantı ayarları'), onTap: () => _go(context, const KeyPage())),
               ListTile(leading: const Icon(Icons.link_outlined), title: const Text('Meta & Instagram bağlantısı'), onTap: () => _go(context, const MetaConnectionPage())),
               ListTile(leading: const Icon(Icons.auto_awesome_outlined), title: const Text('V7 + V8 kontrol merkezi'), onTap: () => _go(context, const V78HubPage())),
+              ListTile(leading: const Icon(Icons.auto_awesome_rounded), title: const Text('AI İçerik Stüdyosu'), onTap: () => _go(context, const AiContentStudioPage())),
               ListTile(leading: const Icon(Icons.stars_rounded), title: const Text('Advise Pro Merkezi'), onTap: () => _go(context, const ProHubPage())),
             ],
             const Divider(),
