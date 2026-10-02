@@ -25,6 +25,23 @@ export async function optimizeAds(tenantId='system') {
   if(!settings.enabled) return {enabled:false,actions:[]};
   const tenant=await getTenant(tenantId);
   const credentials=tenantId==='system'?{}:(tenant?.meta||{});
+
+  const metaToken=String(credentials?.accessToken || credentials?.metaAccessToken || config.metaAccessToken || '').trim();
+  const adAccountId=String(credentials?.adAccountId || config.adAccountId || '').replace(/^act_/,'').trim();
+  if(!metaToken || !adAccountId) {
+    const posts=await getPosts(tenantId);
+    return {
+      enabled:true,
+      mode:'PLANNING',
+      actions:[{
+        action:'WAIT_META_CONNECTION',
+        reason:'Meta erişim tokenı veya reklam hesabı hazır değil.'
+      }],
+      postsConsidered:posts.length,
+      rule:'12h_message_cost'
+    };
+  }
+
   const [adsResp,setsResp,posts,logs]=await Promise.all([getAds(credentials),getAdSets(credentials),getPosts(tenantId),getLogs(tenantId,1000)]);
   const ads=adsResp.data||[], adsets=setsResp.data||[], setMap=new Map(adsets.map(x=>[x.id,x]));
   const results=[];
