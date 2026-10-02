@@ -259,6 +259,65 @@ class Api {
   static Future<Map<String, dynamic>> aiStatus() async => Map<String, dynamic>.from(await _request('GET', '/api/ai/status'));
   static Future<Map<String, dynamic>> generateCaptionVariants({required String title, String context = '', String tone = '', String goal = '', String language = 'Türkçe', String mediaType = 'AUTO', String imageUrl = ''}) async => Map<String, dynamic>.from(await _request('POST', '/api/ai/caption-variants', body: {'title': title, 'context': context, 'tone': tone, 'goal': goal, 'language': language, 'mediaType': mediaType, 'imageUrl': imageUrl}));
   static Future<Map<String, dynamic>> scoreCreative({String caption = '', String hook = '', String cta = '', List<dynamic> hashtags = const [], String mediaType = 'POST'}) async => Map<String, dynamic>.from(await _request('POST', '/api/ai/creative-score', body: {'caption': caption, 'hook': hook, 'cta': cta, 'hashtags': hashtags, 'mediaType': mediaType}));
+  static Future<Map<String, dynamic>> generateContentPackFromFile(
+    String path, {
+    String title = '',
+    String context = '',
+    String tone = '',
+    String goal = '',
+    String language = 'Türkçe',
+    String mediaType = 'AUTO',
+  }) async {
+    final base = await baseUrl();
+    final authToken = await token();
+    final request = http.MultipartRequest(
+      'POST',
+      _uri(base, '/api/ai/content-pack-from-file', null),
+    );
+
+    request.headers['Accept'] = 'application/json';
+    if (authToken.isNotEmpty) {
+      request.headers['Authorization'] = 'Bearer $authToken';
+    }
+
+    request.fields['title'] = title.trim();
+    request.fields['context'] = context.trim();
+    request.fields['tone'] = tone.trim();
+    request.fields['goal'] = goal.trim();
+    request.fields['language'] = language.trim();
+    request.fields['mediaType'] = mediaType.trim();
+
+    request.files.add(await http.MultipartFile.fromPath('image', path));
+
+    try {
+      final streamed = await request.send().timeout(const Duration(seconds: 90));
+      final response = await http.Response.fromStream(streamed);
+      final data = _decode(response.body);
+
+      if (response.statusCode < 200 || response.statusCode >= 300) {
+        throw ApiException(
+          _error(data),
+          statusCode: response.statusCode,
+          details: response.body,
+        );
+      }
+
+      if (data is! Map) {
+        throw const ApiException('AI servisinden geçersiz içerik cevabı geldi.');
+      }
+
+      return Map<String, dynamic>.from(data);
+    } on ApiException {
+      rethrow;
+    } on TimeoutException {
+      throw const ApiException('AI görsel analizi zaman aşımına uğradı.');
+    } on SocketException catch (e) {
+      throw ApiException('AI görseli backend’e yüklenemedi.', details: e.message);
+    } on http.ClientException catch (e) {
+      throw ApiException('AI görsel analizi bağlantı hatası.', details: e.message);
+    }
+  }
+
   static Future<Map<String, dynamic>> generateContentPack({required String title, String context = '', String tone = '', String goal = '', String language = 'Türkçe', String mediaType = 'AUTO', String imageUrl = ''}) async => Map<String, dynamic>.from(await _request('POST', '/api/ai/content-pack', body: {'title': title, 'context': context, 'tone': tone, 'goal': goal, 'language': language, 'mediaType': mediaType, 'imageUrl': imageUrl}));
   static Future<Map<String, dynamic>> generateCaption({required String title, String context = '', String tone = '', String goal = '', String language = 'Türkçe', String mediaType = 'AUTO', String imageUrl = ''}) async => Map<String, dynamic>.from(await _request('POST', '/api/ai/caption', body: {'title': title, 'context': context, 'tone': tone, 'goal': goal, 'language': language, 'mediaType': mediaType, 'imageUrl': imageUrl}));
   static Future<Map<String, dynamic>> metaConnectStart() async =>
