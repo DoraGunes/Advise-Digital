@@ -2,10 +2,34 @@ name: AdVise AI Clean Verify
 
 on:
   push:
-    branches: [clean-final-20260930]
+    branches: [main, clean-final-20260930]
   workflow_dispatch:
 
 jobs:
+
+  source-package:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Package updated source
+        run: |
+          mkdir -p /tmp/advise-final/mobile /tmp/advise-final/backend
+          rsync -a --exclude='build' --exclude='.dart_tool' mobile/lib/ /tmp/advise-final/mobile/lib/
+          rsync -a mobile/pubspec.yaml /tmp/advise-final/mobile/
+          rsync -a backend/src/ /tmp/advise-final/backend/src/
+          rsync -a backend/package.json /tmp/advise-final/backend/
+          printf '%s
+' 'AdVise AI FINAL source package' > /tmp/advise-final/README.txt
+          printf '%s
+' 'Generated from main by GitHub Actions. No secrets are included.' >> /tmp/advise-final/README.txt
+          cd /tmp/advise-final
+          zip -qr advise-ai-final-source.zip mobile backend README.txt
+      - name: Upload final source
+        uses: actions/upload-artifact@v4
+        with:
+          name: advise-ai-final-source
+          path: /tmp/advise-final/advise-ai-final-source.zip
+
   backend-verify:
     runs-on: ubuntu-latest
     steps:
