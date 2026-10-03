@@ -51,9 +51,8 @@ class _AiContentStudioPageState extends State<AiContentStudioPage> {
     } catch (_) {}
   }
 
-  Future<void> _pickImage() async {
-    final picked = await ImagePicker().pickImage(
-      source: ImageSource.gallery,
+  Future<void> _pickMedia() async {
+    final picked = await ImagePicker().pickMedia(
       imageQuality: 92,
     );
     if (picked == null || !mounted) return;
@@ -64,6 +63,14 @@ class _AiContentStudioPageState extends State<AiContentStudioPage> {
       variants = [];
       score = {};
     });
+  }
+
+  bool _selectedMediaIsImage() {
+    final name = image?.name.toLowerCase() ?? '';
+    return [
+      '.jpg', '.jpeg', '.jfif', '.png', '.webp', '.gif', '.bmp',
+      '.heic', '.heif', '.avif', '.tif', '.tiff'
+    ].any(name.endsWith);
   }
 
   Future<void> _generate() async {
@@ -322,24 +329,47 @@ class _AiContentStudioPageState extends State<AiContentStudioPage> {
                   width: double.infinity,
                   height: 52,
                   child: OutlinedButton.icon(
-                    onPressed: loading ? null : _pickImage,
-                    icon: const Icon(Icons.add_photo_alternate_outlined),
+                    onPressed: loading ? null : _pickMedia,
+                    icon: const Icon(Icons.perm_media_outlined),
                     label: Text(
-                      image == null ? 'GÖRSEL SEÇ' : 'GÖRSELİ DEĞİŞTİR',
+                      image == null ? 'MEDYA SEÇ' : 'MEDYAYI DEĞİŞTİR',
                     ),
                   ),
                 ),
                 if (image != null) ...[
                   const SizedBox(height: 10),
-                  ClipRRect(
-                    borderRadius: BorderRadius.circular(16),
-                    child: Image.file(
-                      File(image!.path),
-                      height: 230,
+                  if (_selectedMediaIsImage())
+                    ClipRRect(
+                      borderRadius: BorderRadius.circular(16),
+                      child: Image.file(
+                        File(image!.path),
+                        height: 230,
+                        width: double.infinity,
+                        fit: BoxFit.cover,
+                      ),
+                    )
+                  else
+                    Container(
+                      height: 180,
                       width: double.infinity,
-                      fit: BoxFit.cover,
+                      decoration: BoxDecoration(
+                        borderRadius: BorderRadius.circular(16),
+                        border: Border.all(color: Theme.of(context).dividerColor),
+                      ),
+                      child: const Column(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Icon(Icons.video_library_outlined, size: 56),
+                          SizedBox(height: 10),
+                          Text(
+                            'Video seçildi',
+                            style: TextStyle(fontWeight: FontWeight.w800),
+                          ),
+                          SizedBox(height: 4),
+                          Text('Reels / video dosyası hazır'),
+                        ],
+                      ),
                     ),
-                  ),
                   const SizedBox(height: 7),
                   Align(
                     alignment: Alignment.centerLeft,
@@ -437,9 +467,9 @@ class _AiContentStudioPageState extends State<AiContentStudioPage> {
                         : const Icon(Icons.auto_awesome),
                     label: Text(
                       loading
-                          ? 'ANALİZ EDİLİYOR...'
+                          ? 'İŞLENİYOR...'
                           : image != null
-                              ? 'GÖRSELİ ANALİZ ET VE ÜRET'
+                              ? 'MEDYAYI DEĞERLENDİR VE ÜRET'
                               : 'AI İLE ÜRET',
                     ),
                   ),
