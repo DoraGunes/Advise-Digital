@@ -24,123 +24,6 @@ Widget _mainHomeLeading(BuildContext context) => IconButton(
 class AdviseDigitalApp extends StatelessWidget {
   const AdviseDigitalApp({super.key});
 
-  Future<void> _bulkUpload() async {
-    final picker = ImagePicker();
-    final files = await picker.pickMultipleMedia(limit: 8, requestFullMetadata: false);
-    if (files.isEmpty || !mounted) return;
-
-    bool autoPublish = true;
-    bool useAI = true;
-    final aiContext = TextEditingController();
-
-    final ok = await showDialog<bool>(
-      context: context,
-      builder: (ctx) => StatefulBuilder(
-        builder: (ctx, setDialog) => AlertDialog(
-          title: const Text('Toplu içerik kuyruğu'),
-          content: SizedBox(
-            width: double.maxFinite,
-            child: SingleChildScrollView(
-              child: Column(
-                children: [
-                  Text(
-                    '${files.length} içerik seçildi. Seçim sırası korunacak ve içerikler sırayla kuyruğa alınacak.',
-                    style: const TextStyle(height: 1.4),
-                  ),
-                  const SizedBox(height: 12),
-                  ...files.asMap().entries.map((entry) {
-                    final i = entry.key + 1;
-                    final file = entry.value;
-                    final isVideo = RegExp(r'\.(mp4|mov|m4v|avi|webm)
-    final scheme = ColorScheme.fromSeed(seedColor: const Color(0xFF4F46E5), brightness: Brightness.light);
-    return MaterialApp(
-      debugShowCheckedModeBanner: false,
-      title: AppConfig.appName,
-      theme: ThemeData(
-        useMaterial3: true,
-        colorScheme: scheme,
-        scaffoldBackgroundColor: const Color(0xFFF6F7FB),
-        appBarTheme: const AppBarTheme(centerTitle: false, elevation: 0, backgroundColor: Color(0xFFF6F7FB)),
-        cardTheme: const CardThemeData(margin: EdgeInsets.zero, elevation: 0, surfaceTintColor: Colors.white),
-        inputDecorationTheme: InputDecorationTheme(
-          filled: true,
-          fillColor: Colors.white,
-          border: OutlineInputBorder(borderRadius: BorderRadius.circular(16), borderSide: BorderSide.none),
-          enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(16), borderSide: BorderSide(color: Color(0xFFE6E8F0))),
-          focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(16), borderSide: BorderSide(color: scheme.primary, width: 1.4)),
-        ),
-      ),
-      home: const LoginPage(),
-    );
-  }
-}
-
-String _formatDate(dynamic value) {
-  if (value == null || value.toString().isEmpty) return '-';
-  final d = DateTime.tryParse(value.toString());
-  if (d == null) return value.toString();
-  final local = d.toLocal();
-  String two(int n) => n.toString().padLeft(2, '0');
-  return '${two(local.day)}.${two(local.month)}.${local.year} ${two(local.hour)}:${two(local.minute)}';
-}
-
-String _upper(dynamic value) => value?.toString().toUpperCase() ?? '';
-String _relativeDate(dynamic value) {
-  final d = DateTime.tryParse(value?.toString() ?? '');
-  if (d == null) return '-';
-  final diff = DateTime.now().difference(d.toLocal());
-  if (diff.inMinutes < 1) return 'az önce';
-  if (diff.inMinutes < 60) return '${diff.inMinutes} dk önce';
-  if (diff.inHours < 24) return '${diff.inHours} sa önce';
-  if (diff.inDays < 7) return '${diff.inDays} gün önce';
-  return _formatDate(value).split(' ').first;
-}
-
-class LoginPage extends StatefulWidget {
-  const LoginPage({super.key});
-  @override
-  State<LoginPage> createState() => _LoginPageState();
-}
-
-class _LoginPageState extends State<LoginPage> {
-  final username = TextEditingController();
-  final password = TextEditingController();
-  bool loading = false;
-  bool hidePassword = true;
-  String? error;
-
-  @override
-  void dispose() {
-    username.dispose();
-    password.dispose();
-    super.dispose();
-  }
-
-  Future<void> _login() async {
-    if (username.text.trim().isEmpty || password.text.isEmpty) {
-      setState(() => error = 'Kullanıcı adı ve şifre gerekli.');
-      return;
-    }
-    setState(() {
-      loading = true;
-      error = null;
-    });
-    try {
-      final result = await Api.login(username.text, password.text);
-      final user = Map<String, dynamic>.from(result['user'] ?? const {});
-      if (!mounted) return;
-      final role = _upper(user['role']);
-      Navigator.pushReplacement(
-        context,
-        MaterialPageRoute(builder: (_) => role == 'ADMIN' ? const AdminDashboard() : const CustomerDashboard()),
-      );
-    } catch (e) {
-      if (mounted) setState(() => error = e.toString());
-    } finally {
-      if (mounted) setState(() => loading = false);
-    }
-  }
-
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -713,6 +596,123 @@ class _CustomerDashboardState extends State<CustomerDashboard> {
       await Api.uploadPost(image.path,title.text,caption.text,link.text,autoPublish:autoPublish,useAI:useAI,mediaType:mode=='VIDEO'?'VIDEO':'IMAGE',aiContext:aiContext.text);
       if(mounted){ScaffoldMessenger.of(context).showSnackBar(SnackBar(content:Text(mode=='VIDEO'?'Reel içeriği kaydedildi ve planlama kuyruğuna alındı.':'İçerik kaydedildi ve planlama kuyruğuna alındı.')));await _load();}
     }catch(e){if(mounted)ScaffoldMessenger.of(context).showSnackBar(SnackBar(content:Text(e.toString())));}finally{title.dispose();caption.dispose();link.dispose();aiContext.dispose();}
+  }
+
+  Future<void> _bulkUpload() async {
+    final picker = ImagePicker();
+    final files = await picker.pickMultipleMedia(limit: 8, requestFullMetadata: false);
+    if (files.isEmpty || !mounted) return;
+
+    bool autoPublish = true;
+    bool useAI = true;
+    final aiContext = TextEditingController();
+
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setDialog) => AlertDialog(
+          title: const Text('Toplu içerik kuyruğu'),
+          content: SizedBox(
+            width: double.maxFinite,
+            child: SingleChildScrollView(
+              child: Column(
+                children: [
+                  Text(
+                    '${files.length} içerik seçildi. Seçim sırası korunacak ve içerikler sırayla kuyruğa alınacak.',
+                    style: const TextStyle(height: 1.4),
+                  ),
+                  const SizedBox(height: 12),
+                  ...files.asMap().entries.map((entry) {
+                    final i = entry.key + 1;
+                    final file = entry.value;
+                    final isVideo = RegExp(r'\.(mp4|mov|m4v|avi|webm)
+    final scheme = ColorScheme.fromSeed(seedColor: const Color(0xFF4F46E5), brightness: Brightness.light);
+    return MaterialApp(
+      debugShowCheckedModeBanner: false,
+      title: AppConfig.appName,
+      theme: ThemeData(
+        useMaterial3: true,
+        colorScheme: scheme,
+        scaffoldBackgroundColor: const Color(0xFFF6F7FB),
+        appBarTheme: const AppBarTheme(centerTitle: false, elevation: 0, backgroundColor: Color(0xFFF6F7FB)),
+        cardTheme: const CardThemeData(margin: EdgeInsets.zero, elevation: 0, surfaceTintColor: Colors.white),
+        inputDecorationTheme: InputDecorationTheme(
+          filled: true,
+          fillColor: Colors.white,
+          border: OutlineInputBorder(borderRadius: BorderRadius.circular(16), borderSide: BorderSide.none),
+          enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(16), borderSide: BorderSide(color: Color(0xFFE6E8F0))),
+          focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(16), borderSide: BorderSide(color: scheme.primary, width: 1.4)),
+        ),
+      ),
+      home: const LoginPage(),
+    );
+  }
+}
+
+String _formatDate(dynamic value) {
+  if (value == null || value.toString().isEmpty) return '-';
+  final d = DateTime.tryParse(value.toString());
+  if (d == null) return value.toString();
+  final local = d.toLocal();
+  String two(int n) => n.toString().padLeft(2, '0');
+  return '${two(local.day)}.${two(local.month)}.${local.year} ${two(local.hour)}:${two(local.minute)}';
+}
+
+String _upper(dynamic value) => value?.toString().toUpperCase() ?? '';
+String _relativeDate(dynamic value) {
+  final d = DateTime.tryParse(value?.toString() ?? '');
+  if (d == null) return '-';
+  final diff = DateTime.now().difference(d.toLocal());
+  if (diff.inMinutes < 1) return 'az önce';
+  if (diff.inMinutes < 60) return '${diff.inMinutes} dk önce';
+  if (diff.inHours < 24) return '${diff.inHours} sa önce';
+  if (diff.inDays < 7) return '${diff.inDays} gün önce';
+  return _formatDate(value).split(' ').first;
+}
+
+class LoginPage extends StatefulWidget {
+  const LoginPage({super.key});
+  @override
+  State<LoginPage> createState() => _LoginPageState();
+}
+
+class _LoginPageState extends State<LoginPage> {
+  final username = TextEditingController();
+  final password = TextEditingController();
+  bool loading = false;
+  bool hidePassword = true;
+  String? error;
+
+  @override
+  void dispose() {
+    username.dispose();
+    password.dispose();
+    super.dispose();
+  }
+
+  Future<void> _login() async {
+    if (username.text.trim().isEmpty || password.text.isEmpty) {
+      setState(() => error = 'Kullanıcı adı ve şifre gerekli.');
+      return;
+    }
+    setState(() {
+      loading = true;
+      error = null;
+    });
+    try {
+      final result = await Api.login(username.text, password.text);
+      final user = Map<String, dynamic>.from(result['user'] ?? const {});
+      if (!mounted) return;
+      final role = _upper(user['role']);
+      Navigator.pushReplacement(
+        context,
+        MaterialPageRoute(builder: (_) => role == 'ADMIN' ? const AdminDashboard() : const CustomerDashboard()),
+      );
+    } catch (e) {
+      if (mounted) setState(() => error = e.toString());
+    } finally {
+      if (mounted) setState(() => loading = false);
+    }
   }
 
   @override
