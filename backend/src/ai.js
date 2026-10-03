@@ -3,9 +3,8 @@ import {config} from './config.js';
 const MODEL = process.env.GEMINI_MODEL || config.aiModel || 'gemini-3.8-flash';
 const API_BASE_URL = 'https://generativelanguage.googleapis.com/v1beta/models';
 
-const OUTPUT_SCHEMA = {
+// Gemini generateContent `responseSchema` uses its Schema proto subset; do not add JSON Schema-only fields here.\nconst OUTPUT_SCHEMA = {
   type: 'object',
-  additionalProperties: false,
   properties: {
     productName: {type: 'string'},
     brand: {type: 'string'},
@@ -362,7 +361,6 @@ export async function generateCaptionVariants(input={}) {
 
   const schema = {
     type: 'object',
-    additionalProperties: false,
     properties: {
       variants: {
         type: 'array',
@@ -370,7 +368,6 @@ export async function generateCaptionVariants(input={}) {
         maxItems: 3,
         items: {
           type: 'object',
-          additionalProperties: false,
           properties: {
             id: {type: 'string'},
             caption: {type: 'string'},
