@@ -98,7 +98,7 @@ export async function setStatus(id,status,credentials={}) {
 }
 
 export async function updateAdSetBudget(id,dailyBudget,credentials={}) {
-  const n=Math.round(Number(dailyBudget));
+  const n=Math.round(Number(dailyBudget) * 100);
   if(!Number.isFinite(n)||n<=0) throw new Error('Geçersiz daily budget.');
   return request(id,{method:'POST',credentials,body:{daily_budget:n}});
 }
@@ -110,7 +110,10 @@ export async function createCampaign({name,objective='OUTCOME_TRAFFIC',status='P
 
 export async function createAdSet({name,campaignId,dailyBudget,targeting,optimizationGoal='CONVERSATIONS',billingEvent='IMPRESSIONS',instagramActorId,pageId,credentials={}}) {
   const c=requireMeta(credentials);
-  const body={name,campaign_id:campaignId,daily_budget:Math.round(dailyBudget),billing_event:billingEvent,optimization_goal:optimizationGoal,bid_strategy:'LOWEST_COST_WITHOUT_CAP',targeting:targeting||{geo_locations:{countries:['TR']}},status:'PAUSED'};
+  const amountTl=Number(dailyBudget);
+  if(!Number.isFinite(amountTl)||amountTl<=0) throw new Error('Geçersiz günlük bütçe.');
+  const amountMinor=Math.round(amountTl * 100);
+  const body={name,campaign_id:campaignId,daily_budget:amountMinor,billing_event:billingEvent,optimization_goal:optimizationGoal,bid_strategy:'LOWEST_COST_WITHOUT_CAP',targeting:targeting||{geo_locations:{countries:['TR']}},status:'PAUSED'};
   if(pageId||c.pageId) body.promoted_object={page_id:pageId||c.pageId};
   return request(`act_${c.adAccountId}/adsets`,{method:'POST',credentials:c,body,timeoutMs:15000});
 }
