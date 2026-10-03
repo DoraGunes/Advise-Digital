@@ -491,6 +491,7 @@ class _AiContentStudioPageState extends State<AiContentStudioPage> {
                   _resultBox('REKLAM ÖNERİSİ', result!['adRecommendation']?.toString() ?? ''),
                   _resultBox('SONRAKİ ADIM', result!['nextAction']?.toString() ?? ''),
                   _resultBox('KREATİF SKORU', result!['creativeScore']?.toString() ?? ''),
+                  _resultBox('AI GÜVENİ', result!['confidence']?.toString() ?? ''),
                   const SizedBox(height: 4),
                   Row(
                     children: [
