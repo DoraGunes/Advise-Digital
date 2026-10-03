@@ -17,8 +17,8 @@ class _AiContentStudioPageState extends State<AiContentStudioPage> {
   final title = TextEditingController();
   final contextText = TextEditingController();
 
-  String tone = 'samimi ve güven veren';
-  String goal = 'mesaj';
+  String tone = '';
+  String goal = '';
   String media = 'AUTO';
 
   bool loading = false;
@@ -135,11 +135,16 @@ class _AiContentStudioPageState extends State<AiContentStudioPage> {
 
     try {
       final data = await Api.generateCaptionVariants(
-        title: title.text,
-        context: contextText.text,
-        tone: tone,
-        goal: goal,
-        mediaType: media,
+        title: result?['productName']?.toString() ?? title.text,
+        context: [
+          contextText.text,
+          result?['detectedText']?.toString() ?? '',
+          result?['detectedOffer']?.toString() ?? '',
+          result?['contentAngle']?.toString() ?? '',
+        ].where((x) => x.trim().isNotEmpty).join(' | '),
+        tone: result?['selectedTone']?.toString() ?? tone,
+        goal: result?['contentGoal']?.toString() ?? goal,
+        mediaType: result?['recommendedFormat']?.toString() ?? media,
       );
 
       if (!mounted) return;
