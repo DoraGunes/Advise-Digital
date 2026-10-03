@@ -673,10 +673,6 @@ app.post('/api/ai/content-pack-from-file', upload.single('image'), async (req, r
     if (!req.file) return res.status(400).json({error: 'AI görsel analizi için bir görsel gerekli.'});
     filePath = req.file.path;
 
-    if (!String(req.file.mimetype || '').startsWith('image/')) {
-      return res.status(400).json({error: 'AI içerik stüdyosu için JPEG, PNG veya WebP görsel kullanmalısın.'});
-    }
-
     const settings = await getSettings(req.user.tenantId);
     if (settings.aiEnabled === false) {
       return res.json({
