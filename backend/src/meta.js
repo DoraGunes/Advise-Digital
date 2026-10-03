@@ -133,6 +133,7 @@ async function instagramRequest(path,{method='GET',body={},accessToken}={}) {
   const params=new URLSearchParams();
   if(method==='GET') params.set('access_token',accessToken);
   for(const [k,v] of Object.entries(body||{})) if(v!==undefined&&v!==null) params.set(k,typeof v==='object'?JSON.stringify(v):String(v));
+  if(method==='GET') url.search = params.toString();
   const controller=new AbortController();
   const timeout=setTimeout(()=>controller.abort(),30000);
   try {
