@@ -243,6 +243,7 @@ app.get('/api/instagram/media', async (req, res) => {
 });
 
 app.post('/api/ads/create', allowRoles('ADMIN','CUSTOMER_ADMIN','OPERATOR'), async (req, res) => {
+  let stage = 'validation';
   try {
     const tenantId = req.user.tenantId;
     const tenant = await getTenant(tenantId);
@@ -259,7 +260,7 @@ app.post('/api/ads/create', allowRoles('ADMIN','CUSTOMER_ADMIN','OPERATOR'), asy
 
     console.log(`[ADS CREATE] start media=${mediaId} budget=${dailyBudget} activate=${activate}`);
 
-    let stage = 'campaign';
+    stage = 'campaign';
     const campaign = await createCampaign({
       name: campaignName,
       objective: 'OUTCOME_ENGAGEMENT',
