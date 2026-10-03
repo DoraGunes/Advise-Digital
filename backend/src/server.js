@@ -133,6 +133,20 @@ app.post('/api/auth/login', async (req, res) => {
   }
 });
 
+// Diagnostic marker for the AI media upload route. Placed before auth so we can prove
+// whether the request from the phone is actually reaching this backend.
+app.use('/api/ai/content-pack-from-file', (req, res, next) => {
+  console.log(
+    '[AI MEDIA ROUTE HIT]',
+    req.method,
+    req.ip,
+    req.get('content-type') || '-',
+    req.get('user-agent') || '-'
+  );
+  res.set('X-AdVise-AI-Route', 'MEDIA_FIX_2026_10_03_V3');
+  next();
+});
+
 app.use('/api', authMiddleware);
 
 app.get('/api/system/health', async (_req, res) => {
