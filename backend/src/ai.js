@@ -142,6 +142,7 @@ async function callOpenAI({input, maxOutputTokens=1200}) {
   const apiKey = String(process.env.OPENAI_API_KEY || '').trim();
   if (!apiKey) throw new Error('OPENAI_API_KEY tanımlı değil.');
 
+  console.log('[AI OPENAI REQUEST]', {model: MODEL, apiUrl: API_URL});
   const response = await fetch(API_URL, {
     method: 'POST',
     headers: {
@@ -160,10 +161,12 @@ async function callOpenAI({input, maxOutputTokens=1200}) {
           schema: OUTPUT_SCHEMA
         }
       }
-    })
+    }),
+    signal: AbortSignal.timeout(90000)
   });
 
   const data = await response.json();
+  console.log('[AI OPENAI RESPONSE]', {status: response.status, ok: response.ok});
   if (!response.ok) {
     throw new Error(data?.error?.message || `OpenAI API ${response.status}`);
   }
