@@ -483,6 +483,14 @@ class _AiContentStudioPageState extends State<AiContentStudioPage> {
                   _resultBox('CTA', result!['cta']?.toString() ?? ''),
                   _resultBox('CAPTION', result!['caption']?.toString() ?? ''),
                   _resultBox('HASHTAGS', hashtags),
+                  _resultBox('PAYLAŞIM ZAMANI', result!['recommendedPostTime']?.toString() ?? ''),
+                  _resultBox('ZAMAN GEREKÇESİ', result!['recommendedPostTimeReason']?.toString() ?? ''),
+                  _resultBox('HEDEF KİTLE', result!['targetAudience']?.toString() ?? ''),
+                  _resultBox('İÇERİK AMACI', result!['contentGoal']?.toString() ?? ''),
+                  _resultBox('GÖRSEL ANALİZİ', result!['visualSummary']?.toString() ?? ''),
+                  _resultBox('REKLAM ÖNERİSİ', result!['adRecommendation']?.toString() ?? ''),
+                  _resultBox('SONRAKİ ADIM', result!['nextAction']?.toString() ?? ''),
+                  _resultBox('KREATİF SKORU', result!['creativeScore']?.toString() ?? ''),
                   const SizedBox(height: 4),
                   Row(
                     children: [
