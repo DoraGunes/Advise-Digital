@@ -56,6 +56,10 @@ Uygulamada tenant bazlı Meta & Instagram bağlantı ekranı ve OAuth başlangı
 
 Meta reklam işlemleri için `META_ACCESS_TOKEN`, Instagram içerik işlemleri için `INSTAGRAM_ACCESS_TOKEN` kullanılır. Token değerleri mobil uygulamaya gömülmemelidir.
 
+### AI / Gemini
+
+AI içerik stüdyosu Gemini API kullanır. Backend `.env` içine `GEMINI_API_KEY` ve isteğe bağlı `GEMINI_MODEL=gemini-3.8-flash` eklenir. API anahtarı mobil uygulamaya gömülmemelidir.
+
 ## Reklam otomasyonu
 
 - İçerik yükleme
