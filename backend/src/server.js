@@ -117,9 +117,9 @@ app.get('/health', (_req, res) => res.json({
   ok: true,
   app: 'AdVise AI',
   version: config.appVersion,
-  buildMarker: 'GEMINI_SWITCH_2026_10_03_V1',
+  buildMarker: 'GEMINI_INTERACTIONS_2026_10_03_V1',
   uploadMode: 'EXTENSION_AWARE',
-  aiImageMode: 'GEMINI_INLINE_DATA'
+  aiImageMode: 'GEMINI_INTERACTIONS_MULTIMODAL'
 }));
 
 app.post('/api/auth/login', async (req, res) => {
@@ -720,12 +720,14 @@ app.post('/api/ai/content-pack-from-file', upload.single('image'), async (req, r
       language: req.body?.language || settings.aiLanguage,
       mediaType: req.body?.mediaType || (kind === 'VIDEO' ? 'REELS' : 'AUTO'),
       imageUrl: '',
-      imageDataUrl,
+      imageDataUrl: kind === 'IMAGE' ? imageDataUrl : '',
+      filePath: req.file.path,
+      mimeType: kind === 'IMAGE' ? (visionMime || req.file.mimetype) : (req.file.mimetype || 'video/mp4'),
       timezone: config.timezone,
       history,
       mediaNote: kind === 'VIDEO'
-        ? 'Dosya bir video. Video yüklemesi kabul edildi; bu endpoint videoyu doğrudan kare kare analiz etmiyor. İçerik önerisi dosya adı, kullanıcı bilgisi ve seçilen Reels formatına göre hazırlanır.'
-        : visionMime ? '' : 'Görsel dosyası kabul edildi ancak bu dosyanın türü doğrudan görsel analizine uygun olmadığı için metin ağırlıklı analiz yapılır.'
+        ? 'Video Gemini tarafından içerik, sahne ve görünen bilgiler açısından analiz edilecek.'
+        : visionMime ? '' : 'Görsel dosyası kabul edildi; Gemini uygun medya tipini mümkün olduğunca kendisi analiz eder.'
     });
 
     if (result.source !== 'GEMINI') {
@@ -841,7 +843,9 @@ app.post('/api/posts', upload.single('image'), async (req, res) => {
     };
     if(useAI && settings.aiEnabled!==false && !post.caption) {
       const history=await getLogs(tenantId, 20);
-      const pack=await generateContentPack({title:post.title,context:req.body?.aiContext||'',tone:settings.aiTone,goal:settings.aiGoal,language:settings.aiLanguage,mediaType,timezone:config.timezone,history,imageUrl:mediaType==='POST' && /^https:\/\//i.test(post.publicUrl)?post.publicUrl:''});
+      const pack=await generateContentPack({title:post.title,context:req.body?.aiContext||'',tone:settings.aiTone,goal:settings.aiGoal,language:settings.aiLanguage,mediaType,timezone:config.timezone,history,imageUrl:mediaType==='POST' && /^https:\/\//i.test(post.publicUrl)?post.publicUrl:'',
+        filePath:post.filePath,
+        mimeType:post.mimeType});
       post.aiGenerated=true;
       post.aiSource=pack.source;
       post.aiHook=String(pack.hook||'').trim();
@@ -919,7 +923,9 @@ app.post('/api/posts/bulk', upload.array('files', 20), async (req, res) => {
             mediaType,
             timezone:config.timezone,
             history:aiHistory,
-            imageUrl:mediaType==='POST' && /^https:\/\//i.test(post.publicUrl) ? post.publicUrl : ''
+            imageUrl:mediaType==='POST' && /^https:\/\//i.test(post.publicUrl) ? post.publicUrl : '',
+            filePath:post.filePath,
+            mimeType:post.mimeType
           });
           post.aiGenerated=true;
           post.aiSource=pack.source;
