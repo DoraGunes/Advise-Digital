@@ -98,7 +98,7 @@ export async function updateAdSetBudget(id,dailyBudget,credentials={}) {
 
 export async function createCampaign({name,objective='OUTCOME_ENGAGEMENT',status='PAUSED',credentials={}}) {
   const c=requireMeta(credentials);
-  return request(`act_${c.adAccountId}/campaigns`,{method:'POST',credentials:c,body:{name,objective,status,special_ad_categories:[]},timeoutMs:15000});
+  return request(`act_${c.adAccountId}/campaigns`,{method:'POST',credentials:c,body:{name,objective,status,special_ad_categories:[],is_adset_budget_sharing_enabled:false},timeoutMs:15000});
 }
 
 export async function createAdSet({name,campaignId,dailyBudget,targeting,optimizationGoal='CONVERSATIONS',billingEvent='IMPRESSIONS',instagramActorId,pageId,credentials={}}) {
