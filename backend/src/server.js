@@ -622,7 +622,8 @@ app.post('/api/ai/caption', async (req, res) => {
   try {
     const settings=await getSettings(req.user.tenantId);
     if(settings.aiEnabled===false) return res.status(403).json({error:'AI modu kapalı.'});
-    res.json(await generateCaption({...req.body,tone:req.body?.tone||settings.aiTone,goal:req.body?.goal||settings.aiGoal,language:req.body?.language||settings.aiLanguage}));
+    const history=await getLogs(req.user.tenantId, 20);
+    res.json(await generateCaption({...req.body,tone:req.body?.tone||settings.aiTone,goal:req.body?.goal||settings.aiGoal,language:req.body?.language||settings.aiLanguage,timezone:config.timezone,history}));
   } catch(e) { res.status(400).json({error:e.message}); }
 });
 app.post('/api/ai/caption-variants', async (req,res)=>{ try { res.json(await generateCaptionVariants(req.body||{})); } catch(e) { res.status(400).json({error:e.message}); } });
