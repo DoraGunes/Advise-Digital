@@ -34,6 +34,27 @@ function publicBaseUrlForRequest(req) {
   return config.publicBaseUrl;
 }
 
+const IMAGE_EXTENSIONS = new Set([
+  '.jpg', '.jpeg', '.jfif', '.png', '.webp', '.gif', '.bmp', '.heic', '.heif', '.avif', '.tif', '.tiff'
+]);
+const VIDEO_EXTENSIONS = new Set([
+  '.mp4', '.mov', '.m4v', '.webm', '.avi', '.mkv', '.3gp', '.mpeg', '.mpg', '.ogv'
+]);
+
+function fileExtension(name = '') {
+  const value = String(name || '').toLowerCase().trim();
+  const dot = value.lastIndexOf('.');
+  return dot >= 0 ? value.slice(dot) : '';
+}
+
+function mediaKind(file = {}) {
+  const mime = String(file.mimetype || '').toLowerCase().trim();
+  const ext = fileExtension(file.originalname);
+  if (mime.startsWith('image/') || IMAGE_EXTENSIONS.has(ext)) return 'IMAGE';
+  if (mime.startsWith('video/') || VIDEO_EXTENSIONS.has(ext)) return 'VIDEO';
+  return 'OTHER';
+}
+
 const storage = multer.diskStorage({
   destination: (_req, _file, cb) => cb(null, uploadDir),
   filename: (_req, file, cb) => {
@@ -41,11 +62,17 @@ const storage = multer.diskStorage({
     cb(null, `${Date.now()}-${safe}`);
   }
 });
+
 const upload = multer({
   storage,
   limits: {fileSize: 100 * 1024 * 1024},
   fileFilter: (_req, file, cb) => {
-    if (!/^(image\/(jpeg|png|webp)|video\/(mp4|quicktime))$/.test(file.mimetype)) return cb(new Error('Yalnızca JPEG/PNG/WebP veya MP4/MOV yüklenebilir.'));
+    const kind = mediaKind(file);
+    if (kind === 'OTHER') {
+      return cb(new Error(
+        `Desteklenmeyen medya formatı: ${file.originalname}. JPG, JPEG, PNG, WEBP, GIF, BMP, HEIC/HEIF, AVIF, TIFF veya MP4, MOV, M4V, WEBM, AVI, MKV, 3GP, MPEG/MPG, OGV kullan.`
+      ));
+    }
     cb(null, true);
   }
 });
@@ -638,10 +665,8 @@ app.post('/api/ai/content-pack-from-file', upload.single('image'), async (req, r
       });
     }
 
+    const kind = mediaKind(req.file);
     const publicUrl = publicBaseUrlForRequest(req) + '/uploads/' + encodeURIComponent(req.file.filename);
-    if (!/^https:\/\//i.test(publicUrl)) {
-      return res.status(503).json({error: 'AI görsel analizi için HTTPS erişilebilir public URL gerekli.'});
-    }
 
     const history = await getLogs(req.user.tenantId, 20);
     const result = await generateContentPack({
@@ -650,10 +675,13 @@ app.post('/api/ai/content-pack-from-file', upload.single('image'), async (req, r
       tone: req.body?.tone || settings.aiTone,
       goal: req.body?.goal || settings.aiGoal,
       language: req.body?.language || settings.aiLanguage,
-      mediaType: req.body?.mediaType || 'AUTO',
-      imageUrl: publicUrl,
+      mediaType: req.body?.mediaType || (kind === 'VIDEO' ? 'REELS' : 'AUTO'),
+      imageUrl: kind === 'IMAGE' && /^https:\/\//i.test(publicUrl) ? publicUrl : '',
       timezone: config.timezone,
-      history
+      history,
+      mediaNote: kind === 'VIDEO'
+        ? 'Dosya bir video. Video kabul edildi; bu endpoint videonun karelerini doğrudan analiz etmiyor. Metin üretimini dosya adı, kullanıcı bilgisi ve seçilen Reels formatına göre yap.'
+        : ''
     });
 
     await addLog(req.user.tenantId, {
@@ -739,7 +767,7 @@ app.post('/api/posts', upload.single('image'), async (req, res) => {
       return res.status(409).json({error:'Bu içerik daha önce yüklenmiş. Aynı görsel/video tekrar kuyruğa alınmadı.'});
     }
     const requestedMediaType=String(req.body?.mediaType||'AUTO').toUpperCase();
-    const mediaType=req.file.mimetype.startsWith('video/')?'REELS':(requestedMediaType==='CAROUSEL'?'CAROUSEL':'POST');
+    const mediaType=mediaKind(req.file)==='VIDEO'?'REELS':(requestedMediaType==='CAROUSEL'?'CAROUSEL':'POST');
     const requestedAuto=String(req.body?.autoPublish ?? 'true').toLowerCase()!=='false';
     const useAI=String(req.body?.useAI ?? 'true').toLowerCase()!=='false';
     const post={
@@ -810,7 +838,7 @@ app.post('/api/posts/bulk', upload.array('files', 20), async (req, res) => {
         }
         seenHashes.add(fileHash);
 
-        const mediaType=file.mimetype.startsWith('video/')?'REELS':'POST';
+        const mediaType=mediaKind(file)==='VIDEO'?'REELS':'POST';
         const post={
           id:`post_${Date.now()}_${accepted.length}`,
           tenantId,
@@ -1045,7 +1073,15 @@ app.post('/api/admin/licenses/:licenseId/assign', allowRoles('ADMIN'), async (re
   catch (e) { res.status(400).json({error: e.message}); }
 });
 
-app.use((err, _req, res, _next) => res.status(400).json({error: err.message || 'Request error'}));
+app.use((err, _req, res, _next) => {
+  const message = err?.message || 'Request error';
+  if (err instanceof multer.MulterError) {
+    console.error('[UPLOAD] multer error:', err.code, message);
+    return res.status(400).json({error: message, code: err.code});
+  }
+  console.error('[REQUEST] error:', message);
+  res.status(400).json({error: message});
+});
 
 app.listen(config.port, '0.0.0.0', () => console.log(`AdVise AI backend: http://0.0.0.0:${config.port}`));
 startScheduler();
