@@ -257,30 +257,38 @@ app.post('/api/ads/create', allowRoles('ADMIN','CUSTOMER_ADMIN','OPERATOR'), asy
     const adName = String(req.body?.adName || 'AdVise AI Reklamı').trim().slice(0, 120);
     const activate = req.body?.activate !== false;
 
+    console.log(`[ADS CREATE] start media=${mediaId} budget=${dailyBudget} activate=${activate}`);
+
+    let stage = 'campaign';
     const campaign = await createCampaign({
       name: campaignName,
       objective: 'OUTCOME_ENGAGEMENT',
       status: 'PAUSED',
       credentials
     });
+    console.log(`[ADS CREATE] campaign=${campaign?.id || '-'}`);
 
-    const adSet = await createAdSet({
-      name: adSetName,
-      campaignId: campaign.id,
-      dailyBudget,
-      optimizationGoal: 'CONVERSATIONS',
-      billingEvent: 'IMPRESSIONS',
-      credentials
-    });
+    stage = 'adset+creative';
+    const [adSet, creative] = await Promise.all([
+      createAdSet({
+        name: adSetName,
+        campaignId: campaign.id,
+        dailyBudget,
+        optimizationGoal: 'CONVERSATIONS',
+        billingEvent: 'IMPRESSIONS',
+        credentials
+      }),
+      createAdCreativeFromInstagramMedia({
+        name: adName,
+        instagramMediaId: mediaId,
+        instagramUserId: tenantId === 'system' ? config.instagramUserId : tenant?.meta?.instagramUserId,
+        pageId: tenantId === 'system' ? config.metaPageId : tenant?.meta?.pageId,
+        credentials
+      })
+    ]);
+    console.log(`[ADS CREATE] adset=${adSet?.id || '-'} creative=${creative?.id || '-'}`);
 
-    const creative = await createAdCreativeFromInstagramMedia({
-      name: adName,
-      instagramMediaId: mediaId,
-      instagramUserId: tenantId === 'system' ? config.instagramUserId : tenant?.meta?.instagramUserId,
-      pageId: tenantId === 'system' ? config.metaPageId : tenant?.meta?.pageId,
-      credentials
-    });
-
+    stage = 'ad';
     const ad = await createAd({
       name: adName,
       adsetId: adSet.id,
@@ -288,12 +296,17 @@ app.post('/api/ads/create', allowRoles('ADMIN','CUSTOMER_ADMIN','OPERATOR'), asy
       status: 'PAUSED',
       credentials
     });
+    console.log(`[ADS CREATE] ad=${ad?.id || '-'}`);
 
     if (activate) {
+      stage = 'activation';
       // Meta requires the parent campaign and ad set to be ACTIVE as well.
-      await setStatus(campaign.id, 'ACTIVE', credentials);
-      await setStatus(adSet.id, 'ACTIVE', credentials);
-      await setStatus(ad.id, 'ACTIVE', credentials);
+      await Promise.all([
+        setStatus(campaign.id, 'ACTIVE', credentials),
+        setStatus(adSet.id, 'ACTIVE', credentials),
+        setStatus(ad.id, 'ACTIVE', credentials)
+      ]);
+      console.log('[ADS CREATE] activated');
     }
 
     await addLog(tenantId, {
@@ -315,7 +328,8 @@ app.post('/api/ads/create', allowRoles('ADMIN','CUSTOMER_ADMIN','OPERATOR'), asy
       activated: activate
     });
   } catch (e) {
-    res.status(502).json({error: e.message});
+    console.error('[ADS CREATE] failed:', e.message);
+    res.status(502).json({error: e.message, operation: 'ads_create'});
   }
 });
 
