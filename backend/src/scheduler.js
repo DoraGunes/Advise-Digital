@@ -139,7 +139,7 @@ export async function publishDuePosts(tenantId='system') {
     try {
       if(!/^https:\/\//i.test(String(post.publicUrl||''))) throw new Error('Instagram otomatik paylaşımı için PUBLIC_BASE_URL HTTPS olmalı.');
       post.publishAttempts=Number(post.publishAttempts||0)+1;
-      const result=await instagramPublishMedia({mediaType:post.mediaType||'POST',imageUrl:post.publicUrl,videoUrl:post.publicUrl,caption:post.caption||'',credentials});
+      const result=await instagramPublishMedia({mediaType:post.mediaType||'POST',imageUrl:post.publicUrl,videoUrl:post.publicUrl,caption:post.caption||'',coverUrl:post.coverPublicUrl||'',thumbOffset:post.coverThumbOffset,credentials});
       post.publishStatus='PUBLISHED'; post.publishedAt=new Date().toISOString(); post.instagramPublishResult=result; post.instagramMediaId=String(result?.id||'').trim(); changed=true; published++;
       await addLog(tenantId,{type:'INSTAGRAM_POST_PUBLISHED',postId:post.id,mediaType:post.mediaType||'POST',attempt:post.publishAttempts,instagramResult:result});
     } catch(e) {
