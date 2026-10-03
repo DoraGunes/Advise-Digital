@@ -69,8 +69,8 @@ class _SocialAdsPageState extends State<SocialAdsPage> {
       return;
     }
     final dailyBudget = double.tryParse(budget.text.replaceAll(',', '.'));
-    if (dailyBudget == null || dailyBudget < 1) {
-      _snack('Günlük bütçe geçersiz.');
+    if (dailyBudget == null || dailyBudget < 50) {
+      _snack('Günlük bütçe en az 50 TL olmalı.');
       return;
     }
 
