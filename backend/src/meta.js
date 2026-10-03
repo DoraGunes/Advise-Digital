@@ -103,17 +103,17 @@ export async function updateAdSetBudget(id,dailyBudget,credentials={}) {
   return request(id,{method:'POST',credentials,body:{daily_budget:n}});
 }
 
-export async function createCampaign({name,objective='OUTCOME_TRAFFIC',status='PAUSED',credentials={}}) {
+export async function createCampaign({name,objective='OUTCOME_ENGAGEMENT',status='PAUSED',credentials={}}) {
   const c=requireMeta(credentials);
   return request(`act_${c.adAccountId}/campaigns`,{method:'POST',credentials:c,body:{name,objective,status,special_ad_categories:[],is_adset_budget_sharing_enabled:false},timeoutMs:15000});
 }
 
-export async function createAdSet({name,campaignId,dailyBudget,targeting,optimizationGoal='CONVERSATIONS',billingEvent='IMPRESSIONS',instagramActorId,pageId,credentials={}}) {
+export async function createAdSet({name,campaignId,dailyBudget,targeting,optimizationGoal='CONVERSATIONS',billingEvent='IMPRESSIONS',destinationType='INSTAGRAM_DIRECT',instagramActorId,pageId,credentials={}}) {
   const c=requireMeta(credentials);
   const amountTl=Number(dailyBudget);
   if(!Number.isFinite(amountTl)||amountTl<=0) throw new Error('Geçersiz günlük bütçe.');
   const amountMinor=Math.round(amountTl * 100);
-  const body={name,campaign_id:campaignId,daily_budget:amountMinor,billing_event:billingEvent,optimization_goal:optimizationGoal,bid_strategy:'LOWEST_COST_WITHOUT_CAP',targeting:targeting||{geo_locations:{countries:['TR']}},status:'PAUSED'};
+  const body={name,campaign_id:campaignId,daily_budget:amountMinor,billing_event:billingEvent,optimization_goal:optimizationGoal,destination_type:destinationType,bid_strategy:'LOWEST_COST_WITHOUT_CAP',targeting:targeting||{geo_locations:{countries:['TR']}},status:'PAUSED'};
   if(pageId||c.pageId) body.promoted_object={page_id:pageId||c.pageId};
   return request(`act_${c.adAccountId}/adsets`,{method:'POST',credentials:c,body,timeoutMs:15000});
 }
@@ -194,36 +194,35 @@ export async function getInstagramMedia(credentials={}, limit=50) {
 }
 
 async function resolveMetaInstagramIdentity(c, explicitId='', explicitPageId='') {
-  const direct=String(explicitId||c.metaInstagramUserId||'').trim();
-  const requestedUsername=String(c.instagramUsername||'').trim().toLowerCase();
+  const direct=String(explicitId||c.instagramUserId||c.metaInstagramUserId||'').trim();
+  let pageId=String(explicitPageId||c.pageId||config.metaPageId||'').trim();
 
-  // Meta Ads exposes the Instagram identities actually connected to the ad account.
-  // Use this list as the source of truth for instagram_user_id.
-  const adAccounts=await request(`act_${c.adAccountId}/instagram_accounts`,{
-    credentials:c,
-    query:{fields:'id,username',limit:100}
-  });
-  const accounts=Array.isArray(adAccounts?.data) ? adAccounts.data : [];
-  if(!accounts.length) {
-    throw new Error('Bu reklam hesabında kullanılabilir Instagram hesabı görünmüyor. Meta Ads Manager tarafında Instagram hesabını reklam hesabına bağlamalısın.');
-  }
+  // The connected Instagram account ID comes from the Instagram media connection.
+  // Prefer it directly; if the page is missing, resolve a Facebook Page that exposes
+  // an Instagram Business account matching the requested ID.
+  if(direct && pageId) return {instagramUserId:direct,pageId};
 
-  let match=direct ? accounts.find(x=>String(x.id)===direct) : null;
-  if(!match && requestedUsername) {
-    match=accounts.find(x=>String(x.username||'').trim().toLowerCase()===requestedUsername);
-  }
+  try {
+    const result=await request('me/accounts',{
+      credentials:c,
+      query:{fields:'id,name,instagram_business_account',limit:100}
+    });
+    const pages=Array.isArray(result?.data) ? result.data : [];
+    const match=pages.find(x =>
+      x?.instagram_business_account?.id &&
+      (!direct || String(x.instagram_business_account.id)===direct)
+    ) || pages.find(x=>x?.instagram_business_account?.id);
 
-  // When there is only one eligible Instagram identity, it is unambiguous.
-  match=match || (accounts.length===1 ? accounts[0] : null);
-  if(!match) {
-    const available=accounts.map(x=>`${x.username||'-'} (${x.id||'-'})`).join(', ');
-    throw new Error(`Reklam hesabında birden fazla/uyumsuz Instagram hesabı var. Kullanılabilir hesaplar: ${available}`);
-  }
+    if(match) {
+      pageId=pageId||String(match.id||'').trim();
+      const resolvedIg=String(match.instagram_business_account.id||'').trim();
+      return {instagramUserId:direct||resolvedIg,pageId};
+    }
+  } catch {}
 
-  return {
-    instagramUserId:String(match.id),
-    pageId:String(explicitPageId||c.pageId||'')
-  };
+  if(direct) return {instagramUserId:direct,pageId};
+
+  throw new Error('Instagram Business hesap kimliği bulunamadı. Meta/Instagram bağlantısını yeniden doğrulamak gerekiyor.');
 }
 
 export async function createAdCreativeFromInstagramMedia({name,instagramMediaId,instagramUserId,pageId,credentials={}}) {
@@ -232,13 +231,12 @@ export async function createAdCreativeFromInstagramMedia({name,instagramMediaId,
   if(!mediaId) throw new Error('Instagram gönderisi seçilmedi.');
 
   const identity=await resolveMetaInstagramIdentity(c,instagramUserId,pageId);
+  if(!identity.pageId) throw new Error('Instagram reklamı için Facebook Page ID gerekli.');
   const body={
     name,
-    source_instagram_media_id:mediaId,
-    object_story_spec:{
-      instagram_user_id:identity.instagramUserId,
-      ...(identity.pageId ? {page_id:identity.pageId} : {})
-    }
+    object_id:identity.pageId,
+    instagram_user_id:identity.instagramUserId,
+    source_instagram_media_id:mediaId
   };
 
   return request(`act_${c.adAccountId}/adcreatives`,{method:'POST',credentials:c,body,timeoutMs:15000});
