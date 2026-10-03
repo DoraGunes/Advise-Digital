@@ -6,7 +6,6 @@ const MODEL = process.env.GEMINI_MODEL || config.aiModel || 'gemini-3.8-flash';
 const FALLBACK_MODEL = process.env.GEMINI_FALLBACK_MODEL || 'gemini-3.7-flash';
 const MAX_INLINE_MEDIA_BYTES = 20 * 1024 * 1024;
 
-// Gemini generateContent responseSchema uses a restricted Schema shape.
 const OUTPUT_SCHEMA = {
   type: 'object',
   properties: {
@@ -33,28 +32,35 @@ const OUTPUT_SCHEMA = {
     confidence: {type: 'integer', minimum: 0, maximum: 100}
   },
   required: [
-    'productName',
-    'brand',
-    'model',
-    'detectedText',
-    'detectedOffer',
-    'selectedTone',
-    'contentAngle',
-    'hook',
-    'caption',
-    'cta',
-    'hashtags',
-    'recommendedFormat',
-    'recommendedPostTime',
-    'recommendedPostTimeReason',
-    'contentGoal',
-    'targetAudience',
-    'visualSummary',
-    'creativeScore',
-    'adRecommendation',
-    'nextAction',
-    'confidence'
+    'productName', 'brand', 'model', 'detectedText', 'detectedOffer',
+    'selectedTone', 'contentAngle', 'hook', 'caption', 'cta', 'hashtags',
+    'recommendedFormat', 'recommendedPostTime', 'recommendedPostTimeReason',
+    'contentGoal', 'targetAudience', 'visualSummary', 'creativeScore',
+    'adRecommendation', 'nextAction', 'confidence'
   ]
+};
+
+const VARIANTS_SCHEMA = {
+  type: 'object',
+  properties: {
+    variants: {
+      type: 'array',
+      minItems: 3,
+      maxItems: 3,
+      items: {
+        type: 'object',
+        properties: {
+          id: {type: 'string'},
+          caption: {type: 'string'},
+          hook: {type: 'string'},
+          cta: {type: 'string'},
+          style: {type: 'string'}
+        },
+        required: ['id', 'caption', 'hook', 'cta', 'style']
+      }
+    }
+  },
+  required: ['variants']
 };
 
 function clean(value, max=1600) {
@@ -62,264 +68,189 @@ function clean(value, max=1600) {
 }
 
 function safeHashtags(value) {
-  const list = Array.isArray(value) ? value : [];
-  return list
-    .map(x => clean(x, 60))
+  return (Array.isArray(value) ? value : [])
+    .map(function(x) { return clean(x, 60); })
     .filter(Boolean)
-    .map(x => x.startsWith('#') ? x : `#${x.replace(/^#+/, '')}`)
+    .map(function(x) { return x.startsWith('#') ? x : '#' + x.replace(/^#+/, ''); })
     .slice(0, 12);
 }
 
 function localPack(input={}) {
-  const title = clean(input.title, 180) || 'Ürün';
-  const context = clean(input.context, 900);
-  const mediaType = String(input.mediaType || 'AUTO').toUpperCase();
-  const format = ['REELS', 'VIDEO'].includes(mediaType) ? 'REELS' : 'POST';
-  const extra = context ? ` ${context}` : '';
+  var title = clean(input.title, 180) || 'Ürün';
+  var context = clean(input.context, 900);
+  var mediaType = String(input.mediaType || 'AUTO').toUpperCase();
+  var format = ['REELS', 'VIDEO'].includes(mediaType) ? 'REELS' : 'POST';
   return {
     source: 'LOCAL_FALLBACK',
     model: null,
-    hook: `${title}: Fark yaratan detay burada.`,
-    caption: `${title} için fayda odaklı bir içerik.${extra} Detaylar ve bilgi için bize mesaj gönderebilirsin.`,
-    cta: 'Detaylı bilgi ve fiyat için mesaj gönder.',
-    hashtags: ['#PoyrazTeknik', '#kampanya', '#fırsat', '#ürün'],
+    productName: title,
+    brand: '',
+    model: '',
+    detectedText: '',
+    detectedOffer: '',
+    selectedTone: 'samimi ve güven veren',
+    contentAngle: 'Görseldeki gerçek ve doğrulanabilir avantajı öne çıkar.',
+    hook: title + ': detayları yakala.',
+    caption: title + ' için net ve doğal bir içerik.' + (context ? ' ' + context : '') + ' Detaylı bilgi için mesaj gönderebilirsin.',
+    cta: 'Detaylı bilgi için mesaj gönder.',
+    hashtags: ['#AdViseAI', '#instagram', '#sosyalmedya', '#reklam'],
     recommendedFormat: format,
     recommendedPostTime: '19:00',
-    recommendedPostTimeReason: 'Yerel fallback: geçmiş performans verisi verilmediği için genel bir akşam önerisi kullanıldı.',
-    contentGoal: clean(input.goal, 80) || 'mesaj',
-    targetAudience: 'Ürünle ilgili yerel ve ilgili potansiyel müşteriler.',
-    visualSummary: 'Görsel AI ile analiz edilemedi; yalnızca verilen başlık ve metin kullanıldı.',
-    creativeScore: 55,
-    adRecommendation: 'İçeriği önce organik olarak test et; yeterli veri oluşunca reklam kararını ver.',
-    nextAction: 'İçeriği gözden geçir ve uygun görüyorsan planla.',
-    confidence: 35
+    recommendedPostTimeReason: 'AI yanıtı alınamadığı için genel bir öneri kullanıldı.',
+    contentGoal: 'mesaj',
+    targetAudience: 'Ürünle ilgilenebilecek potansiyel müşteriler.',
+    visualSummary: 'AI analiz edilemedi.',
+    creativeScore: 0,
+    adRecommendation: 'AI analizi olmadan reklam performansı hakkında kesin sonuç çıkarma.',
+    nextAction: 'İçeriği kontrol edip yeniden AI analizi çalıştır.',
+    confidence: 0
   };
 }
 
 function normalizePack(raw, input={}, model=MODEL) {
-  const fallback = localPack(input);
-  const pack = raw && typeof raw === 'object' ? raw : {};
+  var fallback = localPack(input);
+  var pack = raw && typeof raw === 'object' ? raw : {};
+  var format = String(pack.recommendedFormat || '').toUpperCase();
   return {
     source: 'GEMINI',
-    model,
-    productName: clean(pack.productName, 180) || clean(input.title, 180) || 'Ürün',
+    model: model,
+    productName: clean(pack.productName, 180) || fallback.productName,
     brand: clean(pack.brand, 100),
     model: clean(pack.model, 120),
     detectedText: clean(pack.detectedText, 900),
     detectedOffer: clean(pack.detectedOffer, 300),
-    selectedTone: clean(pack.selectedTone, 120) || 'samimi ve güven veren',
-    contentAngle: clean(pack.contentAngle, 300) || 'ürünün gerçek avantajlarını net ve doğal biçimde öne çıkar',
+    selectedTone: clean(pack.selectedTone, 120) || fallback.selectedTone,
+    contentAngle: clean(pack.contentAngle, 300) || fallback.contentAngle,
     hook: clean(pack.hook, 300) || fallback.hook,
     caption: clean(pack.caption, 2200) || fallback.caption,
     cta: clean(pack.cta, 300) || fallback.cta,
     hashtags: safeHashtags(pack.hashtags).length ? safeHashtags(pack.hashtags) : fallback.hashtags,
-    recommendedFormat: ['POST', 'REELS', 'CAROUSEL'].includes(String(pack.recommendedFormat).toUpperCase())
-      ? String(pack.recommendedFormat).toUpperCase()
-      : fallback.recommendedFormat,
+    recommendedFormat: ['POST', 'REELS', 'CAROUSEL'].includes(format) ? format : fallback.recommendedFormat,
     recommendedPostTime: clean(pack.recommendedPostTime, 100) || fallback.recommendedPostTime,
     recommendedPostTimeReason: clean(pack.recommendedPostTimeReason, 500) || fallback.recommendedPostTimeReason,
     contentGoal: clean(pack.contentGoal, 120) || fallback.contentGoal,
     targetAudience: clean(pack.targetAudience, 500) || fallback.targetAudience,
     visualSummary: clean(pack.visualSummary, 700) || fallback.visualSummary,
-    creativeScore: Math.max(0, Math.min(100, Number(pack.creativeScore) || fallback.creativeScore)),
+    creativeScore: Math.max(0, Math.min(100, Number(pack.creativeScore) || 0)),
     adRecommendation: clean(pack.adRecommendation, 700) || fallback.adRecommendation,
     nextAction: clean(pack.nextAction, 500) || fallback.nextAction,
-    confidence: Math.max(0, Math.min(100, Number(pack.confidence) || fallback.confidence))
+    confidence: Math.max(0, Math.min(100, Number(pack.confidence) || 0))
   };
 }
 
 function buildHistoryText(history) {
   if (!Array.isArray(history) || !history.length) return 'Geçmiş performans verisi yok.';
-  return history.slice(-20).map((item, i) => {
-    const row = item && typeof item === 'object' ? item : {};
+  return history.slice(-20).map(function(item, i) {
+    var row = item && typeof item === 'object' ? item : {};
     return [
-      `Kayıt ${i + 1}:`,
-      `tür=${clean(row.type, 80)}`,
-      `tarih=${clean(row.createdAt || row.at || '', 60)}`,
-      `veri=${clean(JSON.stringify(row), 900)}`
+      'Kayıt ' + (i + 1) + ':',
+      'tür=' + clean(row.type, 80),
+      'tarih=' + clean(row.createdAt || row.at || '', 60),
+      'veri=' + clean(JSON.stringify(row), 900)
     ].join(' ');
   }).join('\n');
 }
 
-
 function getGeminiClient() {
-  const apiKey = String(process.env.GEMINI_API_KEY || '').trim();
+  var apiKey = String(process.env.GEMINI_API_KEY || '').trim();
   if (!apiKey) throw new Error('GEMINI_API_KEY tanımlı değil.');
-  return new GoogleGenAI({apiKey});
+  return new GoogleGenAI({apiKey: apiKey});
 }
 
 function dataUrlToInputPart(dataUrl) {
-  const match = String(dataUrl || '').match(/^data:(image\/[a-z0-9.+-]+);base64,(.+)$/is);
+  var match = String(dataUrl || '').match(/^data:(image\/[a-z0-9.+-]+);base64,(.+)$/is);
   if (!match) return null;
-  return {
-    type: 'image',
-    mime_type: match[1].toLowerCase(),
-    data: match[2]
-  };
+  return {type: 'image', mime_type: match[1].toLowerCase(), data: match[2]};
 }
 
-async function uploadGeminiFile(aiClient, filePath, mimeType) {
-  const uploaded = await aiClient.files.upload({
-    file: filePath,
-    config: {mimeType}
-  });
-
-  let current = uploaded;
-  for (let attempt = 0; attempt < 60; attempt++) {
-    const state = String(current?.state || '').toUpperCase();
+async function uploadGeminiFile(client, filePath, mimeType) {
+  var uploaded = await client.files.upload({file: filePath, config: {mimeType: mimeType}});
+  var current = uploaded;
+  for (var attempt = 0; attempt < 60; attempt++) {
+    var state = String(current && current.state || '').toUpperCase();
     if (!state || state === 'ACTIVE') return current;
     if (state === 'FAILED') throw new Error('Gemini dosya işleme başarısız oldu.');
-
-    await new Promise(resolve => setTimeout(resolve, 2000));
-    current = await aiClient.files.get({name: current.name});
+    await new Promise(function(resolve) { setTimeout(resolve, 2000); });
+    current = await client.files.get({name: current.name});
   }
-
   throw new Error('Gemini dosya işleme zaman aşımına uğradı.');
 }
 
-async function fileToGeminiInputPart(aiClient, filePath, mimeType, mediaType) {
+async function fileToGeminiInputPart(client, filePath, mimeType, mediaType) {
   if (!filePath) return null;
-
-  const stat = await fs.stat(filePath);
-  const kind = String(mediaType || '').toUpperCase().includes('REELS') ||
-    String(mimeType || '').toLowerCase().startsWith('video/')
-    ? 'video'
-    : 'image';
-
-  // Google's Interactions docs allow short inline media. Keep inline requests
-  // under 20 MB; use the Files API for larger media.
+  var stat = await fs.stat(filePath);
+  var isVideo = String(mimeType || '').toLowerCase().startsWith('video/') || String(mediaType || '').toUpperCase() === 'REELS';
+  var kind = isVideo ? 'video' : 'image';
+  var normalizedMime = String(mimeType || (isVideo ? 'video/mp4' : 'image/jpeg')).toLowerCase();
   if (stat.size <= MAX_INLINE_MEDIA_BYTES) {
-    const base64 = await fs.readFile(filePath, {encoding: 'base64'});
     return {
       type: kind,
-      data: base64,
-      mime_type: String(mimeType || (kind === 'video' ? 'video/mp4' : 'image/jpeg')).toLowerCase()
+      data: await fs.readFile(filePath, {encoding: 'base64'}),
+      mime_type: normalizedMime
     };
   }
-
-  const uploaded = await uploadGeminiFile(aiClient, filePath, mimeType || (kind === 'video' ? 'video/mp4' : 'image/jpeg'));
+  var uploaded = await uploadGeminiFile(client, filePath, normalizedMime);
   return {
     type: kind,
     uri: uploaded.uri,
-    mime_type: uploaded.mimeType || mimeType,
-    ...(kind === 'video' ? {processing: 'static'} : {})
+    mime_type: uploaded.mimeType || normalizedMime,
+    ...(isVideo ? {processing: 'static'} : {})
   };
 }
 
-async function imageUrlToInputPart(aiClient, imageUrl) {
+async function imageUrlToInputPart(imageUrl) {
   if (!/^https:\/\//i.test(String(imageUrl || ''))) return null;
-  try {
-    const response = await fetch(imageUrl, {
-      headers: {'accept': 'image/*'},
-      signal: AbortSignal.timeout(15000)
-    });
-    if (!response.ok) throw new Error(`Görsel URL alınamadı: HTTP ${response.status}`);
-    const contentType = String(response.headers.get('content-type') || '').split(';')[0].trim().toLowerCase();
-    if (!contentType.startsWith('image/')) throw new Error('Görsel URL image MIME type döndürmedi.');
-
-    const buffer = Buffer.from(await response.arrayBuffer());
-    return {
-      type: 'image',
-      data: buffer.toString('base64'),
-      mime_type: contentType
-    };
-  } catch (e) {
-    console.warn('[AI GEMINI IMAGE FETCH]', e?.message || e);
-    return null;
-  }
+  var response = await fetch(imageUrl, {headers: {'accept': 'image/*'}, signal: AbortSignal.timeout(15000)});
+  if (!response.ok) throw new Error('Görsel URL alınamadı: HTTP ' + response.status);
+  var contentType = String(response.headers.get('content-type') || '').split(';')[0].trim().toLowerCase();
+  if (!contentType.startsWith('image/')) throw new Error('Görsel URL image MIME type döndürmedi.');
+  var buffer = Buffer.from(await response.arrayBuffer());
+  return {type: 'image', data: buffer.toString('base64'), mime_type: contentType};
 }
 
-async function callGemini({prompt, systemInstruction='', mediaParts=[], maxOutputTokens=1500}) {
-  const aiClient = getGeminiClient();
-  const models = Array.from(new Set([
-    MODEL,
-    FALLBACK_MODEL
-  ].filter(Boolean)));
-  const retryableMessages = /high demand|temporar|unavailable|overloaded|rate limit|quota|503|429/i;
-  let lastError = null;
+function retryableError(error) {
+  var message = String(error && error.message || error || '').toLowerCase();
+  var status = Number(error && (error.status || error.code || 0));
+  return status === 408 || status === 429 || status === 500 || status === 502 || status === 503 || status === 504 || /high demand|temporar|unavailable|overloaded|rate limit|quota|503|429/.test(message);
+}
 
-  for (const model of models) {
-    for (let attempt = 1; attempt <= 3; attempt++) {
+async function callGemini(options) {
+  var client = getGeminiClient();
+  var models = Array.from(new Set([MODEL, FALLBACK_MODEL].filter(Boolean)));
+  var lastError = null;
+  for (var modelIndex = 0; modelIndex < models.length; modelIndex++) {
+    var model = models[modelIndex];
+    for (var attempt = 1; attempt <= 3; attempt++) {
       try {
-        const input = [
-          ...mediaParts.filter(Boolean),
-          {type: 'text', text: prompt}
-        ];
-
-        console.log('[AI GEMINI INTERACTIONS REQUEST]', {
-          model,
-          attempt,
-          hasMedia: mediaParts.filter(Boolean).length > 0,
-          mediaCount: mediaParts.filter(Boolean).length
-        });
-
-        const interaction = await aiClient.interactions.create({
-          model,
-          input,
-          system_instruction: systemInstruction || undefined,
-          response_format: [
-            {
-              type: 'text',
-              mime_type: 'application/json',
-              schema: OUTPUT_SCHEMA
-            }
-          ],
-          generation_config: {
-            max_output_tokens: maxOutputTokens
-          },
+        var interaction = await client.interactions.create({
+          model: model,
+          input: (options.mediaParts || []).filter(Boolean).concat([{type: 'text', text: options.prompt}]),
+          system_instruction: options.systemInstruction || undefined,
+          response_format: [{type: 'text', mime_type: 'application/json', schema: options.schema || OUTPUT_SCHEMA}],
+          generation_config: {max_output_tokens: options.maxOutputTokens || 1500},
           store: false
         });
-
-        const outputText = String(interaction?.output_text || '').trim();
-        console.log('[AI GEMINI INTERACTIONS RESPONSE]', {
-          model,
-          attempt,
-          status: interaction?.status || '-',
-          hasOutput: Boolean(outputText)
-        });
-
-        if (!outputText) {
-          throw new Error(`Gemini boş cevap döndürdü. status=${interaction?.status || '-'}`);
-        }
-
-        return {
-          parsed: JSON.parse(outputText),
-          model
-        };
-      } catch (e) {
-        lastError = e;
-        console.error('[AI GEMINI INTERACTIONS ERROR]', {
-          model,
-          attempt,
-          error: e?.message || String(e)
-        });
-
-        const message = String(e?.message || '');
-        if (!retryableMessages.test(message)) break;
-
-        if (attempt < 3) {
-          const waitMs = 1000 * (2 ** (attempt - 1));
-          console.warn('[AI GEMINI RETRY]', {model, attempt, waitMs});
-          await new Promise(resolve => setTimeout(resolve, waitMs));
-        }
+        var outputText = String(interaction && interaction.output_text || '').trim();
+        console.log('[AI GEMINI INTERACTIONS RESPONSE]', {model: model, attempt: attempt, status: interaction && interaction.status || '-', hasOutput: Boolean(outputText)});
+        if (!outputText) throw new Error('Gemini boş cevap döndürdü. status=' + String(interaction && interaction.status || '-'));
+        return {parsed: JSON.parse(outputText), model: model};
+      } catch (error) {
+        lastError = error;
+        console.error('[AI GEMINI INTERACTIONS ERROR]', {model: model, attempt: attempt, error: String(error && error.message || error)});
+        if (!retryableError(error) || attempt === 3) break;
+        var waitMs = 1000 * Math.pow(2, attempt - 1);
+        await new Promise(function(resolve) { setTimeout(resolve, waitMs); });
       }
     }
-
-    const nextModel = models[models.indexOf(model) + 1];
-    if (nextModel) {
-      console.warn('[AI GEMINI MODEL FALLBACK]', {
-        from: model,
-        to: nextModel,
-        reason: lastError?.message || 'temporary model failure'
-      });
+    if (models[modelIndex + 1]) {
+      console.warn('[AI GEMINI MODEL FALLBACK]', {from: model, to: models[modelIndex + 1], reason: String(lastError && lastError.message || '')});
     }
   }
-
   throw lastError || new Error('Gemini çağrısı başarısız.');
 }
 
 export async function generateContentPack(input={}) {
-  const safe = {
+  var safe = {
     title: clean(input.title, 180),
     context: clean(input.context, 1200),
     tone: clean(input.tone, 100) || 'AI seçsin',
@@ -327,89 +258,61 @@ export async function generateContentPack(input={}) {
     language: clean(input.language, 30) || 'Türkçe',
     mediaType: String(input.mediaType || 'AUTO').toUpperCase(),
     imageUrl: clean(input.imageUrl, 1800),
-    imageDataUrl: typeof input.imageDataUrl === 'string' && input.imageDataUrl.startsWith('data:image/')
-      ? input.imageDataUrl.slice(0, 16000000)
-      : '',
+    imageDataUrl: typeof input.imageDataUrl === 'string' && input.imageDataUrl.startsWith('data:image/') ? input.imageDataUrl.slice(0, 16000000) : '',
     filePath: clean(input.filePath, 1200),
     mimeType: clean(input.mimeType, 120),
     mediaNote: clean(input.mediaNote, 500),
     timezone: clean(input.timezone, 80) || config.timezone || 'Europe/Istanbul',
     history: Array.isArray(input.history) ? input.history : []
   };
+  if (!String(process.env.GEMINI_API_KEY || '').trim()) return localPack(safe);
 
-  if (!String(process.env.GEMINI_API_KEY || '').trim()) {
-    return localPack(safe);
-  }
-
-  const prompt = [
-    'Görevin önce görseli anlamak, sonra içerik stratejisini belirlemek ve en son yüksek kaliteli Türkçe sosyal medya içeriği üretmektir.',
-    '',
-    'ÇALIŞMA SIRASI:',
-    'A) GÖRSELİ ANLA: Görseldeki ana ürünü/hizmeti, marka adını, model bilgisini, görünen yazıları, fiyat/indirim gibi teklifleri ve görselde gerçekten bulunan önemli ayrıntıları tespit et.',
-    'B) SADECE KANITLANABİLEN BİLGİYİ KULLAN: Görselde veya kullanıcı notunda olmayan fiyat, indirim, özellik, garanti, stok, kampanya veya teknik bilgi uydurma.',
-    'C) ÜRÜNÜ SINIFLANDIR: Ürün adını ve mümkünse marka/modeli doğal bir Türkçe ifadeyle çıkar.',
-    'D) İÇERİK AÇISINI SEÇ: Ürünü satmaya çalışan klişe reklam dili yerine görseldeki en güçlü gerçek avantaj/mesaj üzerinden tek bir içerik açısı belirle.',
-    'E) TONU OTOMATİK SEÇ: Ürün ve görsel bağlamına göre samimi, premium, enerjik, teknik, güven veren vb. en uygun tonu kendin seç ve selectedTone alanında belirt.',
-    'F) FORMAT VE AMAÇ: İçeriğin POST, REELS veya CAROUSEL formatında mı daha anlamlı olduğunu ve amacın mesaj, satış, trafik veya etkileşimden hangisi olduğunu veriye göre seç.',
-    'G) METNİ YAZ: Hook kısa ve güçlü olsun. Caption doğal Türkçe olsun; yapay zekâ kokan kalıp cümlelerden, gereksiz ünlemden, klişe ifadelerden ve anlamsız süslü dilden kaçın.',
-    'H) CTA: Tek ve net bir eylem çağrısı üret.',
-    'I) HASHTAG: 4-8 alakalı hashtag üret; genel spam hashtag doldurma.',
-    '',
-    `Görsel / ürün başlığı (varsa): ${safe.title || '-'}`,
-    `Kullanıcı notu (varsa): ${safe.context || '-'}`,
-    `Ton tercihi: ${safe.tone}`,
-    `Amaç tercihi: ${safe.goal}`,
-    `Medya tipi: ${safe.mediaType}`,
-    `Zaman dilimi: ${safe.timezone}`,
-    '',
-    'Geçmiş performans / uygulama sinyalleri:',
-    buildHistoryText(safe.history),
-    '',
-    'KALİTE KURALLARI:',
-    '1) Görselde/video karelerinde okunabilen yazıları mümkün olduğunca doğru aktar; okuyamıyorsan tahmin etme.'
-    '2) Ürünün ne olduğu belirsizse bunu açıkça belirt ve metni belirsizliği gizleyecek şekilde yaz.',
-    '3) Marka/model görünüyorsa productName alanında mümkün olduğunca spesifik ol.',
-    '4) detectedOffer yalnızca gerçekten görülen fiyat/indirim/teklif varsa doldur.',
-    '5) selectedTone ve contentAngle birbirini desteklesin.',
-    '6) recommendedPostTime Türkiye saatiyle HH:MM biçiminde ver.',
-    '7) creativeScore yalnızca hazırlık kalitesini değerlendirsin; başarı garantisi verme.',
-    '8) adRecommendation bütçe veya performans verisi yoksa kesin satış/sonuç iddiasında bulunmasın.',
-    '9) nextAction kullanıcının hemen uygulayabileceği tek sonraki adım olsun.',
-    '10) Yanıt tamamen Türkçe olsun.'
+  var prompt = [
+    'AdVise AI için sosyal medya içerik paketi oluştur.',
+    'Önce medya içeriğini analiz et, sonra içerik stratejisini seç, en son metni yaz.',
+    'Görsel/video üzerinde görülen gerçek bilgileri temel al.',
+    'Görselde veya kullanıcı notunda olmayan fiyat, kampanya, garanti, stok, teknik özellik veya sonuç uydurma.',
+    'Marka/model/yazılar görünüyorsa mümkün olduğunca doğru çıkar.',
+    'Ton, format, amaç ve içerik açısını AI kendi seçsin.',
+    'Hook kısa ve güçlü; caption doğal Türkçe; CTA tek ve net; hashtag 4-8 adet olsun.',
+    'recommendedPostTime Türkiye saatiyle HH:MM olsun.',
+    'Geçmiş performans verisi yoksa bunu açıkça belirt; başarı garantisi verme.',
+    'Kullanıcı notu: ' + (safe.context || '-'),
+    'Ürün başlığı/dosya adı: ' + (safe.title || '-'),
+    'Medya tipi: ' + safe.mediaType,
+    'Ton tercihi: ' + safe.tone,
+    'Amaç tercihi: ' + safe.goal,
+    'Zaman dilimi: ' + safe.timezone,
+    'Medya notu: ' + (safe.mediaNote || '-'),
+    'Geçmiş sinyaller:',
+    buildHistoryText(safe.history)
   ].join('\n');
 
   try {
-    const client = getGeminiClient();
-    const mediaParts = [];
-    const dataPart = dataUrlToInputPart(safe.imageDataUrl);
-    if (dataPart) {
-      mediaParts.push(dataPart);
-    } else if (safe.filePath && safe.mimeType) {
-      mediaParts.push(await fileToGeminiInputPart(client, safe.filePath, safe.mimeType, safe.mediaType));
-    } else {
-      const remotePart = await imageUrlToInputPart(client, safe.imageUrl);
-      if (remotePart) mediaParts.push(remotePart);
-    }
+    var client = getGeminiClient();
+    var mediaParts = [];
+    var dataPart = dataUrlToInputPart(safe.imageDataUrl);
+    if (dataPart) mediaParts.push(dataPart);
+    else if (safe.filePath && safe.mimeType) mediaParts.push(await fileToGeminiInputPart(client, safe.filePath, safe.mimeType, safe.mediaType));
+    else if (safe.imageUrl) mediaParts.push(await imageUrlToInputPart(safe.imageUrl));
 
-    const result = await callGemini({
-      prompt,
+    var result = await callGemini({
+      prompt: prompt,
       systemInstruction: [
-        'Sen AdVise AI isimli profesyonel sosyal medya ve reklam yaratıcı direktörüsün.',
-        'Görsel/video ne varsa önce dikkatle analiz et; sonra gerçek kanıta dayalı içerik stratejisi üret.',
-        'Görselde veya kullanıcı notunda olmayan fiyat, kampanya, garanti, stok veya teknik özellik uydurma.',
-        'Yanıt tamamen doğal Türkçe olsun. Klişe yapay zekâ reklam dili kullanma.',
-      ].join('\\n'),
-      mediaParts,
+        'Sen AdVise AI isimli profesyonel yaratıcı direktörsün.',
+        'Fotoğraf ve videoyu gerçek bir kreatif yönetmen gibi incele.',
+        'Klişe ve robotik reklam dili kullanma.',
+        'Kanıtlanamayan bilgileri kesin gerçek gibi yazma.',
+        'Çıktı tamamen Türkçe ve uygulanabilir olsun.'
+      ].join('\n'),
+      mediaParts: mediaParts,
+      schema: OUTPUT_SCHEMA,
       maxOutputTokens: 1500
     });
     return normalizePack(result.parsed, safe, result.model);
-  } catch (e) {
-    console.error('[AI GEMINI ERROR]', e?.message || e);
-    return {
-      ...localPack(safe),
-      source: 'LOCAL_FALLBACK_AFTER_AI_ERROR',
-      error: clean(e?.message || 'Gemini çağrısı başarısız.', 800)
-    };
+  } catch (error) {
+    console.error('[AI GEMINI ERROR]', error && error.message || error);
+    return {...localPack(safe), source: 'LOCAL_FALLBACK_AFTER_AI_ERROR', error: clean(error && error.message || 'Gemini çağrısı başarısız.', 800)};
   }
 }
 
@@ -418,125 +321,53 @@ export async function generateCaption(input={}) {
 }
 
 export async function generateCaptionVariants(input={}) {
-  const safe = {
-    title: clean(input.title, 180) || 'Ürün',
-    context: clean(input.context, 900),
-    tone: clean(input.tone, 80) || 'samimi ve güven veren',
-    goal: clean(input.goal, 80) || 'mesaj',
-    language: clean(input.language, 30) || 'Türkçe'
-  };
-
-  const apiKey = String(process.env.GEMINI_API_KEY || '').trim();
-  if (!apiKey) {
-    const base = localPack(safe);
-    return {
-      source: 'LOCAL_FALLBACK',
-      model: null,
-      variants: [
-        {id: 'A', caption: base.caption, hook: base.hook, cta: base.cta, style: 'Doğrudan'},
-        {id: 'B', caption: `${safe.title}: İhtiyacın olan detayları tek yerde keşfet. ${base.cta}`, hook: `${safe.title} hakkında bunu biliyor musun?`, cta: base.cta, style: 'Merak uyandıran'},
-        {id: 'C', caption: `${safe.title} için kısa ve net bilgi. ${base.cta}`, hook: 'Kısa, net ve fayda odaklı.', cta: base.cta, style: 'Minimal'}
-      ]
-    };
+  var safe = {title: clean(input.title, 180) || 'Ürün', context: clean(input.context, 900), tone: clean(input.tone, 80) || 'samimi ve güven veren', goal: clean(input.goal, 80) || 'mesaj'};
+  if (!String(process.env.GEMINI_API_KEY || '').trim()) {
+    var base = localPack(safe);
+    return {source: 'LOCAL_FALLBACK', model: null, variants: [
+      {id: 'A', caption: base.caption, hook: base.hook, cta: base.cta, style: 'Doğrudan'},
+      {id: 'B', caption: safe.title + ': Detayları keşfet. ' + base.cta, hook: safe.title + ' hakkında bunu biliyor musun?', cta: base.cta, style: 'Merak uyandıran'},
+      {id: 'C', caption: safe.title + ': Kısa, net ve fayda odaklı. ' + base.cta, hook: 'Kısa, net ve fayda odaklı.', cta: base.cta, style: 'Minimal'}
+    ]};
   }
-
-  const client = getGeminiClient();
-  const prompt = [
-    'AdVise AI için aynı Instagram içeriğinin 3 farklı caption varyasyonunu üret.',
-    'Türkçe yaz, uydurma özellik veya fiyat ekleme.',
-    `Ürün: ${safe.title}`,
-    `Bilgi: ${safe.context || '-'}`,
-    `Ton: ${safe.tone}`,
-    `Amaç: ${safe.goal}`,
-    'Her varyant için id, caption, hook, cta ve style döndür.'
-  ].join('\\n');
-
-  const schema = {
-    type: 'object',
-    properties: {
-      variants: {
-        type: 'array',
-        minItems: 3,
-        maxItems: 3,
-        items: {
-          type: 'object',
-          properties: {
-            id: {type: 'string'},
-            caption: {type: 'string'},
-            hook: {type: 'string'},
-            cta: {type: 'string'},
-            style: {type: 'string'}
-          },
-          required: ['id', 'caption', 'hook', 'cta', 'style']
-        }
-      }
-    },
-    required: ['variants']
-  };
-
   try {
-    const interaction = await client.interactions.create({
-      model: MODEL,
-      input: prompt,
-      response_format: [
-        {
-          type: 'text',
-          mime_type: 'application/json',
-          schema
-        }
-      ],
-      generation_config: {
-        max_output_tokens: 1000
-      },
-      store: false
+    var result = await callGemini({
+      prompt: ['Aynı Instagram içeriğinin 3 farklı caption varyasyonunu üret.', 'Türkçe yaz.', 'Uydurma özellik veya fiyat ekleme.', 'Ürün: ' + safe.title, 'Bilgi: ' + (safe.context || '-'), 'Ton: ' + safe.tone, 'Amaç: ' + safe.goal].join('\n'),
+      systemInstruction: 'AdVise AI için kısa, doğal ve farklılaştırılmış Instagram metinleri üret.',
+      mediaParts: [],
+      schema: VARIANTS_SCHEMA,
+      maxOutputTokens: 1000
     });
-
-    const outputText = String(interaction?.output_text || '').trim();
-    const parsed = JSON.parse(outputText || '{}');
-    if (!Array.isArray(parsed.variants) || parsed.variants.length < 1) {
-      throw new Error('AI varyasyon cevabı geçersiz.');
-    }
-
-    return {source: 'GEMINI', model: MODEL, variants: parsed.variants.slice(0, 3)};
-  } catch (e) {
-    const base = localPack(safe);
-    console.error('[AI GEMINI VARIANTS ERROR]', e?.message || e);
-    return {
-      source: 'LOCAL_FALLBACK_AFTER_AI_ERROR',
-      model: null,
-      error: clean(e.message, 500),
-      variants: [
-        {id: 'A', caption: base.caption, hook: base.hook, cta: base.cta, style: 'Doğrudan'},
-        {id: 'B', caption: `${safe.title}: Detayları keşfet. ${base.cta}`, hook: `${safe.title} için doğru seçim neden önemli?`, cta: base.cta, style: 'Merak uyandıran'},
-        {id: 'C', caption: `${safe.title}: Kısa, net ve fayda odaklı. ${base.cta}`, hook: 'Kısa, net ve fayda odaklı.', cta: base.cta, style: 'Minimal'}
-      ]
-    };
+    return {source: 'GEMINI', model: result.model, variants: Array.isArray(result.parsed.variants) ? result.parsed.variants.slice(0, 3) : []};
+  } catch (error) {
+    var fallback = localPack(safe);
+    return {source: 'LOCAL_FALLBACK_AFTER_AI_ERROR', model: null, error: clean(error && error.message || 'Gemini varyasyon çağrısı başarısız.', 500), variants: [
+      {id: 'A', caption: fallback.caption, hook: fallback.hook, cta: fallback.cta, style: 'Doğrudan'},
+      {id: 'B', caption: safe.title + ': Detayları keşfet. ' + fallback.cta, hook: safe.title + ' için farklı bir açı.', cta: fallback.cta, style: 'Merak uyandıran'},
+      {id: 'C', caption: safe.title + ': Kısa, net ve fayda odaklı. ' + fallback.cta, hook: 'Kısa, net ve fayda odaklı.', cta: fallback.cta, style: 'Minimal'}
+    ]};
   }
 }
 
 export async function scoreCreative(input={}) {
-  const caption = clean(input.caption, 2200);
-  const hook = clean(input.hook, 300);
-  const cta = clean(input.cta, 300);
-  const hashtags = Array.isArray(input.hashtags) ? input.hashtags.length : 0;
-  const mediaType = String(input.mediaType || 'POST').toUpperCase();
-  const scores = {
+  var caption = clean(input.caption, 2200);
+  var hook = clean(input.hook, 300);
+  var cta = clean(input.cta, 300);
+  var hashtags = Array.isArray(input.hashtags) ? input.hashtags.length : 0;
+  var mediaType = String(input.mediaType || 'POST').toUpperCase();
+  var scores = {
     hook: Math.min(100, 30 + (hook.length ? Math.min(45, hook.length) : 0)),
     caption: Math.min(100, 35 + (caption.length ? Math.min(50, Math.round(caption.length / 20)) : 0)),
-    cta: Math.min(100, cta.length ? 82 : 30),
+    cta: cta.length ? 82 : 30,
     format: ['POST', 'REELS', 'CAROUSEL'].includes(mediaType) ? 85 : 55,
     hashtags: Math.min(100, hashtags * 14)
   };
-  scores.overall = Math.round(Object.values(scores).reduce((a, b) => a + b, 0) / Object.keys(scores).length);
+  scores.overall = Math.round(Object.values(scores).reduce(function(a, b) { return a + b; }, 0) / Object.keys(scores).length);
   scores.signal = scores.overall >= 80 ? 'Güçlü hazırlık sinyali' : scores.overall >= 60 ? 'Orta hazırlık sinyali' : 'İyileştirme gerekli';
-  return {source: 'HEURISTIC', scores, generatedAt: new Date().toISOString()};
+  return {source: 'HEURISTIC', scores: scores, generatedAt: new Date().toISOString()};
 }
 
 export function aiStatus() {
-  const configured = Boolean(String(process.env.GEMINI_API_KEY || '').trim());
-  return {
-    configured,
-    model: MODEL,
-    provider: configured ? 'GEMINI_INTERACTIONS' : 'LOCAL_FALLBACK'
-  };
+  var configured = Boolean(String(process.env.GEMINI_API_KEY || '').trim());
+  return {configured: configured, model: MODEL, provider: configured ? 'GEMINI_INTERACTIONS' : 'LOCAL_FALLBACK'};
 }
