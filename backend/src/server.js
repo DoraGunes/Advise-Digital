@@ -113,7 +113,14 @@ app.use(cors());
 app.use(express.json({limit: '2mb'}));
 app.use('/uploads', express.static(uploadDir));
 
-app.get('/health', (_req, res) => res.json({ok: true, app: 'AdVise AI', version: config.appVersion}));
+app.get('/health', (_req, res) => res.json({
+  ok: true,
+  app: 'AdVise AI',
+  version: config.appVersion,
+  buildMarker: 'MEDIA_FIX_2026_10_03_V2',
+  uploadMode: 'EXTENSION_AWARE',
+  aiImageMode: 'DIRECT_DATA_URL'
+}));
 
 app.post('/api/auth/login', async (req, res) => {
   try {
