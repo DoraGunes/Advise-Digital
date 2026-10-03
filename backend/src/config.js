@@ -23,6 +23,7 @@ export const config = {
   metaBusinessId: (process.env.META_BUSINESS_ID || '').trim(),
   metaPageId: (process.env.META_PAGE_ID || '').trim(),
   metaInstagramUserId: (process.env.META_INSTAGRAM_ID || '').trim(),
+  instagramUsername: (process.env.INSTAGRAM_USERNAME || '').trim(),
   metaOAuthScopes: (process.env.META_OAUTH_SCOPES || 'ads_management,business_management,pages_show_list,pages_read_engagement,instagram_basic,instagram_content_publish').split(',').map(x => x.trim()).filter(Boolean),
   publicBaseUrl: (process.env.PUBLIC_BASE_URL || 'http://localhost:3001').replace(/\/+$/, ''),
   aiModel: (process.env.OPENAI_MODEL || 'gpt-5.6-luna').trim(),
