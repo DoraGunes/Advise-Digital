@@ -328,8 +328,8 @@ app.post('/api/ads/create', allowRoles('ADMIN','CUSTOMER_ADMIN','OPERATOR'), asy
       activated: activate
     });
   } catch (e) {
-    console.error('[ADS CREATE] failed:', e.message);
-    res.status(502).json({error: e.message, operation: 'ads_create'});
+    console.error(`[ADS CREATE] failed stage=${stage}:`, e.message);
+    res.status(502).json({error: e.message, operation: 'ads_create', stage});
   }
 });
 
