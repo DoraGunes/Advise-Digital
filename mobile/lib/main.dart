@@ -26,6 +26,97 @@ class AdviseDigitalApp extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final scheme = ColorScheme.fromSeed(seedColor: const Color(0xFF4F46E5), brightness: Brightness.light);
+    return MaterialApp(
+      debugShowCheckedModeBanner: false,
+      title: AppConfig.appName,
+      theme: ThemeData(
+        useMaterial3: true,
+        colorScheme: scheme,
+        scaffoldBackgroundColor: const Color(0xFFF6F7FB),
+        appBarTheme: const AppBarTheme(centerTitle: false, elevation: 0, backgroundColor: Color(0xFFF6F7FB)),
+        cardTheme: const CardThemeData(margin: EdgeInsets.zero, elevation: 0, surfaceTintColor: Colors.white),
+        inputDecorationTheme: InputDecorationTheme(
+          filled: true,
+          fillColor: Colors.white,
+          border: OutlineInputBorder(borderRadius: BorderRadius.circular(16), borderSide: BorderSide.none),
+          enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(16), borderSide: BorderSide(color: Color(0xFFE6E8F0))),
+          focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(16), borderSide: BorderSide(color: scheme.primary, width: 1.4)),
+        ),
+      ),
+      home: const LoginPage(),
+    );
+  }
+}
+
+String _formatDate(dynamic value) {
+  if (value == null || value.toString().isEmpty) return '-';
+  final d = DateTime.tryParse(value.toString());
+  if (d == null) return value.toString();
+  final local = d.toLocal();
+  String two(int n) => n.toString().padLeft(2, '0');
+  return '${two(local.day)}.${two(local.month)}.${local.year} ${two(local.hour)}:${two(local.minute)}';
+}
+
+String _upper(dynamic value) => value?.toString().toUpperCase() ?? '';
+String _relativeDate(dynamic value) {
+  final d = DateTime.tryParse(value?.toString() ?? '');
+  if (d == null) return '-';
+  final diff = DateTime.now().difference(d.toLocal());
+  if (diff.inMinutes < 1) return 'az önce';
+  if (diff.inMinutes < 60) return '${diff.inMinutes} dk önce';
+  if (diff.inHours < 24) return '${diff.inHours} sa önce';
+  if (diff.inDays < 7) return '${diff.inDays} gün önce';
+  return _formatDate(value).split(' ').first;
+}
+
+class LoginPage extends StatefulWidget {
+  const LoginPage({super.key});
+  @override
+  State<LoginPage> createState() => _LoginPageState();
+}
+
+class _LoginPageState extends State<LoginPage> {
+  final username = TextEditingController();
+  final password = TextEditingController();
+  bool loading = false;
+  bool hidePassword = true;
+  String? error;
+
+  @override
+  void dispose() {
+    username.dispose();
+    password.dispose();
+    super.dispose();
+  }
+
+  Future<void> _login() async {
+    if (username.text.trim().isEmpty || password.text.isEmpty) {
+      setState(() => error = 'Kullanıcı adı ve şifre gerekli.');
+      return;
+    }
+    setState(() {
+      loading = true;
+      error = null;
+    });
+    try {
+      final result = await Api.login(username.text, password.text);
+      final user = Map<String, dynamic>.from(result['user'] ?? const {});
+      if (!mounted) return;
+      final role = _upper(user['role']);
+      Navigator.pushReplacement(
+        context,
+        MaterialPageRoute(builder: (_) => role == 'ADMIN' ? const AdminDashboard() : const CustomerDashboard()),
+      );
+    } catch (e) {
+      if (mounted) setState(() => error = e.toString());
+    } finally {
+      if (mounted) setState(() => loading = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
     return Scaffold(
       body: Container(
         decoration: const BoxDecoration(
@@ -564,14 +655,9 @@ class _CustomerDashboardState extends State<CustomerDashboard> {
         const SizedBox(height: 10),
         ListTile(leading: const Icon(Icons.image_outlined), title: const Text('Fotoğraf / Gönderi'), onTap: () => Navigator.pop(ctx, 'IMAGE')),
         ListTile(leading: const Icon(Icons.video_library_outlined), title: const Text('Video / Reels'), onTap: () => Navigator.pop(ctx, 'VIDEO')),
-        ListTile(leading: const Icon(Icons.library_add_outlined), title: const Text('Toplu içerik (en fazla 8)'), onTap: () => Navigator.pop(ctx, 'BULK')),
       ]))),
     );
     if(mode==null || !mounted) return;
-    if(mode=='BULK') {
-      await _bulkUpload();
-      return;
-    }
     final picker=ImagePicker();
     final image=mode=='VIDEO' ? await picker.pickVideo(source:ImageSource.gallery) : await picker.pickImage(source:ImageSource.gallery, imageQuality:90);
     if(image==null || !mounted) return;
@@ -596,123 +682,6 @@ class _CustomerDashboardState extends State<CustomerDashboard> {
       await Api.uploadPost(image.path,title.text,caption.text,link.text,autoPublish:autoPublish,useAI:useAI,mediaType:mode=='VIDEO'?'VIDEO':'IMAGE',aiContext:aiContext.text);
       if(mounted){ScaffoldMessenger.of(context).showSnackBar(SnackBar(content:Text(mode=='VIDEO'?'Reel içeriği kaydedildi ve planlama kuyruğuna alındı.':'İçerik kaydedildi ve planlama kuyruğuna alındı.')));await _load();}
     }catch(e){if(mounted)ScaffoldMessenger.of(context).showSnackBar(SnackBar(content:Text(e.toString())));}finally{title.dispose();caption.dispose();link.dispose();aiContext.dispose();}
-  }
-
-  Future<void> _bulkUpload() async {
-    final picker = ImagePicker();
-    final files = await picker.pickMultipleMedia(limit: 8, requestFullMetadata: false);
-    if (files.isEmpty || !mounted) return;
-
-    bool autoPublish = true;
-    bool useAI = true;
-    final aiContext = TextEditingController();
-
-    final ok = await showDialog<bool>(
-      context: context,
-      builder: (ctx) => StatefulBuilder(
-        builder: (ctx, setDialog) => AlertDialog(
-          title: const Text('Toplu içerik kuyruğu'),
-          content: SizedBox(
-            width: double.maxFinite,
-            child: SingleChildScrollView(
-              child: Column(
-                children: [
-                  Text(
-                    '${files.length} içerik seçildi. Seçim sırası korunacak ve içerikler sırayla kuyruğa alınacak.',
-                    style: const TextStyle(height: 1.4),
-                  ),
-                  const SizedBox(height: 12),
-                  ...files.asMap().entries.map((entry) {
-                    final i = entry.key + 1;
-                    final file = entry.value;
-                    final isVideo = RegExp(r'\.(mp4|mov|m4v|avi|webm)
-    final scheme = ColorScheme.fromSeed(seedColor: const Color(0xFF4F46E5), brightness: Brightness.light);
-    return MaterialApp(
-      debugShowCheckedModeBanner: false,
-      title: AppConfig.appName,
-      theme: ThemeData(
-        useMaterial3: true,
-        colorScheme: scheme,
-        scaffoldBackgroundColor: const Color(0xFFF6F7FB),
-        appBarTheme: const AppBarTheme(centerTitle: false, elevation: 0, backgroundColor: Color(0xFFF6F7FB)),
-        cardTheme: const CardThemeData(margin: EdgeInsets.zero, elevation: 0, surfaceTintColor: Colors.white),
-        inputDecorationTheme: InputDecorationTheme(
-          filled: true,
-          fillColor: Colors.white,
-          border: OutlineInputBorder(borderRadius: BorderRadius.circular(16), borderSide: BorderSide.none),
-          enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(16), borderSide: BorderSide(color: Color(0xFFE6E8F0))),
-          focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(16), borderSide: BorderSide(color: scheme.primary, width: 1.4)),
-        ),
-      ),
-      home: const LoginPage(),
-    );
-  }
-}
-
-String _formatDate(dynamic value) {
-  if (value == null || value.toString().isEmpty) return '-';
-  final d = DateTime.tryParse(value.toString());
-  if (d == null) return value.toString();
-  final local = d.toLocal();
-  String two(int n) => n.toString().padLeft(2, '0');
-  return '${two(local.day)}.${two(local.month)}.${local.year} ${two(local.hour)}:${two(local.minute)}';
-}
-
-String _upper(dynamic value) => value?.toString().toUpperCase() ?? '';
-String _relativeDate(dynamic value) {
-  final d = DateTime.tryParse(value?.toString() ?? '');
-  if (d == null) return '-';
-  final diff = DateTime.now().difference(d.toLocal());
-  if (diff.inMinutes < 1) return 'az önce';
-  if (diff.inMinutes < 60) return '${diff.inMinutes} dk önce';
-  if (diff.inHours < 24) return '${diff.inHours} sa önce';
-  if (diff.inDays < 7) return '${diff.inDays} gün önce';
-  return _formatDate(value).split(' ').first;
-}
-
-class LoginPage extends StatefulWidget {
-  const LoginPage({super.key});
-  @override
-  State<LoginPage> createState() => _LoginPageState();
-}
-
-class _LoginPageState extends State<LoginPage> {
-  final username = TextEditingController();
-  final password = TextEditingController();
-  bool loading = false;
-  bool hidePassword = true;
-  String? error;
-
-  @override
-  void dispose() {
-    username.dispose();
-    password.dispose();
-    super.dispose();
-  }
-
-  Future<void> _login() async {
-    if (username.text.trim().isEmpty || password.text.isEmpty) {
-      setState(() => error = 'Kullanıcı adı ve şifre gerekli.');
-      return;
-    }
-    setState(() {
-      loading = true;
-      error = null;
-    });
-    try {
-      final result = await Api.login(username.text, password.text);
-      final user = Map<String, dynamic>.from(result['user'] ?? const {});
-      if (!mounted) return;
-      final role = _upper(user['role']);
-      Navigator.pushReplacement(
-        context,
-        MaterialPageRoute(builder: (_) => role == 'ADMIN' ? const AdminDashboard() : const CustomerDashboard()),
-      );
-    } catch (e) {
-      if (mounted) setState(() => error = e.toString());
-    } finally {
-      if (mounted) setState(() => loading = false);
-    }
   }
 
   @override
@@ -1014,89 +983,16 @@ class _PostsPageState extends State<PostsPage> {
     catch (e) { if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.toString()))); }
   }
 
-  Future<void> _setCover(dynamic post) async {
-    final picked = await ImagePicker().pickImage(source: ImageSource.gallery, imageQuality: 92);
-    if (picked == null || !mounted) return;
-    try {
-      await Api.uploadPostCover(post['id'].toString(), picked.path);
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Reels kapağı kaydedildi.')));
-        await _load();
-      }
-    } catch (e) {
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.toString())));
-    }
-  }
-
   @override
-  Widget build(BuildContext context) => Scaffold(appBar: AppBar(leading: _mainHomeLeading(context), title: const Text('İçerikler', style: TextStyle(fontWeight: FontWeight.w800)), actions: [IconButton(onPressed: _load, icon: const Icon(Icons.refresh_rounded))]), drawer: const _MainDrawer(admin: false), body: loading ? const Center(child: CircularProgressIndicator()) : RefreshIndicator(onRefresh: _load, child: ListView(padding: const EdgeInsets.all(14), children: [if (posts.isEmpty) _EmptyState(icon: Icons.photo_library_outlined, title: 'İçerik yok', subtitle: 'Dashboard üzerinden ilk görselini ekleyebilirsin.'), ...posts.map((p) => _PostCard(post: p, onDelete: () => _delete(p), onPublish: () => _publish(p), onCover: () => _setCover(p))), const SizedBox(height: 18), const _PoweredBy()])));
+  Widget build(BuildContext context) => Scaffold(appBar: AppBar(leading: _mainHomeLeading(context), title: const Text('İçerikler', style: TextStyle(fontWeight: FontWeight.w800)), actions: [IconButton(onPressed: _load, icon: const Icon(Icons.refresh_rounded))]), drawer: const _MainDrawer(admin: false), body: loading ? const Center(child: CircularProgressIndicator()) : RefreshIndicator(onRefresh: _load, child: ListView(padding: const EdgeInsets.all(14), children: [if (posts.isEmpty) _EmptyState(icon: Icons.photo_library_outlined, title: 'İçerik yok', subtitle: 'Dashboard üzerinden ilk görselini ekleyebilirsin.'), ...posts.map((p) => _PostCard(post: p, onDelete: () => _delete(p), onPublish: () => _publish(p))), const SizedBox(height: 18), const _PoweredBy()])));
 }
 
 class _PostCard extends StatelessWidget {
   final Map<String, dynamic> post;
-  final VoidCallback onDelete, onPublish, onCover;
-  const _PostCard({required this.post, required this.onDelete, required this.onPublish, required this.onCover});
-
+  final VoidCallback onDelete, onPublish;
+  const _PostCard({required this.post, required this.onDelete, required this.onPublish});
   @override
-  Widget build(BuildContext context) {
-    final isReel = post['mediaType']?.toString().toUpperCase() == 'REELS';
-    final cover = post['coverPublicUrl']?.toString() ?? '';
-    final postImage = post['publicUrl']?.toString() ?? '';
-    final previewUrl = cover.isNotEmpty ? cover : (!isReel ? postImage : '');
-
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 10),
-      child: _GlassCard(
-        child: Padding(
-          padding: const EdgeInsets.all(12),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Container(
-                height: 180,
-                width: double.infinity,
-                decoration: BoxDecoration(
-                  color: const Color(0xFFF0F1F6),
-                  borderRadius: BorderRadius.circular(16),
-                ),
-                clipBehavior: Clip.antiAlias,
-                child: previewUrl.startsWith('http')
-                    ? Image.network(previewUrl, fit: BoxFit.cover, errorBuilder: (_, __, ___) => const Icon(Icons.broken_image_outlined, size: 58))
-                    : Center(child: Icon(isReel ? Icons.video_library_outlined : Icons.image_outlined, size: 58)),
-              ),
-              const SizedBox(height: 12),
-              Row(
-                children: [
-                  Expanded(child: Text(post['title']?.toString() ?? '-', style: const TextStyle(fontSize: 17, fontWeight: FontWeight.w800))),
-                  _StatusBadge(text: _upper(post['publishStatus'] ?? 'READY'), positive: _upper(post['publishStatus']) == 'PUBLISHED'),
-                ],
-              ),
-              const SizedBox(height: 4),
-              Text(post['caption']?.toString() ?? '', maxLines: 3, overflow: TextOverflow.ellipsis),
-              const SizedBox(height: 10),
-              Row(
-                children: [
-                  Expanded(child: OutlinedButton.icon(onPressed: onPublish, icon: const Icon(Icons.publish_rounded), label: const Text('Yayınla'))),
-                  if (isReel) ...[
-                    const SizedBox(width: 8),
-                    OutlinedButton.icon(onPressed: onCover, icon: const Icon(Icons.photo_camera_back_outlined), label: const Text('Kapak')),
-                  ],
-                  const SizedBox(width: 4),
-                  IconButton(tooltip: 'Sil', onPressed: onDelete, icon: const Icon(Icons.delete_outline_rounded)),
-                ],
-              ),
-              if (isReel && cover.isNotEmpty)
-                const Padding(
-                  padding: EdgeInsets.only(top: 4),
-                  child: Text('Özel Reels kapağı hazır.', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w700)),
-                ),
-              const Align(alignment: Alignment.centerRight, child: _PoweredBy(compact: true)),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
+  Widget build(BuildContext context) => Padding(padding: const EdgeInsets.only(bottom: 10), child: _GlassCard(child: Padding(padding: const EdgeInsets.all(12), child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [Container(height: 150, width: double.infinity, decoration: BoxDecoration(color: const Color(0xFFF0F1F6), borderRadius: BorderRadius.circular(16)), child: const Icon(Icons.image_outlined, size: 58)), const SizedBox(height: 12), Row(children: [Expanded(child: Text(post['title']?.toString() ?? '-', style: const TextStyle(fontSize: 17, fontWeight: FontWeight.w800))), _StatusBadge(text: _upper(post['publishStatus'] ?? 'READY'), positive: _upper(post['publishStatus']) == 'PUBLISHED')]), const SizedBox(height: 4), Text(post['caption']?.toString() ?? '', maxLines: 3, overflow: TextOverflow.ellipsis), const SizedBox(height: 10), Row(children: [Expanded(child: OutlinedButton.icon(onPressed: onPublish, icon: const Icon(Icons.publish_rounded), label: const Text('Yayınla'))), IconButton(tooltip: 'Sil', onPressed: onDelete, icon: const Icon(Icons.delete_outline_rounded))]), const Align(alignment: Alignment.centerRight, child: _PoweredBy(compact: true))]))));
 }
 
 class _PostTile extends StatelessWidget {
@@ -1599,260 +1495,3 @@ class _InfoCard extends StatelessWidget { final IconData icon; final String titl
 class _EmptyState extends StatelessWidget { final IconData icon; final String title,subtitle; const _EmptyState({required this.icon,required this.title,required this.subtitle}); @override Widget build(BuildContext context)=>_GlassCard(child:Padding(padding:const EdgeInsets.all(24),child:Column(children:[Icon(icon,size:48,color:Colors.grey.shade500),const SizedBox(height:10),Text(title,style:const TextStyle(fontSize:17,fontWeight:FontWeight.w800)),const SizedBox(height:6),Text(subtitle,textAlign:TextAlign.center,style:TextStyle(color:Colors.grey.shade700,height:1.4))]))); }
 class _PoweredBy extends StatelessWidget { final bool inverse,compact; const _PoweredBy({this.inverse=false,this.compact=false}); @override Widget build(BuildContext context){ final c=inverse?Colors.white.withValues(alpha:.70):Colors.grey.shade500; return Center(child:Opacity(opacity:.95,child:Row(mainAxisSize:MainAxisSize.min,children:[Icon(Icons.auto_awesome_rounded,size:compact?12:14,color:c),const SizedBox(width:4),Text('Powered by AdVise AI',style:TextStyle(fontSize:compact?10:11,fontWeight:FontWeight.w700,color:c,letterSpacing:.2))]))); } }
 
-, caseSensitive: false).hasMatch(file.name);
-                    return ListTile(
-                      dense: true,
-                      contentPadding: EdgeInsets.zero,
-                      leading: CircleAvatar(radius: 15, child: Text('$i')),
-                      title: Text(file.name, maxLines: 1, overflow: TextOverflow.ellipsis),
-                      subtitle: Text(isVideo ? 'REELS' : 'GÖNDERİ'),
-                    );
-                  }),
-                  const SizedBox(height: 8),
-                  TextField(
-                    controller: aiContext,
-                    maxLines: 3,
-                    decoration: const InputDecoration(
-                      labelText: 'AI için ortak bilgi (opsiyonel)',
-                      hintText: 'Tüm içerikler için ortak ürün / kampanya bilgisi',
-                    ),
-                  ),
-                  const SizedBox(height: 6),
-                  SwitchListTile(
-                    contentPadding: EdgeInsets.zero,
-                    title: const Text('AI ile otomatik metin üret'),
-                    subtitle: const Text('Her içerik için caption, hook, CTA ve hashtag üretir.'),
-                    value: useAI,
-                    onChanged: (v) => setDialog(() => useAI = v),
-                  ),
-                  SwitchListTile(
-                    contentPadding: EdgeInsets.zero,
-                    title: const Text('Otomatik yayınla'),
-                    subtitle: const Text('İçerikler öğrenilmiş en uygun saatlere sırayla planlanır.'),
-                    value: autoPublish,
-                    onChanged: (v) => setDialog(() => autoPublish = v),
-                  ),
-                ],
-              ),
-            ),
-          ),
-          actions: [
-            TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('İptal')),
-            FilledButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('KUYRUKA EKLE')),
-          ],
-        ),
-      ),
-    );
-
-    if (ok != true) {
-      aiContext.dispose();
-      return;
-    }
-
-    try {
-      final result = await Api.uploadPostsBulk(
-        files.map((x) => x.path).toList(),
-        autoPublish: autoPublish,
-        useAI: useAI,
-        aiContext: aiContext.text,
-      );
-      if (!mounted) return;
-      final order = result['order'] is List ? List<dynamic>.from(result['order']) : const <dynamic>[];
-      final lines = order.asMap().entries.map((entry) {
-        final row = entry.value is Map ? Map<String, dynamic>.from(entry.value) : <String, dynamic>{};
-        final type = row['mediaType']?.toString() == 'REELS' ? 'REELS' : 'POST';
-        final when = row['nextPublishAt']?.toString() ?? '-';
-        return '${entry.key + 1}. $type • $when';
-      }).join('\n');
-      await showDialog<void>(
-        context: context,
-        builder: (ctx) => AlertDialog(
-          title: Text('${result['count'] ?? files.length} içerik kuyruğa alındı'),
-          content: SelectableText(
-            '${result['skipped'] ?? 0} içerik atlandı.\n\n$lines',
-          ),
-          actions: [
-            FilledButton(onPressed: () => Navigator.pop(ctx), child: const Text('TAMAM')),
-          ],
-        ),
-      );
-      await _load();
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.toString())));
-      }
-    } finally {
-      aiContext.dispose();
-    }
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final scheme = ColorScheme.fromSeed(seedColor: const Color(0xFF4F46E5), brightness: Brightness.light);
-    return MaterialApp(
-      debugShowCheckedModeBanner: false,
-      title: AppConfig.appName,
-      theme: ThemeData(
-        useMaterial3: true,
-        colorScheme: scheme,
-        scaffoldBackgroundColor: const Color(0xFFF6F7FB),
-        appBarTheme: const AppBarTheme(centerTitle: false, elevation: 0, backgroundColor: Color(0xFFF6F7FB)),
-        cardTheme: const CardThemeData(margin: EdgeInsets.zero, elevation: 0, surfaceTintColor: Colors.white),
-        inputDecorationTheme: InputDecorationTheme(
-          filled: true,
-          fillColor: Colors.white,
-          border: OutlineInputBorder(borderRadius: BorderRadius.circular(16), borderSide: BorderSide.none),
-          enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(16), borderSide: BorderSide(color: Color(0xFFE6E8F0))),
-          focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(16), borderSide: BorderSide(color: scheme.primary, width: 1.4)),
-        ),
-      ),
-      home: const LoginPage(),
-    );
-  }
-}
-
-String _formatDate(dynamic value) {
-  if (value == null || value.toString().isEmpty) return '-';
-  final d = DateTime.tryParse(value.toString());
-  if (d == null) return value.toString();
-  final local = d.toLocal();
-  String two(int n) => n.toString().padLeft(2, '0');
-  return '${two(local.day)}.${two(local.month)}.${local.year} ${two(local.hour)}:${two(local.minute)}';
-}
-
-String _upper(dynamic value) => value?.toString().toUpperCase() ?? '';
-String _relativeDate(dynamic value) {
-  final d = DateTime.tryParse(value?.toString() ?? '');
-  if (d == null) return '-';
-  final diff = DateTime.now().difference(d.toLocal());
-  if (diff.inMinutes < 1) return 'az önce';
-  if (diff.inMinutes < 60) return '${diff.inMinutes} dk önce';
-  if (diff.inHours < 24) return '${diff.inHours} sa önce';
-  if (diff.inDays < 7) return '${diff.inDays} gün önce';
-  return _formatDate(value).split(' ').first;
-}
-
-class LoginPage extends StatefulWidget {
-  const LoginPage({super.key});
-  @override
-  State<LoginPage> createState() => _LoginPageState();
-}
-
-class _LoginPageState extends State<LoginPage> {
-  final username = TextEditingController();
-  final password = TextEditingController();
-  bool loading = false;
-  bool hidePassword = true;
-  String? error;
-
-  @override
-  void dispose() {
-    username.dispose();
-    password.dispose();
-    super.dispose();
-  }
-
-  Future<void> _login() async {
-    if (username.text.trim().isEmpty || password.text.isEmpty) {
-      setState(() => error = 'Kullanıcı adı ve şifre gerekli.');
-      return;
-    }
-    setState(() {
-      loading = true;
-      error = null;
-    });
-    try {
-      final result = await Api.login(username.text, password.text);
-      final user = Map<String, dynamic>.from(result['user'] ?? const {});
-      if (!mounted) return;
-      final role = _upper(user['role']);
-      Navigator.pushReplacement(
-        context,
-        MaterialPageRoute(builder: (_) => role == 'ADMIN' ? const AdminDashboard() : const CustomerDashboard()),
-      );
-    } catch (e) {
-      if (mounted) setState(() => error = e.toString());
-    } finally {
-      if (mounted) setState(() => loading = false);
-    }
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      body: Container(
-        decoration: const BoxDecoration(
-          gradient: LinearGradient(begin: Alignment.topCenter, end: Alignment.bottomCenter, colors: [Color(0xFFF0F2FF), Color(0xFFF9FAFC)]),
-        ),
-        child: SafeArea(
-          child: Center(
-            child: SingleChildScrollView(
-              padding: const EdgeInsets.all(24),
-              child: ConstrainedBox(
-                constraints: const BoxConstraints(maxWidth: 430),
-                child: Column(
-                  children: [
-                    Container(
-                      padding: const EdgeInsets.all(12),
-                      decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(28), boxShadow: const [BoxShadow(blurRadius: 28, color: Color(0x19000000), offset: Offset(0, 10))]),
-                      child: ClipRRect(borderRadius: BorderRadius.circular(20), child: Image.asset('assets/advise_logo.jpg', width: 150, height: 150, fit: BoxFit.contain)),
-                    ),
-                    const SizedBox(height: 18),
-                    const Text('ADVISE DIGITAL', style: TextStyle(fontSize: 28, fontWeight: FontWeight.w900, letterSpacing: 1.1)),
-                    const SizedBox(height: 6),
-                    Text('Reklam yönetimi • optimizasyon • otomasyon', style: TextStyle(color: Colors.grey.shade700)),
-                    const SizedBox(height: 24),
-                    _GlassCard(
-                      child: Padding(
-                        padding: const EdgeInsets.all(18),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            const _Eyebrow('GÜVENLİ GİRİŞ'),
-                            const SizedBox(height: 6),
-                            const Text('Hesabına giriş yap', style: TextStyle(fontSize: 22, fontWeight: FontWeight.w800)),
-                            const SizedBox(height: 18),
-                            TextField(controller: username, textInputAction: TextInputAction.next, decoration: const InputDecoration(labelText: 'Kullanıcı adı', prefixIcon: Icon(Icons.person_outline))),
-                            const SizedBox(height: 12),
-                            TextField(
-                              controller: password,
-                              obscureText: hidePassword,
-                              onSubmitted: (_) => _login(),
-                              decoration: InputDecoration(
-                                labelText: 'Şifre',
-                                prefixIcon: const Icon(Icons.lock_outline),
-                                suffixIcon: IconButton(onPressed: () => setState(() => hidePassword = !hidePassword), icon: Icon(hidePassword ? Icons.visibility_outlined : Icons.visibility_off_outlined)),
-                              ),
-                            ),
-                            if (error != null) ...[
-                              const SizedBox(height: 12),
-                              Container(width: double.infinity, padding: const EdgeInsets.all(12), decoration: BoxDecoration(color: const Color(0xFFFFF0F0), borderRadius: BorderRadius.circular(12)), child: Text(error!, style: const TextStyle(color: Color(0xFFB42318)))),
-                            ],
-                            const SizedBox(height: 16),
-                            SizedBox(
-                              width: double.infinity,
-                              height: 54,
-                              child: FilledButton.icon(
-                                onPressed: loading ? null : _login,
-                                icon: loading ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2)) : const Icon(Icons.login_rounded),
-                                label: Text(loading ? 'GİRİŞ YAPILIYOR...' : 'GİRİŞ YAP'),
-                              ),
-                            ),
-                            const SizedBox(height: 6),
-                            Center(child: TextButton.icon(onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const KeyPage())), icon: const Icon(Icons.link_rounded), label: const Text('Bağlantı ayarları'))),
-                          ],
-                        ),
-                      ),
-                    ),
-                    const SizedBox(height: 18),
-                    const _PoweredBy(),
-                  ],
-                ),
-              ),
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-}
