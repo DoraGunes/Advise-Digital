@@ -1,6 +1,7 @@
 import {config} from './config.js';
 
 const MODEL = process.env.GEMINI_MODEL || config.aiModel || 'gemini-3.8-flash';
+const FALLBACK_MODEL = process.env.GEMINI_FALLBACK_MODEL || 'gemini-3.7-flash';
 const API_BASE_URL = 'https://generativelanguage.googleapis.com/v1beta/models';
 
 // Gemini generateContent responseSchema uses a restricted Schema shape.
@@ -93,12 +94,12 @@ function localPack(input={}) {
   };
 }
 
-function normalizePack(raw, input={}) {
+function normalizePack(raw, input={}, model=MODEL) {
   const fallback = localPack(input);
   const pack = raw && typeof raw === 'object' ? raw : {};
   return {
     source: 'GEMINI',
-    model: MODEL,
+    model,
     productName: clean(pack.productName, 180) || clean(input.title, 180) || 'Ürün',
     brand: clean(pack.brand, 100),
     model: clean(pack.model, 120),
@@ -190,60 +191,104 @@ async function callGemini({prompt, imageDataUrl='', imageUrl='', maxOutputTokens
     if (remoteImagePart) parts.push(remoteImagePart);
   }
 
-  console.log('[AI GEMINI REQUEST]', {
-    model: MODEL,
-    apiUrl: `${API_BASE_URL}/${MODEL}:generateContent`,
-    hasImage: parts.length > 1
-  });
+  const models = Array.from(new Set([MODEL, FALLBACK_MODEL].filter(Boolean)));
+  let lastError = null;
 
-  const response = await fetch(
-    `${API_BASE_URL}/${encodeURIComponent(MODEL)}:generateContent`,
-    {
-      method: 'POST',
-      headers: {
-        'content-type': 'application/json',
-        'x-goog-api-key': apiKey
-      },
-      body: JSON.stringify({
-        contents: [{role: 'user', parts}],
-        generationConfig: {
-          responseMimeType: 'application/json',
-          responseSchema: OUTPUT_SCHEMA,
-          maxOutputTokens
+  for (const model of models) {
+    const retryableStatuses = new Set([408, 429, 500, 502, 503, 504]);
+
+    for (let attempt = 1; attempt <= 3; attempt++) {
+      console.log('[AI GEMINI REQUEST]', {
+        model,
+        attempt,
+        apiUrl: `${API_BASE_URL}/${model}:generateContent`,
+        hasImage: parts.length > 1
+      });
+
+      let response;
+      try {
+        response = await fetch(
+          `${API_BASE_URL}/${encodeURIComponent(model)}:generateContent`,
+          {
+            method: 'POST',
+            headers: {
+              'content-type': 'application/json',
+              'x-goog-api-key': apiKey
+            },
+            body: JSON.stringify({
+              contents: [{role: 'user', parts}],
+              generationConfig: {
+                responseMimeType: 'application/json',
+                responseSchema: OUTPUT_SCHEMA,
+                maxOutputTokens
+              }
+            }),
+            signal: AbortSignal.timeout(90000)
+          }
+        );
+      } catch (e) {
+        lastError = e;
+        console.error('[AI GEMINI NETWORK ERROR]', {model, attempt, error: e?.message || String(e)});
+        if (attempt < 3) {
+          await new Promise(resolve => setTimeout(resolve, 1000 * (2 ** (attempt - 1))));
+          continue;
         }
-      }),
-      signal: AbortSignal.timeout(90000)
+        break;
+      }
+
+      const data = await response.json().catch(() => ({}));
+      console.log('[AI GEMINI RESPONSE]', {model, attempt, status: response.status, ok: response.ok});
+
+      if (response.ok) {
+        const outputText = Array.isArray(data?.candidates?.[0]?.content?.parts)
+          ? data.candidates[0].content.parts
+              .map(part => String(part?.text || ''))
+              .join('')
+              .trim()
+          : '';
+
+        if (!outputText) {
+          const finishReason = data?.candidates?.[0]?.finishReason || '-';
+          lastError = new Error(`Gemini boş cevap döndürdü. finishReason=${finishReason}`);
+          break;
+        }
+
+        try {
+          return {
+            parsed: JSON.parse(outputText),
+            model
+          };
+        } catch {
+          lastError = new Error('Gemini yapılandırılmış JSON cevabı çözülemedi.');
+          break;
+        }
+      }
+
+      const message =
+        data?.error?.message ||
+        data?.message ||
+        `Gemini API ${response.status}`;
+      lastError = new Error(message);
+
+      if (!retryableStatuses.has(response.status) || attempt === 3) {
+        break;
+      }
+
+      const waitMs = 1000 * (2 ** (attempt - 1));
+      console.warn('[AI GEMINI RETRY]', {model, status: response.status, attempt, waitMs});
+      await new Promise(resolve => setTimeout(resolve, waitMs));
     }
-  );
 
-  const data = await response.json().catch(() => ({}));
-  console.log('[AI GEMINI RESPONSE]', {status: response.status, ok: response.ok});
-
-  if (!response.ok) {
-    const message =
-      data?.error?.message ||
-      data?.message ||
-      `Gemini API ${response.status}`;
-    throw new Error(message);
+    if (model !== models[models.length - 1]) {
+      console.warn('[AI GEMINI MODEL FALLBACK]', {
+        from: model,
+        to: models[models.indexOf(model) + 1],
+        reason: lastError?.message || 'temporary model failure'
+      });
+    }
   }
 
-  const outputText = Array.isArray(data?.candidates?.[0]?.content?.parts)
-    ? data.candidates[0].content.parts
-        .map(part => String(part?.text || ''))
-        .join('')
-        .trim()
-    : '';
-
-  if (!outputText) {
-    const finishReason = data?.candidates?.[0]?.finishReason || '-';
-    throw new Error(`Gemini boş cevap döndürdü. finishReason=${finishReason}`);
-  }
-
-  try {
-    return JSON.parse(outputText);
-  } catch {
-    throw new Error('Gemini yapılandırılmış JSON cevabı çözülemedi.');
-  }
+  throw lastError || new Error('Gemini çağrısı başarısız.');
 }
 
 export async function generateContentPack(input={}) {
@@ -306,13 +351,13 @@ export async function generateContentPack(input={}) {
   ].join('\n');
 
   try {
-    const parsed = await callGemini({
+    const result = await callGemini({
       prompt,
       imageDataUrl: safe.imageDataUrl,
       imageUrl: safe.imageUrl,
       maxOutputTokens: 1500
     });
-    return normalizePack(parsed, safe);
+    return normalizePack(result.parsed, safe, result.model);
   } catch (e) {
     console.error('[AI GEMINI ERROR]', e?.message || e);
     return {
