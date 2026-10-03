@@ -26,7 +26,7 @@ export const config = {
   instagramUsername: (process.env.INSTAGRAM_USERNAME || '').trim(),
   metaOAuthScopes: (process.env.META_OAUTH_SCOPES || 'ads_management,business_management,pages_show_list,pages_read_engagement,instagram_basic,instagram_content_publish').split(',').map(x => x.trim()).filter(Boolean),
   publicBaseUrl: (process.env.PUBLIC_BASE_URL || 'http://localhost:3001').replace(/\/+$/, ''),
-  aiModel: (process.env.OPENAI_MODEL || 'gpt-5.6-luna').trim(),
+  aiModel: (process.env.OPENAI_MODEL || 'gpt-6-luna').trim().replace(/^gpt-5\.6-luna$/i, 'gpt-6-luna'),
   publishMaxRetries: Math.max(1, Math.min(5, Number(process.env.PUBLISH_MAX_RETRIES || 3))),
   publishRetryMinutes: Math.max(1, Math.min(120, Number(process.env.PUBLISH_RETRY_MINUTES || 10))),
   timezone: process.env.TIMEZONE || 'Europe/Istanbul',
