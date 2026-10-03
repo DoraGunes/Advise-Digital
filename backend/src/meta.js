@@ -242,7 +242,7 @@ export async function createAdCreativeFromInstagramMedia({name,instagramMediaId,
   return request(`act_${c.adAccountId}/adcreatives`,{method:'POST',credentials:c,body,timeoutMs:15000});
 }
 
-export async function instagramPublishMedia({mediaType='IMAGE',imageUrl,videoUrl,caption,carouselUrls=[],credentials={}}) {
+export async function instagramPublishMedia({mediaType='IMAGE',imageUrl,videoUrl,caption,carouselUrls=[],coverUrl='',thumbOffset,credentials={}}) {
   const c=resolveCredentials(credentials);
   if(!c.instagramUserId||!c.instagramAccessToken) throw new Error('Instagram bağlantısı için kullanıcı ID ve Instagram erişim tokenı gerekli.');
   const type=String(mediaType||'IMAGE').toUpperCase();
@@ -260,7 +260,12 @@ export async function instagramPublishMedia({mediaType='IMAGE',imageUrl,videoUrl
     container=await instagramRequest(`${c.instagramUserId}/media`,{method:'POST',accessToken:c.instagramAccessToken,body:{...body,media_type:'CAROUSEL',children}});
   } else if(type==='REELS'||type==='VIDEO') {
     if(!/^https:\/\//i.test(String(videoUrl||''))) throw new Error('Reel için HTTPS video URL gerekli.');
-    container=await instagramRequest(`${c.instagramUserId}/media`,{method:'POST',accessToken:c.instagramAccessToken,body:{...body,media_type:'REELS',video_url:videoUrl}});
+    const reelBody={...body,media_type:'REELS',video_url:videoUrl};
+    const safeCover=String(coverUrl||'').trim();
+    const offset=Number(thumbOffset);
+    if(/^https:\/\//i.test(safeCover)) reelBody.cover_url=safeCover;
+    else if(Number.isFinite(offset)&&offset>=0) reelBody.thumb_offset=Math.round(offset);
+    container=await instagramRequest(`${c.instagramUserId}/media`,{method:'POST',accessToken:c.instagramAccessToken,body:reelBody});
     if(!container.id) return container;
     await waitForReel(container.id,c.instagramAccessToken);
   } else {
