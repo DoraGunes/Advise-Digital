@@ -761,13 +761,16 @@ app.post('/api/posts', upload.single('image'), async (req, res) => {
     };
     if(useAI && settings.aiEnabled!==false && !post.caption) {
       const history=await getLogs(tenantId, 20);
-      const pack=await generateContentPack({title:post.title,context:req.body?.aiContext||'',tone:settings.aiTone,goal:settings.aiGoal,language:settings.aiLanguage,mediaType,timezone:config.timezone,history,imageUrl:/^https:\/\//i.test(post.publicUrl)?post.publicUrl:''});
+      const pack=await generateContentPack({title:post.title,context:req.body?.aiContext||'',tone:settings.aiTone,goal:settings.aiGoal,language:settings.aiLanguage,mediaType,timezone:config.timezone,history,imageUrl:mediaType==='POST' && /^https:\/\//i.test(post.publicUrl)?post.publicUrl:''});
       post.caption=String(pack.caption||'').trim();
       post.aiGenerated=true;
       post.aiSource=pack.source;
       post.aiHook=pack.hook||'';
       post.aiCta=pack.cta||'';
       post.aiHashtags=Array.isArray(pack.hashtags)?pack.hashtags:[];
+      post.aiRecommendedPostTime=pack.recommendedPostTime||'';
+      post.aiRecommendedPostTimeReason=pack.recommendedPostTimeReason||'';
+      post.aiCreativeScore=Number(pack.creativeScore||0);
     }
     if(post.autoPublish) await scheduleUploadedPost(post,tenantId); else post.publishStatus='MANUAL';
     posts.unshift(post);
