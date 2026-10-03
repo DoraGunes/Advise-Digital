@@ -263,7 +263,7 @@ app.post('/api/ads/create', allowRoles('ADMIN','CUSTOMER_ADMIN','OPERATOR'), asy
     stage = 'campaign';
     const campaign = await createCampaign({
       name: campaignName,
-      objective: 'OUTCOME_ENGAGEMENT',
+      objective: 'OUTCOME_TRAFFIC',
       status: 'PAUSED',
       credentials
     });
