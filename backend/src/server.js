@@ -263,7 +263,7 @@ app.post('/api/ads/create', allowRoles('ADMIN','CUSTOMER_ADMIN','OPERATOR'), asy
     stage = 'campaign';
     const campaign = await createCampaign({
       name: campaignName,
-      objective: 'OUTCOME_TRAFFIC',
+      objective: 'OUTCOME_ENGAGEMENT',
       status: 'PAUSED',
       credentials
     });
@@ -277,15 +277,23 @@ app.post('/api/ads/create', allowRoles('ADMIN','CUSTOMER_ADMIN','OPERATOR'), asy
         dailyBudget,
         optimizationGoal: 'CONVERSATIONS',
         billingEvent: 'IMPRESSIONS',
+        destinationType: 'INSTAGRAM_DIRECT',
         credentials
       }),
       createAdCreativeFromInstagramMedia({
         name: adName,
         instagramMediaId: mediaId,
-        instagramUserId: '',
-        pageId: tenantId === 'system' ? config.metaPageId : tenant?.meta?.pageId,
+        instagramUserId: tenantId === 'system'
+          ? String(config.instagramUserId || '').trim()
+          : String(tenant?.meta?.instagramUserId || '').trim(),
+        pageId: tenantId === 'system'
+          ? String(config.metaPageId || '').trim()
+          : String(tenant?.meta?.pageId || '').trim(),
         credentials: {
           ...credentials,
+          instagramUserId: tenantId === 'system'
+            ? String(config.instagramUserId || '').trim()
+            : String(tenant?.meta?.instagramUserId || '').trim(),
           instagramUsername: tenantId === 'system'
             ? String(config.instagramUsername || '').trim()
             : String(tenant?.meta?.instagramUsername || '').trim()
