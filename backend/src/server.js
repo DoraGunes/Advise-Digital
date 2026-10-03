@@ -287,7 +287,7 @@ app.post('/api/ads/create', allowRoles('ADMIN','CUSTOMER_ADMIN','OPERATOR'), asy
         credentials: {
           ...credentials,
           instagramUsername: tenantId === 'system'
-            ? String(config.metaInstagramUserId || '').trim()
+            ? String(config.instagramUsername || '').trim()
             : String(tenant?.meta?.instagramUsername || '').trim()
         }
       })
