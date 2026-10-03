@@ -222,14 +222,33 @@ async function callGemini(options) {
     var model = models[modelIndex];
     for (var attempt = 1; attempt <= 3; attempt++) {
       try {
-        var interaction = await client.interactions.create({
+        console.log('[AI GEMINI INTERACTIONS REQUEST]', {
+          model: model,
+          attempt: attempt,
+          hasMedia: (options.mediaParts || []).length > 0
+        });
+
+        var requestPromise = client.interactions.create({
           model: model,
           input: (options.mediaParts || []).filter(Boolean).concat([{type: 'text', text: options.prompt}]),
           system_instruction: options.systemInstruction || undefined,
-          response_format: [{type: 'text', mime_type: 'application/json', schema: options.schema || OUTPUT_SCHEMA}],
+          response_format: {
+            type: 'text',
+            mime_type: 'application/json',
+            schema: options.schema || OUTPUT_SCHEMA
+          },
           generation_config: {max_output_tokens: options.maxOutputTokens || 1500},
           store: false
         });
+
+        var interaction = await Promise.race([
+          requestPromise,
+          new Promise(function(_, reject) {
+            setTimeout(function() {
+              reject(new Error('Gemini isteği 60 saniyede cevap vermedi.'));
+            }, 60000);
+          })
+        ]);
         var outputText = String(interaction && interaction.output_text || '').trim();
         console.log('[AI GEMINI INTERACTIONS RESPONSE]', {model: model, attempt: attempt, status: interaction && interaction.status || '-', hasOutput: Boolean(outputText)});
         if (!outputText) throw new Error('Gemini boş cevap döndürdü. status=' + String(interaction && interaction.status || '-'));
