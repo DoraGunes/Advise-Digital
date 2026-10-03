@@ -244,6 +244,10 @@ app.get('/api/instagram/media', async (req, res) => {
 
 app.post('/api/ads/create', allowRoles('ADMIN','CUSTOMER_ADMIN','OPERATOR'), async (req, res) => {
   let stage = 'validation';
+  let createdCampaignId = '';
+  let createdAdSetId = '';
+  let createdCreativeId = '';
+  let createdAdId = '';
   try {
     const tenantId = req.user.tenantId;
     const tenant = await getTenant(tenantId);
@@ -267,40 +271,44 @@ app.post('/api/ads/create', allowRoles('ADMIN','CUSTOMER_ADMIN','OPERATOR'), asy
       status: 'PAUSED',
       credentials
     });
+    createdCampaignId = String(campaign?.id || '');
     console.log(`[ADS CREATE] campaign=${campaign?.id || '-'}`);
 
-    stage = 'adset+creative';
-    const [adSet, creative] = await Promise.all([
-      createAdSet({
-        name: adSetName,
-        campaignId: campaign.id,
-        dailyBudget,
-        optimizationGoal: 'CONVERSATIONS',
-        billingEvent: 'IMPRESSIONS',
-        destinationType: 'INSTAGRAM_DIRECT',
-        credentials
-      }),
-      createAdCreativeFromInstagramMedia({
-        name: adName,
-        instagramMediaId: mediaId,
+    stage = 'adset';
+    const adSet = await createAdSet({
+      name: adSetName,
+      campaignId: campaign.id,
+      dailyBudget,
+      optimizationGoal: 'CONVERSATIONS',
+      billingEvent: 'IMPRESSIONS',
+      destinationType: 'INSTAGRAM_DIRECT',
+      credentials
+    });
+    createdAdSetId = String(adSet?.id || '');
+    console.log(`[ADS CREATE] adset=${adSet?.id || '-'}`);
+
+    stage = 'creative';
+    const creative = await createAdCreativeFromInstagramMedia({
+      name: adName,
+      instagramMediaId: mediaId,
+      instagramUserId: tenantId === 'system'
+        ? String(config.instagramUserId || '').trim()
+        : String(tenant?.meta?.instagramUserId || '').trim(),
+      pageId: tenantId === 'system'
+        ? String(config.metaPageId || '').trim()
+        : String(tenant?.meta?.pageId || '').trim(),
+      credentials: {
+        ...credentials,
         instagramUserId: tenantId === 'system'
           ? String(config.instagramUserId || '').trim()
           : String(tenant?.meta?.instagramUserId || '').trim(),
-        pageId: tenantId === 'system'
-          ? String(config.metaPageId || '').trim()
-          : String(tenant?.meta?.pageId || '').trim(),
-        credentials: {
-          ...credentials,
-          instagramUserId: tenantId === 'system'
-            ? String(config.instagramUserId || '').trim()
-            : String(tenant?.meta?.instagramUserId || '').trim(),
-          instagramUsername: tenantId === 'system'
-            ? String(config.instagramUsername || '').trim()
-            : String(tenant?.meta?.instagramUsername || '').trim()
-        }
-      })
-    ]);
-    console.log(`[ADS CREATE] adset=${adSet?.id || '-'} creative=${creative?.id || '-'}`);
+        instagramUsername: tenantId === 'system'
+          ? String(config.instagramUsername || '').trim()
+          : String(tenant?.meta?.instagramUsername || '').trim()
+      }
+    });
+    createdCreativeId = String(creative?.id || '');
+    console.log(`[ADS CREATE] creative=${creative?.id || '-'}`);
 
     stage = 'ad';
     const ad = await createAd({
@@ -310,11 +318,11 @@ app.post('/api/ads/create', allowRoles('ADMIN','CUSTOMER_ADMIN','OPERATOR'), asy
       status: 'PAUSED',
       credentials
     });
+    createdAdId = String(ad?.id || '');
     console.log(`[ADS CREATE] ad=${ad?.id || '-'}`);
 
     if (activate) {
       stage = 'activation';
-      // Meta requires the parent campaign and ad set to be ACTIVE as well.
       await Promise.all([
         setStatus(campaign.id, 'ACTIVE', credentials),
         setStatus(adSet.id, 'ACTIVE', credentials),
@@ -343,6 +351,23 @@ app.post('/api/ads/create', allowRoles('ADMIN','CUSTOMER_ADMIN','OPERATOR'), asy
     });
   } catch (e) {
     console.error(`[ADS CREATE] failed stage=${stage}:`, e.message);
+
+    // A failed test should not leave half-created campaigns/ad sets in the account.
+    for (const [kind, id] of [
+      ['ad', createdAdId],
+      ['creative', createdCreativeId],
+      ['adset', createdAdSetId],
+      ['campaign', createdCampaignId]
+    ]) {
+      if (!id) continue;
+      try {
+        await request(id, {method:'DELETE', credentials});
+        console.log(`[ADS CREATE] cleanup ${kind}=${id}`);
+      } catch (cleanupError) {
+        console.error(`[ADS CREATE] cleanup ${kind}=${id} failed:`, cleanupError.message);
+      }
+    }
+
     res.status(502).json({error: e.message, operation: 'ads_create', stage});
   }
 });
