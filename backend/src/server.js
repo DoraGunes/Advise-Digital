@@ -282,11 +282,14 @@ app.post('/api/ads/create', allowRoles('ADMIN','CUSTOMER_ADMIN','OPERATOR'), asy
       createAdCreativeFromInstagramMedia({
         name: adName,
         instagramMediaId: mediaId,
-        instagramUserId: tenantId === 'system'
-          ? config.metaInstagramUserId
-          : tenant?.meta?.metaInstagramUserId,
+        instagramUserId: '',
         pageId: tenantId === 'system' ? config.metaPageId : tenant?.meta?.pageId,
-        credentials
+        credentials: {
+          ...credentials,
+          instagramUsername: tenantId === 'system'
+            ? String(config.metaInstagramUserId || '').trim()
+            : String(tenant?.meta?.instagramUsername || '').trim()
+        }
       })
     ]);
     console.log(`[ADS CREATE] adset=${adSet?.id || '-'} creative=${creative?.id || '-'}`);
