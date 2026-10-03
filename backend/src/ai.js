@@ -167,6 +167,10 @@ export async function generateContentPack(input={}) {
     language: clean(input.language, 30) || 'Türkçe',
     mediaType: String(input.mediaType || 'AUTO').toUpperCase(),
     imageUrl: clean(input.imageUrl, 1800),
+    imageDataUrl: typeof input.imageDataUrl === 'string' && input.imageDataUrl.startsWith('data:image/')
+      ? input.imageDataUrl.slice(0, 16000000)
+      : '',
+    mediaNote: clean(input.mediaNote, 500),
     timezone: clean(input.timezone, 80) || config.timezone || 'Europe/Istanbul',
     history: Array.isArray(input.history) ? input.history : []
   };
@@ -201,10 +205,13 @@ export async function generateContentPack(input={}) {
     '9) adRecommendation gerçek reklam kararını destekleyen bir öneri olsun; bütçe veya performans verisi yoksa kesin sonuç iddiasında bulunma.',
     '10) nextAction kullanıcının hemen atabileceği tek sonraki adım olsun.',
     '11) Yanıt tamamen Türkçe olsun.',
+    safe.mediaNote ? `12) Medya notu: ${safe.mediaNote}` : ''
   ].join('\n');
 
   const content = [{type: 'input_text', text: prompt}];
-  if (/^https:\/\//i.test(safe.imageUrl)) {
+  if (safe.imageDataUrl) {
+    content.push({type: 'input_image', image_url: safe.imageDataUrl, detail: 'high'});
+  } else if (/^https:\/\//i.test(safe.imageUrl)) {
     content.push({type: 'input_image', image_url: safe.imageUrl, detail: 'high'});
   }
 
