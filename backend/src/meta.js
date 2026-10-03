@@ -20,7 +20,7 @@ function requireMeta(credentials={}) {
 
 function parse(text) { try { return JSON.parse(text); } catch { return {raw:text}; } }
 
-async function request(path,{method='GET',query={},body={},credentials={}}={}) {
+async function request(path,{method='GET',query={},body={},credentials={},timeoutMs=30000}={}) {
   const c=requireMeta(credentials);
   const url=new URL(`${base}/${String(path).replace(/^\/+/, '')}`);
   const params={...query};
@@ -28,7 +28,7 @@ async function request(path,{method='GET',query={},body={},credentials={}}={}) {
   for(const [k,v] of Object.entries(params)) if(v!==undefined&&v!==null) url.searchParams.set(k,String(v));
 
   const controller=new AbortController();
-  const timeout=setTimeout(()=>controller.abort(),30000);
+  const timeout=setTimeout(()=>controller.abort(),Math.max(5000,Math.min(30000,Number(timeoutMs)||30000)));
   try {
     const options={method,signal:controller.signal,headers:{accept:'application/json'}};
     if(method!=='GET'){
@@ -87,14 +87,14 @@ export async function updateAdSetBudget(id,dailyBudget,credentials={}) {
 
 export async function createCampaign({name,objective='OUTCOME_ENGAGEMENT',status='PAUSED',credentials={}}) {
   const c=requireMeta(credentials);
-  return request(`act_${c.adAccountId}/campaigns`,{method:'POST',credentials:c,body:{name,objective,status,special_ad_categories:[]}});
+  return request(`act_${c.adAccountId}/campaigns`,{method:'POST',credentials:c,body:{name,objective,status,special_ad_categories:[]},timeoutMs:15000});
 }
 
 export async function createAdSet({name,campaignId,dailyBudget,targeting,optimizationGoal='CONVERSATIONS',billingEvent='IMPRESSIONS',instagramActorId,pageId,credentials={}}) {
   const c=requireMeta(credentials);
   const body={name,campaign_id:campaignId,daily_budget:Math.round(dailyBudget),billing_event:billingEvent,optimization_goal:optimizationGoal,bid_strategy:'LOWEST_COST_WITHOUT_CAP',targeting:targeting||{geo_locations:{countries:['TR']}},status:'PAUSED'};
   if(pageId||c.pageId) body.promoted_object={page_id:pageId||c.pageId};
-  return request(`act_${c.adAccountId}/adsets`,{method:'POST',credentials:c,body});
+  return request(`act_${c.adAccountId}/adsets`,{method:'POST',credentials:c,body,timeoutMs:15000});
 }
 
 export async function uploadAdImage(fileBuffer,fileName,credentials={}) {
@@ -122,7 +122,7 @@ export async function createAdCreative({name,instagramActorId,pageId,imageHash,m
 
 export async function createAd({name,adsetId,creativeId,status='PAUSED',credentials={}}) {
   const c=requireMeta(credentials);
-  return request(`act_${c.adAccountId}/ads`,{method:'POST',credentials:c,body:{name,adset_id:adsetId,creative:{creative_id:creativeId},status}});
+  return request(`act_${c.adAccountId}/ads`,{method:'POST',credentials:c,body:{name,adset_id:adsetId,creative:{creative_id:creativeId},status},timeoutMs:15000});
 }
 
 const igBase='https://graph.instagram.com';
@@ -188,7 +188,7 @@ export async function createAdCreativeFromInstagramMedia({name,instagramMediaId,
       ...(page ? {page_id:page} : {})
     }
   };
-  return request(`act_${c.adAccountId}/adcreatives`,{method:'POST',credentials:c,body});
+  return request(`act_${c.adAccountId}/adcreatives`,{method:'POST',credentials:c,body,timeoutMs:15000});
 }
 
 export async function instagramPublishMedia({mediaType='IMAGE',imageUrl,videoUrl,caption,carouselUrls=[],credentials={}}) {
