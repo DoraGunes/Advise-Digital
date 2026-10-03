@@ -1,8 +1,10 @@
 import {config} from './config.js';
+import {GoogleGenAI} from '@google/genai';
+import fs from 'node:fs/promises';
 
 const MODEL = process.env.GEMINI_MODEL || config.aiModel || 'gemini-3.8-flash';
 const FALLBACK_MODEL = process.env.GEMINI_FALLBACK_MODEL || 'gemini-3.7-flash';
-const API_BASE_URL = 'https://generativelanguage.googleapis.com/v1beta/models';
+const MAX_INLINE_MEDIA_BYTES = 20 * 1024 * 1024;
 
 // Gemini generateContent responseSchema uses a restricted Schema shape.
 const OUTPUT_SCHEMA = {
@@ -139,27 +141,87 @@ function buildHistoryText(history) {
   }).join('\n');
 }
 
-async function imageUrlToInlinePart(imageUrl) {
-  if (!/^https:\/\//i.test(String(imageUrl || ''))) return null;
 
+function getGeminiClient() {
+  const apiKey = String(process.env.GEMINI_API_KEY || '').trim();
+  if (!apiKey) throw new Error('GEMINI_API_KEY tanımlı değil.');
+  return new GoogleGenAI({apiKey});
+}
+
+function dataUrlToInputPart(dataUrl) {
+  const match = String(dataUrl || '').match(/^data:(image\/[a-z0-9.+-]+);base64,(.+)$/is);
+  if (!match) return null;
+  return {
+    type: 'image',
+    mime_type: match[1].toLowerCase(),
+    data: match[2]
+  };
+}
+
+async function uploadGeminiFile(aiClient, filePath, mimeType) {
+  const uploaded = await aiClient.files.upload({
+    file: filePath,
+    config: {mimeType}
+  });
+
+  let current = uploaded;
+  for (let attempt = 0; attempt < 60; attempt++) {
+    const state = String(current?.state || '').toUpperCase();
+    if (!state || state === 'ACTIVE') return current;
+    if (state === 'FAILED') throw new Error('Gemini dosya işleme başarısız oldu.');
+
+    await new Promise(resolve => setTimeout(resolve, 2000));
+    current = await aiClient.files.get({name: current.name});
+  }
+
+  throw new Error('Gemini dosya işleme zaman aşımına uğradı.');
+}
+
+async function fileToGeminiInputPart(aiClient, filePath, mimeType, mediaType) {
+  if (!filePath) return null;
+
+  const stat = await fs.stat(filePath);
+  const kind = String(mediaType || '').toUpperCase().includes('REELS') ||
+    String(mimeType || '').toLowerCase().startsWith('video/')
+    ? 'video'
+    : 'image';
+
+  // Google's Interactions docs allow short inline media. Keep inline requests
+  // under 20 MB; use the Files API for larger media.
+  if (stat.size <= MAX_INLINE_MEDIA_BYTES) {
+    const base64 = await fs.readFile(filePath, {encoding: 'base64'});
+    return {
+      type: kind,
+      data: base64,
+      mime_type: String(mimeType || (kind === 'video' ? 'video/mp4' : 'image/jpeg')).toLowerCase()
+    };
+  }
+
+  const uploaded = await uploadGeminiFile(aiClient, filePath, mimeType || (kind === 'video' ? 'video/mp4' : 'image/jpeg'));
+  return {
+    type: kind,
+    uri: uploaded.uri,
+    mime_type: uploaded.mimeType || mimeType,
+    ...(kind === 'video' ? {processing: 'static'} : {})
+  };
+}
+
+async function imageUrlToInputPart(aiClient, imageUrl) {
+  if (!/^https:\/\//i.test(String(imageUrl || ''))) return null;
   try {
     const response = await fetch(imageUrl, {
       headers: {'accept': 'image/*'},
       signal: AbortSignal.timeout(15000)
     });
-    if (!response.ok) throw new Error(`Görsel URL alınamadı: HTTP ${response.status}`);
-
+    if (!response.ok) throw new Error(\`Görsel URL alınamadı: HTTP \${response.status}\`);
     const contentType = String(response.headers.get('content-type') || '').split(';')[0].trim().toLowerCase();
-    if (!contentType.startsWith('image/')) throw new Error('Görsel URL bir image MIME type döndürmedi.');
+    if (!contentType.startsWith('image/')) throw new Error('Görsel URL image MIME type döndürmedi.');
 
     const buffer = Buffer.from(await response.arrayBuffer());
-    const supportedMime = ['image/jpeg', 'image/png', 'image/webp', 'image/gif'];
-    const mimeType = supportedMime.includes(contentType) ? contentType : 'image/jpeg';
     return {
-      inlineData: {
-        mimeType,
-        data: buffer.toString('base64')
-      }
+      type: 'image',
+      data: buffer.toString('base64'),
+      mime_type: contentType
     };
   } catch (e) {
     console.warn('[AI GEMINI IMAGE FETCH]', e?.message || e);
@@ -167,122 +229,87 @@ async function imageUrlToInlinePart(imageUrl) {
   }
 }
 
-function dataUrlToInlinePart(dataUrl) {
-  const match = String(dataUrl || '').match(/^data:(image\/[a-z0-9.+-]+);base64,(.+)$/is);
-  if (!match) return null;
-  return {
-    inlineData: {
-      mimeType: match[1].toLowerCase(),
-      data: match[2]
-    }
-  };
-}
-
-async function callGemini({prompt, imageDataUrl='', imageUrl='', maxOutputTokens=1200}) {
-  const apiKey = String(process.env.GEMINI_API_KEY || '').trim();
-  if (!apiKey) throw new Error('GEMINI_API_KEY tanımlı değil.');
-
-  const parts = [{text: prompt}];
-  const localImagePart = dataUrlToInlinePart(imageDataUrl);
-  if (localImagePart) {
-    parts.push(localImagePart);
-  } else {
-    const remoteImagePart = await imageUrlToInlinePart(imageUrl);
-    if (remoteImagePart) parts.push(remoteImagePart);
-  }
-
-  const models = Array.from(new Set([MODEL, FALLBACK_MODEL].filter(Boolean)));
+async function callGemini({prompt, systemInstruction='', mediaParts=[], maxOutputTokens=1500}) {
+  const aiClient = getGeminiClient();
+  const models = Array.from(new Set([
+    MODEL,
+    FALLBACK_MODEL
+  ].filter(Boolean)));
+  const retryableMessages = /high demand|temporar|unavailable|overloaded|rate limit|quota|503|429/i;
   let lastError = null;
 
   for (const model of models) {
-    const retryableStatuses = new Set([408, 429, 500, 502, 503, 504]);
-
     for (let attempt = 1; attempt <= 3; attempt++) {
-      console.log('[AI GEMINI REQUEST]', {
-        model,
-        attempt,
-        apiUrl: `${API_BASE_URL}/${model}:generateContent`,
-        hasImage: parts.length > 1
-      });
-
-      let response;
       try {
-        response = await fetch(
-          `${API_BASE_URL}/${encodeURIComponent(model)}:generateContent`,
-          {
-            method: 'POST',
-            headers: {
-              'content-type': 'application/json',
-              'x-goog-api-key': apiKey
-            },
-            body: JSON.stringify({
-              contents: [{role: 'user', parts}],
-              generationConfig: {
-                responseMimeType: 'application/json',
-                responseSchema: OUTPUT_SCHEMA,
-                maxOutputTokens
-              }
-            }),
-            signal: AbortSignal.timeout(90000)
-          }
-        );
-      } catch (e) {
-        lastError = e;
-        console.error('[AI GEMINI NETWORK ERROR]', {model, attempt, error: e?.message || String(e)});
-        if (attempt < 3) {
-          await new Promise(resolve => setTimeout(resolve, 1000 * (2 ** (attempt - 1))));
-          continue;
-        }
-        break;
-      }
+        const input = [
+          ...mediaParts.filter(Boolean),
+          {type: 'text', text: prompt}
+        ];
 
-      const data = await response.json().catch(() => ({}));
-      console.log('[AI GEMINI RESPONSE]', {model, attempt, status: response.status, ok: response.ok});
+        console.log('[AI GEMINI INTERACTIONS REQUEST]', {
+          model,
+          attempt,
+          hasMedia: mediaParts.filter(Boolean).length > 0,
+          mediaCount: mediaParts.filter(Boolean).length
+        });
 
-      if (response.ok) {
-        const outputText = Array.isArray(data?.candidates?.[0]?.content?.parts)
-          ? data.candidates[0].content.parts
-              .map(part => String(part?.text || ''))
-              .join('')
-              .trim()
-          : '';
+        const interaction = await aiClient.interactions.create({
+          model,
+          input,
+          system_instruction: systemInstruction || undefined,
+          response_format: [
+            {
+              type: 'text',
+              mime_type: 'application/json',
+              schema: OUTPUT_SCHEMA
+            }
+          ],
+          generation_config: {
+            max_output_tokens: maxOutputTokens
+          },
+          store: false
+        });
+
+        const outputText = String(interaction?.output_text || '').trim();
+        console.log('[AI GEMINI INTERACTIONS RESPONSE]', {
+          model,
+          attempt,
+          status: interaction?.status || '-',
+          hasOutput: Boolean(outputText)
+        });
 
         if (!outputText) {
-          const finishReason = data?.candidates?.[0]?.finishReason || '-';
-          lastError = new Error(`Gemini boş cevap döndürdü. finishReason=${finishReason}`);
-          break;
+          throw new Error(\`Gemini boş cevap döndürdü. status=\${interaction?.status || '-'}\`);
         }
 
-        try {
-          return {
-            parsed: JSON.parse(outputText),
-            model
-          };
-        } catch {
-          lastError = new Error('Gemini yapılandırılmış JSON cevabı çözülemedi.');
-          break;
+        return {
+          parsed: JSON.parse(outputText),
+          model
+        };
+      } catch (e) {
+        lastError = e;
+        console.error('[AI GEMINI INTERACTIONS ERROR]', {
+          model,
+          attempt,
+          error: e?.message || String(e)
+        });
+
+        const message = String(e?.message || '');
+        if (!retryableMessages.test(message)) break;
+
+        if (attempt < 3) {
+          const waitMs = 1000 * (2 ** (attempt - 1));
+          console.warn('[AI GEMINI RETRY]', {model, attempt, waitMs});
+          await new Promise(resolve => setTimeout(resolve, waitMs));
         }
       }
-
-      const message =
-        data?.error?.message ||
-        data?.message ||
-        `Gemini API ${response.status}`;
-      lastError = new Error(message);
-
-      if (!retryableStatuses.has(response.status) || attempt === 3) {
-        break;
-      }
-
-      const waitMs = 1000 * (2 ** (attempt - 1));
-      console.warn('[AI GEMINI RETRY]', {model, status: response.status, attempt, waitMs});
-      await new Promise(resolve => setTimeout(resolve, waitMs));
     }
 
-    if (model !== models[models.length - 1]) {
+    const nextModel = models[models.indexOf(model) + 1];
+    if (nextModel) {
       console.warn('[AI GEMINI MODEL FALLBACK]', {
         from: model,
-        to: models[models.indexOf(model) + 1],
+        to: nextModel,
         reason: lastError?.message || 'temporary model failure'
       });
     }
@@ -303,6 +330,8 @@ export async function generateContentPack(input={}) {
     imageDataUrl: typeof input.imageDataUrl === 'string' && input.imageDataUrl.startsWith('data:image/')
       ? input.imageDataUrl.slice(0, 16000000)
       : '',
+    filePath: clean(input.filePath, 1200),
+    mimeType: clean(input.mimeType, 120),
     mediaNote: clean(input.mediaNote, 500),
     timezone: clean(input.timezone, 80) || config.timezone || 'Europe/Istanbul',
     history: Array.isArray(input.history) ? input.history : []
@@ -313,7 +342,6 @@ export async function generateContentPack(input={}) {
   }
 
   const prompt = [
-    'Sen AdVise AI isimli profesyonel sosyal medya ve reklam yaratıcı direktörüsün.',
     'Görevin önce görseli anlamak, sonra içerik stratejisini belirlemek ve en son yüksek kaliteli Türkçe sosyal medya içeriği üretmektir.',
     '',
     'ÇALIŞMA SIRASI:',
@@ -338,7 +366,7 @@ export async function generateContentPack(input={}) {
     buildHistoryText(safe.history),
     '',
     'KALİTE KURALLARI:',
-    '1) Görselde okunabilen yazıları mümkün olduğunca accurately aktar; okuyamıyorsan tahmin etme.',
+    '1) Görselde/video karelerinde okunabilen yazıları mümkün olduğunca doğru aktar; okuyamıyorsan tahmin etme.'
     '2) Ürünün ne olduğu belirsizse bunu açıkça belirt ve metni belirsizliği gizleyecek şekilde yaz.',
     '3) Marka/model görünüyorsa productName alanında mümkün olduğunca spesifik ol.',
     '4) detectedOffer yalnızca gerçekten görülen fiyat/indirim/teklif varsa doldur.',
@@ -351,10 +379,27 @@ export async function generateContentPack(input={}) {
   ].join('\n');
 
   try {
+    const client = getGeminiClient();
+    const mediaParts = [];
+    const dataPart = dataUrlToInputPart(safe.imageDataUrl);
+    if (dataPart) {
+      mediaParts.push(dataPart);
+    } else if (safe.filePath && safe.mimeType) {
+      mediaParts.push(await fileToGeminiInputPart(client, safe.filePath, safe.mimeType, safe.mediaType));
+    } else {
+      const remotePart = await imageUrlToInputPart(client, safe.imageUrl);
+      if (remotePart) mediaParts.push(remotePart);
+    }
+
     const result = await callGemini({
       prompt,
-      imageDataUrl: safe.imageDataUrl,
-      imageUrl: safe.imageUrl,
+      systemInstruction: [
+        'Sen AdVise AI isimli profesyonel sosyal medya ve reklam yaratıcı direktörüsün.',
+        'Görsel/video ne varsa önce dikkatle analiz et; sonra gerçek kanıta dayalı içerik stratejisi üret.',
+        'Görselde veya kullanıcı notunda olmayan fiyat, kampanya, garanti, stok veya teknik özellik uydurma.',
+        'Yanıt tamamen doğal Türkçe olsun. Klişe yapay zekâ reklam dili kullanma.',
+      ].join('\\n'),
+      mediaParts,
       maxOutputTokens: 1500
     });
     return normalizePack(result.parsed, safe, result.model);
@@ -389,19 +434,20 @@ export async function generateCaptionVariants(input={}) {
       model: null,
       variants: [
         {id: 'A', caption: base.caption, hook: base.hook, cta: base.cta, style: 'Doğrudan'},
-        {id: 'B', caption: `${safe.title}: İhtiyacın olan detayları tek yerde keşfet. ${base.cta}`, hook: `${safe.title} hakkında bunu biliyor musun?`, cta: base.cta, style: 'Merak uyandıran'},
-        {id: 'C', caption: `${safe.title} için kısa ve net bilgi. ${base.cta}`, hook: 'Kısa, net ve fayda odaklı.', cta: base.cta, style: 'Minimal'}
+        {id: 'B', caption: \`\${safe.title}: İhtiyacın olan detayları tek yerde keşfet. \${base.cta}\`, hook: \`\${safe.title} hakkında bunu biliyor musun?\`, cta: base.cta, style: 'Merak uyandıran'},
+        {id: 'C', caption: \`\${safe.title} için kısa ve net bilgi. \${base.cta}\`, hook: 'Kısa, net ve fayda odaklı.', cta: base.cta, style: 'Minimal'}
       ]
     };
   }
 
+  const client = getGeminiClient();
   const prompt = [
     'AdVise AI için aynı Instagram içeriğinin 3 farklı caption varyasyonunu üret.',
     'Türkçe yaz, uydurma özellik veya fiyat ekleme.',
-    `Ürün: ${safe.title}`,
-    `Bilgi: ${safe.context || '-'}`,
-    `Ton: ${safe.tone}`,
-    `Amaç: ${safe.goal}`,
+    \`Ürün: \${safe.title}\`,
+    \`Bilgi: \${safe.context || '-'}\`,
+    \`Ton: \${safe.tone}\`,
+    \`Amaç: \${safe.goal}\`,
     'Her varyant için id, caption, hook, cta ve style döndür.'
   ].join('\\n');
 
@@ -429,34 +475,24 @@ export async function generateCaptionVariants(input={}) {
   };
 
   try {
-    const response = await fetch(
-      `${API_BASE_URL}/${encodeURIComponent(MODEL)}:generateContent`,
-      {
-        method: 'POST',
-        headers: {
-          'content-type': 'application/json',
-          'x-goog-api-key': apiKey
-        },
-        body: JSON.stringify({
-          contents: [{role: 'user', parts: [{text: prompt}]}],
-          generationConfig: {
-            responseMimeType: 'application/json',
-            responseSchema: schema,
-            maxOutputTokens: 1000
-          }
-        }),
-        signal: AbortSignal.timeout(60000)
-      }
-    );
+    const interaction = await client.interactions.create({
+      model: MODEL,
+      input: prompt,
+      response_format: [
+        {
+          type: 'text',
+          mime_type: 'application/json',
+          schema
+        }
+      ],
+      generation_config: {
+        max_output_tokens: 1000
+      },
+      store: false
+    });
 
-    const data = await response.json().catch(() => ({}));
-    if (!response.ok) throw new Error(data?.error?.message || `Gemini API ${response.status}`);
-
-    const outputText = Array.isArray(data?.candidates?.[0]?.content?.parts)
-      ? data.candidates[0].content.parts.map(part => String(part?.text || '')).join('').trim()
-      : '';
+    const outputText = String(interaction?.output_text || '').trim();
     const parsed = JSON.parse(outputText || '{}');
-
     if (!Array.isArray(parsed.variants) || parsed.variants.length < 1) {
       throw new Error('AI varyasyon cevabı geçersiz.');
     }
@@ -471,8 +507,8 @@ export async function generateCaptionVariants(input={}) {
       error: clean(e.message, 500),
       variants: [
         {id: 'A', caption: base.caption, hook: base.hook, cta: base.cta, style: 'Doğrudan'},
-        {id: 'B', caption: `${safe.title}: Detayları keşfet. ${base.cta}`, hook: `${safe.title} için doğru seçim neden önemli?`, cta: base.cta, style: 'Merak uyandıran'},
-        {id: 'C', caption: `${safe.title}: Kısa, net ve fayda odaklı. ${base.cta}`, hook: 'Kısa, net ve fayda odaklı.', cta: base.cta, style: 'Minimal'}
+        {id: 'B', caption: \`\${safe.title}: Detayları keşfet. \${base.cta}\`, hook: \`\${safe.title} için doğru seçim neden önemli?\`, cta: base.cta, style: 'Merak uyandıran'},
+        {id: 'C', caption: \`\${safe.title}: Kısa, net ve fayda odaklı. \${base.cta}\`, hook: 'Kısa, net ve fayda odaklı.', cta: base.cta, style: 'Minimal'}
       ]
     };
   }
@@ -501,6 +537,6 @@ export function aiStatus() {
   return {
     configured,
     model: MODEL,
-    provider: configured ? 'GEMINI' : 'LOCAL_FALLBACK'
+    provider: configured ? 'GEMINI_INTERACTIONS' : 'LOCAL_FALLBACK'
   };
 }
