@@ -252,10 +252,11 @@ export async function generateContentPack(input={}) {
     });
     return normalizePack(parsed, safe);
   } catch (e) {
+    console.error('[AI OPENAI ERROR]', e?.message || e);
     return {
       ...localPack(safe),
       source: 'LOCAL_FALLBACK_AFTER_AI_ERROR',
-      error: clean(e.message, 500)
+      error: clean(e?.message || 'OpenAI çağrısı başarısız.', 800)
     };
   }
 }
