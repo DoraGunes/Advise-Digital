@@ -666,7 +666,24 @@ app.post('/api/ai/content-pack-from-file', upload.single('image'), async (req, r
     }
 
     const kind = mediaKind(req.file);
+    const ext = fileExtension(req.file.originalname);
+    const visionMimeByExt = {
+      '.jpg': 'image/jpeg',
+      '.jpeg': 'image/jpeg',
+      '.jfif': 'image/jpeg',
+      '.png': 'image/png',
+      '.webp': 'image/webp',
+      '.gif': 'image/gif'
+    };
+    const visionMime = String(req.file.mimetype || '').startsWith('image/')
+      ? String(req.file.mimetype).toLowerCase()
+      : (visionMimeByExt[ext] || '');
+
     const publicUrl = publicBaseUrlForRequest(req) + '/uploads/' + encodeURIComponent(req.file.filename);
+    const rawBuffer = kind === 'IMAGE' ? await fs.readFile(req.file.path) : null;
+    const imageDataUrl = rawBuffer && visionMime
+      ? `data:${visionMime};base64,${rawBuffer.toString('base64')}`
+      : '';
 
     const history = await getLogs(req.user.tenantId, 20);
     const result = await generateContentPack({
@@ -676,12 +693,13 @@ app.post('/api/ai/content-pack-from-file', upload.single('image'), async (req, r
       goal: req.body?.goal || settings.aiGoal,
       language: req.body?.language || settings.aiLanguage,
       mediaType: req.body?.mediaType || (kind === 'VIDEO' ? 'REELS' : 'AUTO'),
-      imageUrl: kind === 'IMAGE' && /^https:\/\//i.test(publicUrl) ? publicUrl : '',
+      imageUrl: '',
+      imageDataUrl,
       timezone: config.timezone,
       history,
       mediaNote: kind === 'VIDEO'
-        ? 'Dosya bir video. Video kabul edildi; bu endpoint videonun karelerini doğrudan analiz etmiyor. Metin üretimini dosya adı, kullanıcı bilgisi ve seçilen Reels formatına göre yap.'
-        : ''
+        ? 'Dosya bir video. Video yüklemesi kabul edildi; bu endpoint videoyu doğrudan kare kare analiz etmiyor. İçerik önerisi dosya adı, kullanıcı bilgisi ve seçilen Reels formatına göre hazırlanır.'
+        : visionMime ? '' : 'Görsel dosyası kabul edildi ancak bu dosyanın türü doğrudan görsel analizine uygun olmadığı için metin ağırlıklı analiz yapılır.'
     });
 
     await addLog(req.user.tenantId, {
