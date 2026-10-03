@@ -1014,16 +1014,89 @@ class _PostsPageState extends State<PostsPage> {
     catch (e) { if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.toString()))); }
   }
 
+  Future<void> _setCover(dynamic post) async {
+    final picked = await ImagePicker().pickImage(source: ImageSource.gallery, imageQuality: 92);
+    if (picked == null || !mounted) return;
+    try {
+      await Api.uploadPostCover(post['id'].toString(), picked.path);
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Reels kapağı kaydedildi.')));
+        await _load();
+      }
+    } catch (e) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.toString())));
+    }
+  }
+
   @override
-  Widget build(BuildContext context) => Scaffold(appBar: AppBar(leading: _mainHomeLeading(context), title: const Text('İçerikler', style: TextStyle(fontWeight: FontWeight.w800)), actions: [IconButton(onPressed: _load, icon: const Icon(Icons.refresh_rounded))]), drawer: const _MainDrawer(admin: false), body: loading ? const Center(child: CircularProgressIndicator()) : RefreshIndicator(onRefresh: _load, child: ListView(padding: const EdgeInsets.all(14), children: [if (posts.isEmpty) _EmptyState(icon: Icons.photo_library_outlined, title: 'İçerik yok', subtitle: 'Dashboard üzerinden ilk görselini ekleyebilirsin.'), ...posts.map((p) => _PostCard(post: p, onDelete: () => _delete(p), onPublish: () => _publish(p))), const SizedBox(height: 18), const _PoweredBy()])));
+  Widget build(BuildContext context) => Scaffold(appBar: AppBar(leading: _mainHomeLeading(context), title: const Text('İçerikler', style: TextStyle(fontWeight: FontWeight.w800)), actions: [IconButton(onPressed: _load, icon: const Icon(Icons.refresh_rounded))]), drawer: const _MainDrawer(admin: false), body: loading ? const Center(child: CircularProgressIndicator()) : RefreshIndicator(onRefresh: _load, child: ListView(padding: const EdgeInsets.all(14), children: [if (posts.isEmpty) _EmptyState(icon: Icons.photo_library_outlined, title: 'İçerik yok', subtitle: 'Dashboard üzerinden ilk görselini ekleyebilirsin.'), ...posts.map((p) => _PostCard(post: p, onDelete: () => _delete(p), onPublish: () => _publish(p), onCover: () => _setCover(p))), const SizedBox(height: 18), const _PoweredBy()])));
 }
 
 class _PostCard extends StatelessWidget {
   final Map<String, dynamic> post;
-  final VoidCallback onDelete, onPublish;
-  const _PostCard({required this.post, required this.onDelete, required this.onPublish});
+  final VoidCallback onDelete, onPublish, onCover;
+  const _PostCard({required this.post, required this.onDelete, required this.onPublish, required this.onCover});
+
   @override
-  Widget build(BuildContext context) => Padding(padding: const EdgeInsets.only(bottom: 10), child: _GlassCard(child: Padding(padding: const EdgeInsets.all(12), child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [Container(height: 150, width: double.infinity, decoration: BoxDecoration(color: const Color(0xFFF0F1F6), borderRadius: BorderRadius.circular(16)), child: const Icon(Icons.image_outlined, size: 58)), const SizedBox(height: 12), Row(children: [Expanded(child: Text(post['title']?.toString() ?? '-', style: const TextStyle(fontSize: 17, fontWeight: FontWeight.w800))), _StatusBadge(text: _upper(post['publishStatus'] ?? 'READY'), positive: _upper(post['publishStatus']) == 'PUBLISHED')]), const SizedBox(height: 4), Text(post['caption']?.toString() ?? '', maxLines: 3, overflow: TextOverflow.ellipsis), const SizedBox(height: 10), Row(children: [Expanded(child: OutlinedButton.icon(onPressed: onPublish, icon: const Icon(Icons.publish_rounded), label: const Text('Yayınla'))), IconButton(tooltip: 'Sil', onPressed: onDelete, icon: const Icon(Icons.delete_outline_rounded))]), const Align(alignment: Alignment.centerRight, child: _PoweredBy(compact: true))]))));
+  Widget build(BuildContext context) {
+    final isReel = post['mediaType']?.toString().toUpperCase() == 'REELS';
+    final cover = post['coverPublicUrl']?.toString() ?? '';
+    final postImage = post['publicUrl']?.toString() ?? '';
+    final previewUrl = cover.isNotEmpty ? cover : (!isReel ? postImage : '');
+
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 10),
+      child: _GlassCard(
+        child: Padding(
+          padding: const EdgeInsets.all(12),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Container(
+                height: 180,
+                width: double.infinity,
+                decoration: BoxDecoration(
+                  color: const Color(0xFFF0F1F6),
+                  borderRadius: BorderRadius.circular(16),
+                ),
+                clipBehavior: Clip.antiAlias,
+                child: previewUrl.startsWith('http')
+                    ? Image.network(previewUrl, fit: BoxFit.cover, errorBuilder: (_, __, ___) => const Icon(Icons.broken_image_outlined, size: 58))
+                    : Center(child: Icon(isReel ? Icons.video_library_outlined : Icons.image_outlined, size: 58)),
+              ),
+              const SizedBox(height: 12),
+              Row(
+                children: [
+                  Expanded(child: Text(post['title']?.toString() ?? '-', style: const TextStyle(fontSize: 17, fontWeight: FontWeight.w800))),
+                  _StatusBadge(text: _upper(post['publishStatus'] ?? 'READY'), positive: _upper(post['publishStatus']) == 'PUBLISHED'),
+                ],
+              ),
+              const SizedBox(height: 4),
+              Text(post['caption']?.toString() ?? '', maxLines: 3, overflow: TextOverflow.ellipsis),
+              const SizedBox(height: 10),
+              Row(
+                children: [
+                  Expanded(child: OutlinedButton.icon(onPressed: onPublish, icon: const Icon(Icons.publish_rounded), label: const Text('Yayınla'))),
+                  if (isReel) ...[
+                    const SizedBox(width: 8),
+                    OutlinedButton.icon(onPressed: onCover, icon: const Icon(Icons.photo_camera_back_outlined), label: const Text('Kapak')),
+                  ],
+                  const SizedBox(width: 4),
+                  IconButton(tooltip: 'Sil', onPressed: onDelete, icon: const Icon(Icons.delete_outline_rounded)),
+                ],
+              ),
+              if (isReel && cover.isNotEmpty)
+                const Padding(
+                  padding: EdgeInsets.only(top: 4),
+                  child: Text('Özel Reels kapağı hazır.', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w700)),
+                ),
+              const Align(alignment: Alignment.centerRight, child: _PoweredBy(compact: true)),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
 }
 
 class _PostTile extends StatelessWidget {
