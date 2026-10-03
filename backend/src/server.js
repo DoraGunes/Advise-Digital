@@ -15,7 +15,7 @@ import {
 } from './store.js';
 import {getCampaigns, getAdSets, getAds, insights, setStatus, updateAdSetBudget, metaHealth, getInstagramMedia, createCampaign, createAdSet, createAdCreativeFromInstagramMedia, createAd} from './meta.js';
 import {optimizeAds} from './optimizer.js';
-import {startScheduler, scheduleUploadedPost, publishDuePosts} from './scheduler.js';
+import {startScheduler, scheduleUploadedPost, scheduleUploadedPosts, publishDuePosts} from './scheduler.js';
 import {analyticsSummary, aiInsights, billingSummary, brandingSummary, saveBranding, notificationPrefs, saveNotificationPrefs, securityOverview, planCatalog, adminOverview} from './v78.js';
 import {dbHealth} from './db.js';
 import {aiAdvisor, performanceSummary, getAlerts, createAlert, markAlert, getLeads, createLead, updateLead, deleteLead, analyzeCreative, getCreatives, simulateBudget, createExperiment, getExperiments, updateExperiment, buildUtm, reportPack, agencyOverview} from './pro.js';
@@ -777,6 +777,106 @@ app.post('/api/posts', upload.single('image'), async (req, res) => {
   } catch (e) { res.status(500).json({error:e.message}); }
 });
 
+app.post('/api/posts/bulk', upload.array('files', 20), async (req, res) => {
+  try {
+    const files = Array.isArray(req.files) ? req.files.slice(0, 20) : [];
+    if (!files.length) return res.status(400).json({error:'En az bir fotoğraf veya video seçmelisin.'});
+
+    const tenantId=req.user.tenantId;
+    const settings=await getSettings(tenantId);
+    const existing=await getPosts(tenantId);
+    const accepted=[];
+    const seenHashes=new Set(existing.map(x=>x.fileHash).filter(Boolean));
+    const useAI=String(req.body?.useAI ?? 'true').toLowerCase()!=='false';
+    const requestedAuto=String(req.body?.autoPublish ?? 'true').toLowerCase()!=='false';
+    const aiContext=String(req.body?.aiContext || '').trim();
+    const aiHistory=useAI && settings.aiEnabled!==false ? await getLogs(tenantId,20) : [];
+
+    for(const file of files) {
+      try {
+        const buffer=await fs.readFile(file.path);
+        const fileHash=crypto.createHash('sha256').update(buffer).digest('hex');
+        if(settings.preventDuplicateContent!==false && seenHashes.has(fileHash)) {
+          await fs.rm(file.path,{force:true});
+          continue;
+        }
+        seenHashes.add(fileHash);
+
+        const mediaType=file.mimetype.startsWith('video/')?'REELS':'POST';
+        const post={
+          id:`post_${Date.now()}_${accepted.length}`,
+          tenantId,
+          title:String(file.originalname || 'Yeni içerik').replace(/\\.[^.]+$/,'').trim(),
+          caption:'',
+          linkUrl:'',
+          autoPublish:requestedAuto && settings.autoPublish !== false,
+          filePath:file.path,
+          publicUrl:`${publicBaseUrlForRequest(req)}/uploads/${encodeURIComponent(file.filename)}`,
+          fileHash,
+          mimeType:file.mimetype,
+          mediaType,
+          format:mediaType,
+          aiGenerated:false,
+          performanceScore:0,
+          createdAt:new Date().toISOString()
+        };
+
+        if(useAI && settings.aiEnabled!==false) {
+          const pack=await generateContentPack({
+            title:post.title,
+            context:aiContext,
+            tone:settings.aiTone,
+            goal:settings.aiGoal,
+            language:settings.aiLanguage,
+            mediaType,
+            timezone:config.timezone,
+            history:aiHistory,
+            imageUrl:mediaType==='POST' && /^https:\/\//i.test(post.publicUrl) ? post.publicUrl : ''
+          });
+          post.caption=String(pack.caption||'').trim();
+          post.aiGenerated=true;
+          post.aiSource=pack.source;
+          post.aiHook=pack.hook||'';
+          post.aiCta=pack.cta||'';
+          post.aiHashtags=Array.isArray(pack.hashtags)?pack.hashtags:[];
+          post.aiRecommendedPostTime=pack.recommendedPostTime||'';
+          post.aiRecommendedPostTimeReason=pack.recommendedPostTimeReason||'';
+          post.aiCreativeScore=Number(pack.creativeScore||0);
+        }
+
+        accepted.push(post);
+      } catch(fileError) {
+        await fs.rm(file.path,{force:true}).catch(()=>{});
+      }
+    }
+
+    if(!accepted.length) return res.status(409).json({error:'Yüklenecek yeni içerik bulunamadı. Tekrarlanan içerikler atlanmış olabilir.'});
+
+    if(requestedAuto && settings.autoPublish !== false) {
+      await scheduleUploadedPosts(accepted,tenantId);
+    } else {
+      for(const post of accepted) post.publishStatus='MANUAL';
+    }
+
+    const nextPosts=[...accepted,...existing];
+    await savePosts(tenantId,nextPosts);
+
+    for(const post of accepted) {
+      await addLog(tenantId,{type:'POST_UPLOADED',postId:post.id,title:post.title,mediaType:post.mediaType,aiGenerated:post.aiGenerated,bulk:true});
+    }
+
+    res.status(201).json({
+      count:accepted.length,
+      skipped:files.length-accepted.length,
+      order:accepted.map(x=>({id:x.id,title:x.title,mediaType:x.mediaType,nextPublishAt:x.nextPublishAt||null})),
+      posts:accepted
+    });
+  } catch(e) {
+    for(const file of (req.files||[])) await fs.rm(file.path,{force:true}).catch(()=>{});
+    res.status(500).json({error:e.message});
+  }
+});
+
 app.post('/api/posts/:id/publish', async (req, res) => {
   try {
     const tenantId=req.user.tenantId;
@@ -787,7 +887,7 @@ app.post('/api/posts/:id/publish', async (req, res) => {
     const tenant=await getTenant(tenantId);
     const credentials=tenantId==='system'?{}:(tenant?.meta||{});
     const {instagramPublishMedia}=await import('./meta.js');
-    const result=await instagramPublishMedia({mediaType:post.mediaType||'POST',imageUrl:post.publicUrl,videoUrl:post.publicUrl,caption:post.caption||'',credentials});
+    const result=await instagramPublishMedia({mediaType:post.mediaType||'POST',imageUrl:post.publicUrl,videoUrl:post.publicUrl,caption:post.caption||'',coverUrl:post.coverPublicUrl||'',thumbOffset:post.coverThumbOffset,credentials});
     post.publishStatus='PUBLISHED'; post.publishedAt=new Date().toISOString(); post.instagramPublishResult=result; post.publishError='';
     await savePosts(tenantId,posts);
     await addLog(tenantId,{type:'INSTAGRAM_POST_PUBLISHED',postId:post.id,mediaType:post.mediaType||'POST',manual:true});
@@ -799,12 +899,40 @@ app.post('/api/automation/publish-due', async (_req, res) => {
   try { res.json(await publishDuePosts()); } catch (e) { res.status(502).json({error: e.message}); }
 });
 
+app.post('/api/posts/:id/cover', upload.single('cover'), async (req,res) => {
+  try {
+    const postId=req.params.id;
+    const tenantId=req.user.tenantId;
+    const postList=await getPosts(tenantId);
+    const post=postList.find(x=>x.id===postId);
+    if(!post) return res.status(404).json({error:'İçerik bulunamadı.'});
+    if(post.mediaType!=='REELS') return res.status(400).json({error:'Özel kapak yalnızca Reels için kullanılabilir.'});
+    if(!req.file) return res.status(400).json({error:'Kapak görseli gerekli.'});
+    if(!String(req.file.mimetype||'').startsWith('image/')) {
+      await fs.rm(req.file.path,{force:true});
+      return res.status(400).json({error:'Reels kapağı JPEG, PNG veya WebP olmalı.'});
+    }
+
+    if(post.coverPath && post.coverPath!==req.file.path) await fs.rm(post.coverPath,{force:true}).catch(()=>{});
+    post.coverPath=req.file.path;
+    post.coverPublicUrl=`${publicBaseUrlForRequest(req)}/uploads/${encodeURIComponent(req.file.filename)}`;
+    post.coverUpdatedAt=new Date().toISOString();
+    post.coverThumbOffset=null;
+    await savePosts(tenantId,postList);
+    res.json({post});
+  } catch(e) {
+    if(req.file?.path) await fs.rm(req.file.path,{force:true}).catch(()=>{});
+    res.status(500).json({error:e.message});
+  }
+});
+
 app.delete('/api/posts/:id', async (req, res) => {
   const tenantId = req.user.tenantId;
   const posts = await getPosts(tenantId);
   const post = posts.find(x => x.id === req.params.id);
   if (!post) return res.status(404).json({error: 'Post bulunamadı.'});
   await fs.rm(post.filePath, {force: true});
+  if(post.coverPath) await fs.rm(post.coverPath, {force: true});
   await savePosts(tenantId, posts.filter(x => x.id !== req.params.id));
   await addLog(tenantId, {type: 'POST_DELETED', postId: post.id});
   res.json({ok: true});
