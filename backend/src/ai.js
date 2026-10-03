@@ -1,7 +1,7 @@
 import {config} from './config.js';
 
-const MODEL = process.env.OPENAI_MODEL || config.aiModel || 'gpt-6-luna';
-const API_URL = 'https://api.openai.com/v1/responses';
+const MODEL = process.env.GEMINI_MODEL || config.aiModel || 'gemini-3.8-flash';
+const API_BASE_URL = 'https://generativelanguage.googleapis.com/v1beta/models';
 
 const OUTPUT_SCHEMA = {
   type: 'object',
@@ -97,7 +97,7 @@ function normalizePack(raw, input={}) {
   const fallback = localPack(input);
   const pack = raw && typeof raw === 'object' ? raw : {};
   return {
-    source: 'OPENAI',
+    source: 'GEMINI',
     model: MODEL,
     productName: clean(pack.productName, 180) || clean(input.title, 180) || 'Ürün',
     brand: clean(pack.brand, 100),
@@ -138,48 +138,112 @@ function buildHistoryText(history) {
   }).join('\n');
 }
 
-async function callOpenAI({input, maxOutputTokens=1200}) {
-  const apiKey = String(process.env.OPENAI_API_KEY || '').trim();
-  if (!apiKey) throw new Error('OPENAI_API_KEY tanımlı değil.');
+async function imageUrlToInlinePart(imageUrl) {
+  if (!/^https:\/\//i.test(String(imageUrl || ''))) return null;
 
-  console.log('[AI OPENAI REQUEST]', {model: MODEL, apiUrl: API_URL});
-  const response = await fetch(API_URL, {
-    method: 'POST',
-    headers: {
-      'content-type': 'application/json',
-      authorization: `Bearer ${apiKey}`
-    },
-    body: JSON.stringify({
-      model: MODEL,
-      input,
-      max_output_tokens: maxOutputTokens,
-      text: {
-        format: {
-          type: 'json_schema',
-          name: 'advise_ai_content_pack',
-          strict: true,
-          schema: OUTPUT_SCHEMA
-        }
+  try {
+    const response = await fetch(imageUrl, {
+      headers: {'accept': 'image/*'},
+      signal: AbortSignal.timeout(15000)
+    });
+    if (!response.ok) throw new Error(\`Görsel URL alınamadı: HTTP \${response.status}\`);
+
+    const contentType = String(response.headers.get('content-type') || '').split(';')[0].trim().toLowerCase();
+    if (!contentType.startsWith('image/')) throw new Error('Görsel URL bir image MIME type döndürmedi.');
+
+    const buffer = Buffer.from(await response.arrayBuffer());
+    const supportedMime = ['image/jpeg', 'image/png', 'image/webp', 'image/gif'];
+    const mimeType = supportedMime.includes(contentType) ? contentType : 'image/jpeg';
+    return {
+      inlineData: {
+        mimeType,
+        data: buffer.toString('base64')
       }
-    }),
-    signal: AbortSignal.timeout(90000)
+    };
+  } catch (e) {
+    console.warn('[AI GEMINI IMAGE FETCH]', e?.message || e);
+    return null;
+  }
+}
+
+function dataUrlToInlinePart(dataUrl) {
+  const match = String(dataUrl || '').match(/^data:(image\/[a-z0-9.+-]+);base64,(.+)$/is);
+  if (!match) return null;
+  return {
+    inlineData: {
+      mimeType: match[1].toLowerCase(),
+      data: match[2]
+    }
+  };
+}
+
+async function callGemini({prompt, imageDataUrl='', imageUrl='', maxOutputTokens=1200}) {
+  const apiKey = String(process.env.GEMINI_API_KEY || '').trim();
+  if (!apiKey) throw new Error('GEMINI_API_KEY tanımlı değil.');
+
+  const parts = [{text: prompt}];
+  const localImagePart = dataUrlToInlinePart(imageDataUrl);
+  if (localImagePart) {
+    parts.push(localImagePart);
+  } else {
+    const remoteImagePart = await imageUrlToInlinePart(imageUrl);
+    if (remoteImagePart) parts.push(remoteImagePart);
+  }
+
+  console.log('[AI GEMINI REQUEST]', {
+    model: MODEL,
+    apiUrl: \`\${API_BASE_URL}/\${MODEL}:generateContent\`,
+    hasImage: parts.length > 1
   });
 
-  const data = await response.json();
-  console.log('[AI OPENAI RESPONSE]', {status: response.status, ok: response.ok});
+  const response = await fetch(
+    \`\${API_BASE_URL}/\${encodeURIComponent(MODEL)}:generateContent\`,
+    {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        'x-goog-api-key': apiKey
+      },
+      body: JSON.stringify({
+        contents: [{role: 'user', parts}],
+        generationConfig: {
+          responseMimeType: 'application/json',
+          responseSchema: OUTPUT_SCHEMA,
+          maxOutputTokens
+        }
+      }),
+      signal: AbortSignal.timeout(90000)
+    }
+  );
+
+  const data = await response.json().catch(() => ({}));
+  console.log('[AI GEMINI RESPONSE]', {status: response.status, ok: response.ok});
+
   if (!response.ok) {
-    throw new Error(data?.error?.message || `OpenAI API ${response.status}`);
+    const message =
+      data?.error?.message ||
+      data?.message ||
+      \`Gemini API \${response.status}\`;
+    throw new Error(message);
   }
 
-  const outputText = String(data.output_text || '').trim();
-  if (!outputText) throw new Error('OpenAI boş cevap döndürdü.');
-  let parsed;
-  try {
-    parsed = JSON.parse(outputText);
-  } catch {
-    throw new Error('OpenAI yapılandırılmış JSON cevabı çözülemedi.');
+  const outputText = Array.isArray(data?.candidates?.[0]?.content?.parts)
+    ? data.candidates[0].content.parts
+        .map(part => String(part?.text || ''))
+        .join('')
+        .trim()
+    : '';
+
+  if (!outputText) {
+    const finishReason = data?.candidates?.[0]?.finishReason || '-';
+    throw new Error(\`Gemini boş cevap döndürdü. finishReason=\${finishReason}\`);
   }
-  return parsed;
+
+  try {
+    return JSON.parse(outputText);
+  } catch {
+    throw new Error('Gemini yapılandırılmış JSON cevabı çözülemedi.');
+  }
 }
 
 export async function generateContentPack(input={}) {
@@ -199,7 +263,7 @@ export async function generateContentPack(input={}) {
     history: Array.isArray(input.history) ? input.history : []
   };
 
-  if (!String(process.env.OPENAI_API_KEY || '').trim()) {
+  if (!String(process.env.GEMINI_API_KEY || '').trim()) {
     return localPack(safe);
   }
 
@@ -241,25 +305,20 @@ export async function generateContentPack(input={}) {
     '10) Yanıt tamamen Türkçe olsun.'
   ].join('\n');
 
-  const content = [{type: 'input_text', text: prompt}];
-  if (safe.imageDataUrl) {
-    content.push({type: 'input_image', image_url: safe.imageDataUrl, detail: 'high'});
-  } else if (/^https:\/\//i.test(safe.imageUrl)) {
-    content.push({type: 'input_image', image_url: safe.imageUrl, detail: 'high'});
-  }
-
   try {
-    const parsed = await callOpenAI({
-      input: [{role: 'user', content}],
+    const parsed = await callGemini({
+      prompt,
+      imageDataUrl: safe.imageDataUrl,
+      imageUrl: safe.imageUrl,
       maxOutputTokens: 1500
     });
     return normalizePack(parsed, safe);
   } catch (e) {
-    console.error('[AI OPENAI ERROR]', e?.message || e);
+    console.error('[AI GEMINI ERROR]', e?.message || e);
     return {
       ...localPack(safe),
       source: 'LOCAL_FALLBACK_AFTER_AI_ERROR',
-      error: clean(e?.message || 'OpenAI çağrısı başarısız.', 800)
+      error: clean(e?.message || 'Gemini çağrısı başarısız.', 800)
     };
   }
 }
@@ -276,7 +335,8 @@ export async function generateCaptionVariants(input={}) {
     goal: clean(input.goal, 80) || 'mesaj',
     language: clean(input.language, 30) || 'Türkçe'
   };
-  const apiKey = String(process.env.OPENAI_API_KEY || '').trim();
+
+  const apiKey = String(process.env.GEMINI_API_KEY || '').trim();
   if (!apiKey) {
     const base = localPack(safe);
     return {
@@ -284,8 +344,8 @@ export async function generateCaptionVariants(input={}) {
       model: null,
       variants: [
         {id: 'A', caption: base.caption, hook: base.hook, cta: base.cta, style: 'Doğrudan'},
-        {id: 'B', caption: `${safe.title}: İhtiyacın olan detayları tek yerde keşfet. ${base.cta}`, hook: `${safe.title} hakkında bunu biliyor musun?`, cta: base.cta, style: 'Merak uyandıran'},
-        {id: 'C', caption: `${safe.title} için kısa ve net bilgi. ${base.cta}`, hook: 'Kısa, net ve fayda odaklı.', cta: base.cta, style: 'Minimal'}
+        {id: 'B', caption: \`\${safe.title}: İhtiyacın olan detayları tek yerde keşfet. \${base.cta}\`, hook: \`\${safe.title} hakkında bunu biliyor musun?\`, cta: base.cta, style: 'Merak uyandıran'},
+        {id: 'C', caption: \`\${safe.title} için kısa ve net bilgi. \${base.cta}\`, hook: 'Kısa, net ve fayda odaklı.', cta: base.cta, style: 'Minimal'}
       ]
     };
   }
@@ -293,74 +353,83 @@ export async function generateCaptionVariants(input={}) {
   const prompt = [
     'AdVise AI için aynı Instagram içeriğinin 3 farklı caption varyasyonunu üret.',
     'Türkçe yaz, uydurma özellik veya fiyat ekleme.',
-    `Ürün: ${safe.title}`,
-    `Bilgi: ${safe.context || '-'}`,
-    `Ton: ${safe.tone}`,
-    `Amaç: ${safe.goal}`,
+    \`Ürün: \${safe.title}\`,
+    \`Bilgi: \${safe.context || '-'}\`,
+    \`Ton: \${safe.tone}\`,
+    \`Amaç: \${safe.goal}\`,
     'Her varyant için id, caption, hook, cta ve style döndür.'
-  ].join('\n');
+  ].join('\\n');
+
+  const schema = {
+    type: 'object',
+    additionalProperties: false,
+    properties: {
+      variants: {
+        type: 'array',
+        minItems: 3,
+        maxItems: 3,
+        items: {
+          type: 'object',
+          additionalProperties: false,
+          properties: {
+            id: {type: 'string'},
+            caption: {type: 'string'},
+            hook: {type: 'string'},
+            cta: {type: 'string'},
+            style: {type: 'string'}
+          },
+          required: ['id', 'caption', 'hook', 'cta', 'style']
+        }
+      }
+    },
+    required: ['variants']
+  };
 
   try {
-    const r = await fetch(API_URL, {
-      method: 'POST',
-      headers: {
-        'content-type': 'application/json',
-        authorization: `Bearer ${apiKey}`
-      },
-      body: JSON.stringify({
-        model: MODEL,
-        input: [{role: 'user', content: [{type: 'input_text', text: prompt}]}],
-        max_output_tokens: 1000,
-        text: {
-          format: {
-            type: 'json_schema',
-            name: 'advise_ai_caption_variants',
-            strict: true,
-            schema: {
-              type: 'object',
-              additionalProperties: false,
-              properties: {
-                variants: {
-                  type: 'array',
-                  minItems: 3,
-                  maxItems: 3,
-                  items: {
-                    type: 'object',
-                    additionalProperties: false,
-                    properties: {
-                      id: {type: 'string'},
-                      caption: {type: 'string'},
-                      hook: {type: 'string'},
-                      cta: {type: 'string'},
-                      style: {type: 'string'}
-                    },
-                    required: ['id', 'caption', 'hook', 'cta', 'style']
-                  }
-                }
-              },
-              required: ['variants']
-            }
+    const response = await fetch(
+      \`\${API_BASE_URL}/\${encodeURIComponent(MODEL)}:generateContent\`,
+      {
+        method: 'POST',
+        headers: {
+          'content-type': 'application/json',
+          'x-goog-api-key': apiKey
+        },
+        body: JSON.stringify({
+          contents: [{role: 'user', parts: [{text: prompt}]}],
+          generationConfig: {
+            responseMimeType: 'application/json',
+            responseSchema: schema,
+            maxOutputTokens: 1000
           }
-        }
-      })
-    });
-    const data = await r.json();
-    if (!r.ok) throw new Error(data?.error?.message || `OpenAI API ${r.status}`);
-    const parsed = JSON.parse(String(data.output_text || '{}'));
+        }),
+        signal: AbortSignal.timeout(60000)
+      }
+    );
+
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(data?.error?.message || \`Gemini API \${response.status}\`);
+
+    const outputText = Array.isArray(data?.candidates?.[0]?.content?.parts)
+      ? data.candidates[0].content.parts.map(part => String(part?.text || '')).join('').trim()
+      : '';
+    const parsed = JSON.parse(outputText || '{}');
+
     if (!Array.isArray(parsed.variants) || parsed.variants.length < 1) {
       throw new Error('AI varyasyon cevabı geçersiz.');
     }
-    return {source: 'OPENAI', model: MODEL, variants: parsed.variants.slice(0, 3)};
+
+    return {source: 'GEMINI', model: MODEL, variants: parsed.variants.slice(0, 3)};
   } catch (e) {
     const base = localPack(safe);
+    console.error('[AI GEMINI VARIANTS ERROR]', e?.message || e);
     return {
       source: 'LOCAL_FALLBACK_AFTER_AI_ERROR',
       model: null,
       error: clean(e.message, 500),
       variants: [
         {id: 'A', caption: base.caption, hook: base.hook, cta: base.cta, style: 'Doğrudan'},
-        {id: 'B', caption: `${safe.title}: Detayları keşfet. ${base.cta}`, hook: `${safe.title} için doğru seçim neden önemli?`, cta: base.cta, style: 'Merak uyandıran'},
-        {id: 'C', caption: `${safe.title}: Kısa, net ve fayda odaklı. ${base.cta}`, hook: 'Kısa, net ve fayda odaklı.', cta: base.cta, style: 'Minimal'}
+        {id: 'B', caption: \`\${safe.title}: Detayları keşfet. \${base.cta}\`, hook: \`\${safe.title} için doğru seçim neden önemli?\`, cta: base.cta, style: 'Merak uyandıran'},
+        {id: 'C', caption: \`\${safe.title}: Kısa, net ve fayda odaklı. \${base.cta}\`, hook: 'Kısa, net ve fayda odaklı.', cta: base.cta, style: 'Minimal'}
       ]
     };
   }
@@ -385,9 +454,10 @@ export async function scoreCreative(input={}) {
 }
 
 export function aiStatus() {
+  const configured = Boolean(String(process.env.GEMINI_API_KEY || '').trim());
   return {
-    configured: Boolean(String(process.env.OPENAI_API_KEY || '').trim()),
+    configured,
     model: MODEL,
-    provider: String(process.env.OPENAI_API_KEY || '').trim() ? 'OPENAI' : 'LOCAL_FALLBACK'
+    provider: configured ? 'GEMINI' : 'LOCAL_FALLBACK'
   };
 }
