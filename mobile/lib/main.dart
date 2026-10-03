@@ -10,6 +10,7 @@ import 'v78_pages.dart';
 import 'v13_pro.dart';
 import 'social_ads_page.dart';
 import 'v14_ai.dart';
+import 'content_queue_page.dart';
 
 void main() => runApp(const AdviseDigitalApp());
 void _mainGoHome(BuildContext context) {
@@ -655,9 +656,15 @@ class _CustomerDashboardState extends State<CustomerDashboard> {
         const SizedBox(height: 10),
         ListTile(leading: const Icon(Icons.image_outlined), title: const Text('Fotoğraf / Gönderi'), onTap: () => Navigator.pop(ctx, 'IMAGE')),
         ListTile(leading: const Icon(Icons.video_library_outlined), title: const Text('Video / Reels'), onTap: () => Navigator.pop(ctx, 'VIDEO')),
+        ListTile(leading: const Icon(Icons.library_add_outlined), title: const Text('Toplu içerik (1-8)'), onTap: () => Navigator.pop(ctx, 'BULK')),
       ]))),
     );
     if(mode==null || !mounted) return;
+    if(mode=='BULK') {
+      await Navigator.push(context, MaterialPageRoute(builder: (_) => const ContentQueuePage()));
+      if (mounted) await _load();
+      return;
+    }
     final picker=ImagePicker();
     final image=mode=='VIDEO' ? await picker.pickVideo(source:ImageSource.gallery) : await picker.pickImage(source:ImageSource.gallery, imageQuality:90);
     if(image==null || !mounted) return;
@@ -728,6 +735,7 @@ class _CustomerDashboardState extends State<CustomerDashboard> {
                   _SectionHeader(title: 'Hızlı işlemler'),
                   _QuickGrid(items: [
                     _QuickAction(title: 'İçerik yükle', icon: Icons.add_photo_alternate_rounded, onTap: _upload),
+                    _QuickAction(title: 'Toplu içerik kuyruğu', icon: Icons.library_add_outlined, onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const ContentQueuePage())).then((_) => _load())),
                     _QuickAction(title: 'Instagram & Reklamlar', icon: Icons.campaign_outlined, onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const SocialAdsPage()))),
                     _QuickAction(title: 'Karar merkezi', icon: Icons.insights_rounded, onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const DecisionHubPage()))),
                     _QuickAction(title: 'Otomasyon', icon: Icons.bolt_rounded, onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const SettingsPage())).then((_) => _load())),
