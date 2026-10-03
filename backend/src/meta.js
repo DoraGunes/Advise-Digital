@@ -14,7 +14,8 @@ function resolveCredentials(credentials={}) {
       ''
     ).trim(),
     pageId: String(credentials?.pageId || config.metaPageId || '').trim(),
-    instagramAccessToken: String(credentials?.instagramAccessToken || config.instagramAccessToken || '').trim()
+    instagramAccessToken: String(credentials?.instagramAccessToken || config.instagramAccessToken || '').trim(),
+    instagramUsername: String(credentials?.instagramUsername || '').trim()
   };
 }
 
@@ -189,36 +190,64 @@ export async function getInstagramMedia(credentials={}, limit=50) {
   });
 }
 
-async function resolveMetaInstagramUserId(c, explicitId='', explicitPageId='') {
+async function resolveMetaInstagramIdentity(c, explicitId='', explicitPageId='') {
   const direct=String(explicitId||c.metaInstagramUserId||'').trim();
-  if(direct) return direct;
+  const requestedUsername=String(c.instagramUsername||'').trim().toLowerCase();
+  const requestedPage=String(explicitPageId||c.pageId||config.metaPageId||'').trim();
 
-  const page=String(explicitPageId||c.pageId||config.metaPageId||'').trim();
-  if(!page) throw new Error('Meta tarafındaki Instagram Business hesabı ID bulunamadı. META_INSTAGRAM_ID veya META_PAGE_ID gerekli.');
-
-  const result=await request(page,{credentials:c,query:{fields:'instagram_business_account'}});
-  const resolved=String(result?.instagram_business_account?.id||'').trim();
-  if(!resolved) {
-    throw new Error('Facebook Page bu Instagram hesabına bağlı görünmüyor (instagram_business_account bulunamadı).');
+  let pages=[];
+  if(requestedPage) {
+    const result=await request(requestedPage,{credentials:c,query:{fields:'id,name,instagram_business_account'}});
+    pages=[result];
+  } else {
+    const result=await request('me/accounts',{credentials:c,query:{fields:'id,name,instagram_business_account',limit:100}});
+    pages=Array.isArray(result?.data) ? result.data : [];
   }
-  return resolved;
+
+  const candidates=pages.filter(x=>x?.instagram_business_account?.id);
+  if(!candidates.length) {
+    throw new Error('Meta erişim tokenının erişebildiği Facebook Page üzerinde Instagram Business hesabı bulunamadı.');
+  }
+
+  // Prefer an exact configured Meta ID when it is actually attached to a Page.
+  let match=candidates.find(x=>String(x.instagram_business_account.id)===direct);
+
+  // Next, match the Instagram username stored during connection.
+  if(!match && requestedUsername) {
+    for(const page of candidates) {
+      const igId=String(page.instagram_business_account.id);
+      try {
+        const ig=await request(igId,{credentials:c,query:{fields:'id,username'}});
+        if(String(ig?.username||'').trim().toLowerCase()===requestedUsername) {
+          match=page;
+          break;
+        }
+      } catch {}
+    }
+  }
+
+  match=match||candidates[0];
+  return {
+    instagramUserId:String(match.instagram_business_account.id),
+    pageId:String(match.id||requestedPage||'')
+  };
 }
 
 export async function createAdCreativeFromInstagramMedia({name,instagramMediaId,instagramUserId,pageId,credentials={}}) {
   const c=requireMeta(credentials);
   const mediaId=String(instagramMediaId||'').trim();
   if(!mediaId) throw new Error('Instagram gönderisi seçilmedi.');
-  const page=String(pageId||c.pageId||'').trim();
-  const igUser=await resolveMetaInstagramUserId(c,instagramUserId,page);
 
+  const identity=await resolveMetaInstagramIdentity(c,instagramUserId,pageId);
   const body={
     name,
     source_instagram_media_id:mediaId,
     object_story_spec:{
-      instagram_user_id:igUser,
-      ...(page ? {page_id:page} : {})
+      instagram_user_id:identity.instagramUserId,
+      ...(identity.pageId ? {page_id:identity.pageId} : {})
     }
   };
+
   return request(`act_${c.adAccountId}/adcreatives`,{method:'POST',credentials:c,body,timeoutMs:15000});
 }
 
