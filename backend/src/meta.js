@@ -15,7 +15,7 @@ function resolveCredentials(credentials={}) {
     ).trim(),
     pageId: String(credentials?.pageId || config.metaPageId || '').trim(),
     instagramAccessToken: String(credentials?.instagramAccessToken || config.instagramAccessToken || '').trim(),
-    instagramUsername: String(credentials?.instagramUsername || '').trim()
+    instagramUsername: String(credentials?.instagramUsername || config.instagramUsername || '').trim()
   };
 }
 
@@ -103,7 +103,7 @@ export async function updateAdSetBudget(id,dailyBudget,credentials={}) {
   return request(id,{method:'POST',credentials,body:{daily_budget:n}});
 }
 
-export async function createCampaign({name,objective='OUTCOME_ENGAGEMENT',status='PAUSED',credentials={}}) {
+export async function createCampaign({name,objective='OUTCOME_TRAFFIC',status='PAUSED',credentials={}}) {
   const c=requireMeta(credentials);
   return request(`act_${c.adAccountId}/campaigns`,{method:'POST',credentials:c,body:{name,objective,status,special_ad_categories:[],is_adset_budget_sharing_enabled:false},timeoutMs:15000});
 }
@@ -193,43 +193,33 @@ export async function getInstagramMedia(credentials={}, limit=50) {
 async function resolveMetaInstagramIdentity(c, explicitId='', explicitPageId='') {
   const direct=String(explicitId||c.metaInstagramUserId||'').trim();
   const requestedUsername=String(c.instagramUsername||'').trim().toLowerCase();
-  const requestedPage=String(explicitPageId||c.pageId||config.metaPageId||'').trim();
 
-  let pages=[];
-  if(requestedPage) {
-    const result=await request(requestedPage,{credentials:c,query:{fields:'id,name,instagram_business_account'}});
-    pages=[result];
-  } else {
-    const result=await request('me/accounts',{credentials:c,query:{fields:'id,name,instagram_business_account',limit:100}});
-    pages=Array.isArray(result?.data) ? result.data : [];
+  // Meta Ads exposes the Instagram identities actually connected to the ad account.
+  // Use this list as the source of truth for instagram_user_id.
+  const adAccounts=await request(`act_${c.adAccountId}/instagram_accounts`,{
+    credentials:c,
+    query:{fields:'id,username',limit:100}
+  });
+  const accounts=Array.isArray(adAccounts?.data) ? adAccounts.data : [];
+  if(!accounts.length) {
+    throw new Error('Bu reklam hesabında kullanılabilir Instagram hesabı görünmüyor. Meta Ads Manager tarafında Instagram hesabını reklam hesabına bağlamalısın.');
   }
 
-  const candidates=pages.filter(x=>x?.instagram_business_account?.id);
-  if(!candidates.length) {
-    throw new Error('Meta erişim tokenının erişebildiği Facebook Page üzerinde Instagram Business hesabı bulunamadı.');
-  }
-
-  // Prefer an exact configured Meta ID when it is actually attached to a Page.
-  let match=candidates.find(x=>String(x.instagram_business_account.id)===direct);
-
-  // Next, match the Instagram username stored during connection.
+  let match=direct ? accounts.find(x=>String(x.id)===direct) : null;
   if(!match && requestedUsername) {
-    for(const page of candidates) {
-      const igId=String(page.instagram_business_account.id);
-      try {
-        const ig=await request(igId,{credentials:c,query:{fields:'id,username'}});
-        if(String(ig?.username||'').trim().toLowerCase()===requestedUsername) {
-          match=page;
-          break;
-        }
-      } catch {}
-    }
+    match=accounts.find(x=>String(x.username||'').trim().toLowerCase()===requestedUsername);
   }
 
-  match=match||candidates[0];
+  // When there is only one eligible Instagram identity, it is unambiguous.
+  match=match || (accounts.length===1 ? accounts[0] : null);
+  if(!match) {
+    const available=accounts.map(x=>`${x.username||'-'} (${x.id||'-'})`).join(', ');
+    throw new Error(`Reklam hesabında birden fazla/uyumsuz Instagram hesabı var. Kullanılabilir hesaplar: ${available}`);
+  }
+
   return {
-    instagramUserId:String(match.instagram_business_account.id),
-    pageId:String(match.id||requestedPage||'')
+    instagramUserId:String(match.id),
+    pageId:String(explicitPageId||c.pageId||'')
   };
 }
 
