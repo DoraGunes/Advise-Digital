@@ -483,6 +483,11 @@ class _AiContentStudioPageState extends State<AiContentStudioPage> {
                         style: Theme.of(context).textTheme.bodySmall,
                       ),
                     ),
+                  if ((result?['error']?.toString() ?? '').trim().isNotEmpty)
+                    _resultBox(
+                      'AI HATASI',
+                      result!['error']?.toString() ?? '',
+                    ),
                   const SizedBox(height: 10),
                   _resultBox('ÜRÜN', result!['productName']?.toString() ?? ''),
                   _resultBox('MARKA', result!['brand']?.toString() ?? ''),
