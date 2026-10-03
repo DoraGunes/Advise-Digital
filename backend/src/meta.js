@@ -40,7 +40,18 @@ async function request(path,{method='GET',query={},body={},credentials={},timeou
     }
     const r=await fetch(url,options);
     const data=parse(await r.text());
-    if(!r.ok||data.error) throw new Error(`Meta API ${r.status}: ${data?.error?.message||JSON.stringify(data)}`);
+    if(!r.ok||data.error) {
+      const err=data?.error||{};
+      const detail=[
+        err.message,
+        err.error_user_title,
+        err.error_user_msg,
+        err.error_subcode ? `subcode=${err.error_subcode}` : '',
+        err.error_data ? `error_data=${typeof err.error_data==='string' ? err.error_data : JSON.stringify(err.error_data)}` : '',
+        err.fbtrace_id ? `fbtrace_id=${err.fbtrace_id}` : ''
+      ].filter(Boolean).join(' | ');
+      throw new Error(`Meta API ${r.status}: ${detail||JSON.stringify(data)}`);
+    }
     return data;
   } catch(e) {
     if(e.name==='AbortError') throw new Error('Meta API timeout.');
