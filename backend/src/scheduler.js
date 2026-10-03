@@ -91,18 +91,39 @@ function nextOccurrence({day,hour,minute}) {
   return new Date(now.getTime()+7*86400000);
 }
 
-export async function scheduleUploadedPost(post, tenantId='system') {
+export async function scheduleUploadedPosts(posts, tenantId='system') {
   const settings=await getSettings(tenantId);
   const logs=await getLogs(tenantId,500);
+  const existing=await getPosts(tenantId);
   const start=chooseBestStart(settings,logs);
-  const at=nextOccurrence(start);
-  post.publishStatus='QUEUED';
-  post.autoPublish=post.autoPublish !== false;
-  post.publishAttempts=Number(post.publishAttempts||0);
-  post.publishMaxRetries=Number(settings.publishMaxRetries||3);
-  post.nextPublishAt=at.toISOString();
-  post.selectedTime={...start,timezone:config.timezone};
-  return post;
+  let cursor=nextOccurrence(start);
+
+  const futureQueued=existing
+    .filter(x => ['QUEUED','RETRY'].includes(x.publishStatus) && x.nextPublishAt && new Date(x.nextPublishAt).getTime() > Date.now())
+    .map(x => new Date(x.nextPublishAt))
+    .filter(d => !Number.isNaN(d.getTime()))
+    .sort((a,b)=>a-b);
+
+  if(futureQueued.length) {
+    const latest=futureQueued[futureQueued.length-1];
+    if(latest.getTime() >= cursor.getTime()) cursor=new Date(latest.getTime()+86400000);
+  }
+
+  for(const post of posts) {
+    post.publishStatus='QUEUED';
+    post.autoPublish=post.autoPublish !== false;
+    post.publishAttempts=Number(post.publishAttempts||0);
+    post.publishMaxRetries=Number(settings.publishMaxRetries||3);
+    post.nextPublishAt=cursor.toISOString();
+    post.selectedTime={...start,timezone:config.timezone,scheduledAt:post.nextPublishAt};
+    cursor=new Date(cursor.getTime()+86400000);
+  }
+  return posts;
+}
+
+export async function scheduleUploadedPost(post, tenantId='system') {
+  const result=await scheduleUploadedPosts([post],tenantId);
+  return result[0];
 }
 
 export async function publishDuePosts(tenantId='system') {
