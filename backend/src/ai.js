@@ -213,7 +213,7 @@ async function imageUrlToInputPart(aiClient, imageUrl) {
       headers: {'accept': 'image/*'},
       signal: AbortSignal.timeout(15000)
     });
-    if (!response.ok) throw new Error(\`Görsel URL alınamadı: HTTP \${response.status}\`);
+    if (!response.ok) throw new Error(`Görsel URL alınamadı: HTTP ${response.status}`);
     const contentType = String(response.headers.get('content-type') || '').split(';')[0].trim().toLowerCase();
     if (!contentType.startsWith('image/')) throw new Error('Görsel URL image MIME type döndürmedi.');
 
@@ -279,7 +279,7 @@ async function callGemini({prompt, systemInstruction='', mediaParts=[], maxOutpu
         });
 
         if (!outputText) {
-          throw new Error(\`Gemini boş cevap döndürdü. status=\${interaction?.status || '-'}\`);
+          throw new Error(`Gemini boş cevap döndürdü. status=${interaction?.status || '-'}`);
         }
 
         return {
@@ -434,8 +434,8 @@ export async function generateCaptionVariants(input={}) {
       model: null,
       variants: [
         {id: 'A', caption: base.caption, hook: base.hook, cta: base.cta, style: 'Doğrudan'},
-        {id: 'B', caption: \`\${safe.title}: İhtiyacın olan detayları tek yerde keşfet. \${base.cta}\`, hook: \`\${safe.title} hakkında bunu biliyor musun?\`, cta: base.cta, style: 'Merak uyandıran'},
-        {id: 'C', caption: \`\${safe.title} için kısa ve net bilgi. \${base.cta}\`, hook: 'Kısa, net ve fayda odaklı.', cta: base.cta, style: 'Minimal'}
+        {id: 'B', caption: `${safe.title}: İhtiyacın olan detayları tek yerde keşfet. ${base.cta}`, hook: `${safe.title} hakkında bunu biliyor musun?`, cta: base.cta, style: 'Merak uyandıran'},
+        {id: 'C', caption: `${safe.title} için kısa ve net bilgi. ${base.cta}`, hook: 'Kısa, net ve fayda odaklı.', cta: base.cta, style: 'Minimal'}
       ]
     };
   }
@@ -444,10 +444,10 @@ export async function generateCaptionVariants(input={}) {
   const prompt = [
     'AdVise AI için aynı Instagram içeriğinin 3 farklı caption varyasyonunu üret.',
     'Türkçe yaz, uydurma özellik veya fiyat ekleme.',
-    \`Ürün: \${safe.title}\`,
-    \`Bilgi: \${safe.context || '-'}\`,
-    \`Ton: \${safe.tone}\`,
-    \`Amaç: \${safe.goal}\`,
+    `Ürün: ${safe.title}`,
+    `Bilgi: ${safe.context || '-'}`,
+    `Ton: ${safe.tone}`,
+    `Amaç: ${safe.goal}`,
     'Her varyant için id, caption, hook, cta ve style döndür.'
   ].join('\\n');
 
@@ -507,8 +507,8 @@ export async function generateCaptionVariants(input={}) {
       error: clean(e.message, 500),
       variants: [
         {id: 'A', caption: base.caption, hook: base.hook, cta: base.cta, style: 'Doğrudan'},
-        {id: 'B', caption: \`\${safe.title}: Detayları keşfet. \${base.cta}\`, hook: \`\${safe.title} için doğru seçim neden önemli?\`, cta: base.cta, style: 'Merak uyandıran'},
-        {id: 'C', caption: \`\${safe.title}: Kısa, net ve fayda odaklı. \${base.cta}\`, hook: 'Kısa, net ve fayda odaklı.', cta: base.cta, style: 'Minimal'}
+        {id: 'B', caption: `${safe.title}: Detayları keşfet. ${base.cta}`, hook: `${safe.title} için doğru seçim neden önemli?`, cta: base.cta, style: 'Merak uyandıran'},
+        {id: 'C', caption: `${safe.title}: Kısa, net ve fayda odaklı. ${base.cta}`, hook: 'Kısa, net ve fayda odaklı.', cta: base.cta, style: 'Minimal'}
       ]
     };
   }
