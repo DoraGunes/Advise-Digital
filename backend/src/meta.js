@@ -4,10 +4,16 @@ const base=`https://graph.facebook.com/${config.metaApiVersion}`;
 
 function resolveCredentials(credentials={}) {
   return {
-    accessToken: String(credentials?.accessToken || config.metaAccessToken || '').trim(),
+    accessToken: String(credentials?.accessToken || credentials?.metaAccessToken || config.metaAccessToken || '').trim(),
     adAccountId: String(credentials?.adAccountId || config.adAccountId || '').replace(/^act_/, '').trim(),
     instagramUserId: String(credentials?.instagramUserId || config.instagramUserId || '').trim(),
-    pageId: String(credentials?.pageId || '').trim(),
+    metaInstagramUserId: String(
+      credentials?.metaInstagramUserId ||
+      credentials?.instagramBusinessAccountId ||
+      config.metaInstagramUserId ||
+      ''
+    ).trim(),
+    pageId: String(credentials?.pageId || config.metaPageId || '').trim(),
     instagramAccessToken: String(credentials?.instagramAccessToken || config.instagramAccessToken || '').trim()
   };
 }
@@ -183,13 +189,27 @@ export async function getInstagramMedia(credentials={}, limit=50) {
   });
 }
 
+async function resolveMetaInstagramUserId(c, explicitId='', explicitPageId='') {
+  const direct=String(explicitId||c.metaInstagramUserId||'').trim();
+  if(direct) return direct;
+
+  const page=String(explicitPageId||c.pageId||config.metaPageId||'').trim();
+  if(!page) throw new Error('Meta tarafındaki Instagram Business hesabı ID bulunamadı. META_INSTAGRAM_ID veya META_PAGE_ID gerekli.');
+
+  const result=await request(page,{credentials:c,query:{fields:'instagram_business_account'}});
+  const resolved=String(result?.instagram_business_account?.id||'').trim();
+  if(!resolved) {
+    throw new Error('Facebook Page bu Instagram hesabına bağlı görünmüyor (instagram_business_account bulunamadı).');
+  }
+  return resolved;
+}
+
 export async function createAdCreativeFromInstagramMedia({name,instagramMediaId,instagramUserId,pageId,credentials={}}) {
   const c=requireMeta(credentials);
   const mediaId=String(instagramMediaId||'').trim();
   if(!mediaId) throw new Error('Instagram gönderisi seçilmedi.');
-  const igUser=String(instagramUserId||c.instagramUserId||'').trim();
   const page=String(pageId||c.pageId||'').trim();
-  if(!igUser) throw new Error('Instagram kullanıcı ID bulunamadı.');
+  const igUser=await resolveMetaInstagramUserId(c,instagramUserId,page);
 
   const body={
     name,
