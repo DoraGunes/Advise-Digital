@@ -117,9 +117,9 @@ app.get('/health', (_req, res) => res.json({
   ok: true,
   app: 'AdVise AI',
   version: config.appVersion,
-  buildMarker: 'MEDIA_FIX_2026_10_03_V2',
+  buildMarker: 'GEMINI_SWITCH_2026_10_03_V1',
   uploadMode: 'EXTENSION_AWARE',
-  aiImageMode: 'DIRECT_DATA_URL'
+  aiImageMode: 'GEMINI_INLINE_DATA'
 }));
 
 app.post('/api/auth/login', async (req, res) => {
@@ -728,10 +728,10 @@ app.post('/api/ai/content-pack-from-file', upload.single('image'), async (req, r
         : visionMime ? '' : 'Görsel dosyası kabul edildi ancak bu dosyanın türü doğrudan görsel analizine uygun olmadığı için metin ağırlıklı analiz yapılır.'
     });
 
-    if (result.source !== 'OPENAI') {
-      console.error('[AI MEDIA NOT OPENAI]', result.source, result.error || 'OpenAI anahtarı/çağrısı kullanılamadı.');
+    if (result.source !== 'GEMINI') {
+      console.error('[AI MEDIA NOT GEMINI]', result.source, result.error || 'Gemini anahtarı/çağrısı kullanılamadı.');
       return res.status(502).json({
-        error: result.error || 'OpenAI görsel analizi çalışmadı.',
+        error: result.error || 'Gemini görsel analizi çalışmadı.',
         source: result.source
       });
     }
