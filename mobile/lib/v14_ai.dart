@@ -74,9 +74,9 @@ class _AiContentStudioPageState extends State<AiContentStudioPage> {
   }
 
   Future<void> _generate() async {
-    if (title.text.trim().isEmpty) {
+    if (image == null && title.text.trim().isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Önce ürün / başlık gir.')),
+        const SnackBar(content: Text('Önce bir görsel/video seç veya ürün başlığı gir.')),
       );
       return;
     }
@@ -386,71 +386,40 @@ class _AiContentStudioPageState extends State<AiContentStudioPage> {
           ),
           const SizedBox(height: 12),
           _section(
-            '2 • AI ayarları',
+            '2 • AI otomatik karar',
             Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                TextField(
-                  controller: title,
-                  decoration: const InputDecoration(
-                    labelText: 'Ürün / başlık',
-                    prefixIcon: Icon(Icons.sell_outlined),
+                Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.all(14),
+                  decoration: BoxDecoration(
+                    borderRadius: BorderRadius.circular(16),
+                    color: Theme.of(context).colorScheme.surfaceContainerHighest,
+                  ),
+                  child: const Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Icon(Icons.auto_awesome_rounded),
+                      SizedBox(width: 10),
+                      Expanded(
+                        child: Text(
+                          'Senin seçmen gereken sadece medya. AdVise AI ürünü, markayı, görünen bilgileri, içerik açısını, tonu, amacı ve formatı görselden çıkarır.',
+                          style: TextStyle(height: 1.45),
+                        ),
+                      ),
+                    ],
                   ),
                 ),
-                const SizedBox(height: 10),
+                const SizedBox(height: 12),
                 TextField(
                   controller: contextText,
-                  maxLines: 4,
+                  maxLines: 3,
                   decoration: const InputDecoration(
-                    labelText: 'Ürün hakkında ek bilgi (opsiyonel)',
-                    prefixIcon: Icon(Icons.notes_outlined),
+                    labelText: 'İsteğe bağlı not',
+                    hintText: 'Örn. özellikle kampanyayı vurgula...',
+                    prefixIcon: Icon(Icons.edit_note_outlined),
                   ),
-                ),
-                const SizedBox(height: 10),
-                DropdownButtonFormField<String>(
-                  initialValue: tone,
-                  decoration: const InputDecoration(labelText: 'Ton'),
-                  items: const [
-                    DropdownMenuItem(
-                      value: 'samimi ve güven veren',
-                      child: Text('Samimi ve güven veren'),
-                    ),
-                    DropdownMenuItem(
-                      value: 'premium ve şık',
-                      child: Text('Premium ve şık'),
-                    ),
-                    DropdownMenuItem(
-                      value: 'enerjik ve hızlı',
-                      child: Text('Enerjik ve hızlı'),
-                    ),
-                    DropdownMenuItem(
-                      value: 'teknik ve uzman',
-                      child: Text('Teknik ve uzman'),
-                    ),
-                  ],
-                  onChanged: (v) => setState(() => tone = v ?? tone),
-                ),
-                const SizedBox(height: 10),
-                DropdownButtonFormField<String>(
-                  initialValue: goal,
-                  decoration: const InputDecoration(labelText: 'Amaç'),
-                  items: const [
-                    DropdownMenuItem(value: 'mesaj', child: Text('Mesaj')),
-                    DropdownMenuItem(value: 'satın alma', child: Text('Satın alma')),
-                    DropdownMenuItem(value: 'trafik', child: Text('Trafik')),
-                    DropdownMenuItem(value: 'etkileşim', child: Text('Etkileşim')),
-                  ],
-                  onChanged: (v) => setState(() => goal = v ?? goal),
-                ),
-                const SizedBox(height: 10),
-                DropdownButtonFormField<String>(
-                  initialValue: media,
-                  decoration: const InputDecoration(labelText: 'Format'),
-                  items: const [
-                    DropdownMenuItem(value: 'AUTO', child: Text('Otomatik')),
-                    DropdownMenuItem(value: 'POST', child: Text('Gönderi')),
-                    DropdownMenuItem(value: 'REELS', child: Text('Reels')),
-                  ],
-                  onChanged: (v) => setState(() => media = v ?? media),
                 ),
                 const SizedBox(height: 12),
                 SizedBox(
@@ -467,16 +436,17 @@ class _AiContentStudioPageState extends State<AiContentStudioPage> {
                         : const Icon(Icons.auto_awesome),
                     label: Text(
                       loading
-                          ? 'İŞLENİYOR...'
+                          ? 'AI GÖRSELİ VE İÇERİĞİ ANALİZ EDİYOR...'
                           : image != null
-                              ? 'MEDYAYI DEĞERLENDİR VE ÜRET'
-                              : 'AI İLE ÜRET',
+                              ? 'AI İLE ANALİZ ET VE İÇERİK OLUŞTUR'
+                              : 'AI İLE İÇERİK OLUŞTUR',
                     ),
                   ),
                 ),
               ],
             ),
           ),
+          const SizedBox(height: 12),
           if (result != null) ...[
             const SizedBox(height: 12),
             _section(
@@ -509,6 +479,13 @@ class _AiContentStudioPageState extends State<AiContentStudioPage> {
                       ),
                     ),
                   const SizedBox(height: 10),
+                  _resultBox('ÜRÜN', result!['productName']?.toString() ?? ''),
+                  _resultBox('MARKA', result!['brand']?.toString() ?? ''),
+                  _resultBox('MODEL', result!['model']?.toString() ?? ''),
+                  _resultBox('GÖRSELDEKİ METİNLER', result!['detectedText']?.toString() ?? ''),
+                  _resultBox('GÖRÜLEN TEKLİF', result!['detectedOffer']?.toString() ?? ''),
+                  _resultBox('SEÇİLEN TON', result!['selectedTone']?.toString() ?? ''),
+                  _resultBox('İÇERİK AÇISI', result!['contentAngle']?.toString() ?? ''),
                   _resultBox('HOOK', result!['hook']?.toString() ?? ''),
                   _resultBox('CTA', result!['cta']?.toString() ?? ''),
                   _resultBox('CAPTION', result!['caption']?.toString() ?? ''),
