@@ -252,6 +252,69 @@ class Api {
     }
   }
 
+  static Future<Map<String, dynamic>> uploadPostsBulk(
+    List<String> paths, {
+    bool autoPublish = true,
+    bool useAI = true,
+    String aiContext = '',
+  }) async {
+    if (paths.isEmpty) throw const ApiException('En az bir dosya seçmelisin.');
+    final base = await baseUrl();
+    final authToken = await token();
+    final request = http.MultipartRequest('POST', _uri(base, '/api/posts/bulk', null));
+    request.headers['Accept'] = 'application/json';
+    if (authToken.isNotEmpty) request.headers['Authorization'] = 'Bearer $authToken';
+    request.fields['autoPublish'] = autoPublish.toString();
+    request.fields['useAI'] = useAI.toString();
+    request.fields['aiContext'] = aiContext.trim();
+    for (final path in paths) {
+      request.files.add(await http.MultipartFile.fromPath('files', path));
+    }
+    try {
+      final streamed = await request.send().timeout(const Duration(seconds: 180));
+      final response = await http.Response.fromStream(streamed);
+      final data = _decode(response.body);
+      if (response.statusCode < 200 || response.statusCode >= 300) {
+        throw ApiException(_error(data), statusCode: response.statusCode, details: response.body);
+      }
+      return Map<String, dynamic>.from(data as Map);
+    } on ApiException {
+      rethrow;
+    } on TimeoutException {
+      throw const ApiException('Toplu içerik yükleme zaman aşımına uğradı.');
+    } on SocketException catch (e) {
+      throw ApiException('Toplu içerik yüklenemedi; backend bağlantısı kurulamadı.', details: e.message);
+    } on http.ClientException catch (e) {
+      throw ApiException('Toplu içerik yükleme bağlantı hatası.', details: e.message);
+    }
+  }
+
+  static Future<Map<String, dynamic>> uploadPostCover(String postId, String path) async {
+    final base = await baseUrl();
+    final authToken = await token();
+    final request = http.MultipartRequest('POST', _uri(base, '/api/posts/$postId/cover', null));
+    request.headers['Accept'] = 'application/json';
+    if (authToken.isNotEmpty) request.headers['Authorization'] = 'Bearer $authToken';
+    request.files.add(await http.MultipartFile.fromPath('cover', path));
+    try {
+      final streamed = await request.send().timeout(const Duration(seconds: 60));
+      final response = await http.Response.fromStream(streamed);
+      final data = _decode(response.body);
+      if (response.statusCode < 200 || response.statusCode >= 300) {
+        throw ApiException(_error(data), statusCode: response.statusCode, details: response.body);
+      }
+      return Map<String, dynamic>.from(data as Map);
+    } on ApiException {
+      rethrow;
+    } on TimeoutException {
+      throw const ApiException('Kapak yükleme zaman aşımına uğradı.');
+    } on SocketException catch (e) {
+      throw ApiException('Kapak yüklenemedi; backend bağlantısı kurulamadı.', details: e.message);
+    } on http.ClientException catch (e) {
+      throw ApiException('Kapak yükleme bağlantı hatası.', details: e.message);
+    }
+  }
+
   // Super Admin API
   static Future<void> deleteCustomer(String tenantId) async => await _request('DELETE', '/api/admin/customers/$tenantId');
   static Future<Map<String, dynamic>> metaStatus() async => Map<String, dynamic>.from(await _request('GET', '/api/meta/status'));
