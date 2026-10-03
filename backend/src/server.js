@@ -560,7 +560,8 @@ app.post('/api/ai/content-pack', async (req, res) => {
   try {
     const settings=await getSettings(req.user.tenantId);
     if(settings.aiEnabled===false) return res.json({source:'DISABLED',message:'AI modu kapalı.',recommendedFormat:String(req.body?.mediaType||'IMAGE').toUpperCase()==='VIDEO'?'REELS':'POST'});
-    const result=await generateContentPack({...req.body, tone:req.body?.tone||settings.aiTone, goal:req.body?.goal||settings.aiGoal, language:req.body?.language||settings.aiLanguage});
+    const history=await getLogs(req.user.tenantId, 20);
+    const result=await generateContentPack({...req.body, tone:req.body?.tone||settings.aiTone, goal:req.body?.goal||settings.aiGoal, language:req.body?.language||settings.aiLanguage, timezone:config.timezone, history});
     await addLog(req.user.tenantId,{type:'AI_CONTENT_GENERATED',source:result.source,mediaType:req.body?.mediaType||'AUTO'});
     res.json(result);
   } catch(e) { res.status(400).json({error:e.message}); }
@@ -589,6 +590,7 @@ app.post('/api/ai/content-pack-from-file', upload.single('image'), async (req, r
       return res.status(503).json({error: 'AI görsel analizi için HTTPS erişilebilir public URL gerekli.'});
     }
 
+    const history = await getLogs(req.user.tenantId, 20);
     const result = await generateContentPack({
       title: req.body?.title || req.file.originalname,
       context: req.body?.context || '',
@@ -596,7 +598,9 @@ app.post('/api/ai/content-pack-from-file', upload.single('image'), async (req, r
       goal: req.body?.goal || settings.aiGoal,
       language: req.body?.language || settings.aiLanguage,
       mediaType: req.body?.mediaType || 'AUTO',
-      imageUrl: publicUrl
+      imageUrl: publicUrl,
+      timezone: config.timezone,
+      history
     });
 
     await addLog(req.user.tenantId, {
@@ -702,7 +706,8 @@ app.post('/api/posts', upload.single('image'), async (req, res) => {
       createdAt:new Date().toISOString()
     };
     if(useAI && settings.aiEnabled!==false && !post.caption) {
-      const pack=await generateContentPack({title:post.title,context:req.body?.aiContext||'',tone:settings.aiTone,goal:settings.aiGoal,language:settings.aiLanguage,mediaType, imageUrl:/^https:\/\//i.test(post.publicUrl)?post.publicUrl:''});
+      const history=await getLogs(tenantId, 20);
+      const pack=await generateContentPack({title:post.title,context:req.body?.aiContext||'',tone:settings.aiTone,goal:settings.aiGoal,language:settings.aiLanguage,mediaType,timezone:config.timezone,history,imageUrl:/^https:\/\//i.test(post.publicUrl)?post.publicUrl:''});
       post.caption=String(pack.caption||'').trim();
       post.aiGenerated=true;
       post.aiSource=pack.source;
