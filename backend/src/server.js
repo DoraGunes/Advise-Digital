@@ -703,6 +703,15 @@ app.post('/api/ai/content-pack-from-file', upload.single('image'), async (req, r
       : '';
 
     const history = await getLogs(req.user.tenantId, 20);
+    console.log('[AI MEDIA]', {
+      originalName: req.file.originalname,
+      mimetype: req.file.mimetype,
+      kind,
+      size: req.file.size || 0,
+      visionMime: visionMime || '-',
+      hasImageDataUrl: Boolean(imageDataUrl)
+    });
+
     const result = await generateContentPack({
       title: req.body?.title || req.file.originalname,
       context: req.body?.context || '',
@@ -718,6 +727,14 @@ app.post('/api/ai/content-pack-from-file', upload.single('image'), async (req, r
         ? 'Dosya bir video. Video yüklemesi kabul edildi; bu endpoint videoyu doğrudan kare kare analiz etmiyor. İçerik önerisi dosya adı, kullanıcı bilgisi ve seçilen Reels formatına göre hazırlanır.'
         : visionMime ? '' : 'Görsel dosyası kabul edildi ancak bu dosyanın türü doğrudan görsel analizine uygun olmadığı için metin ağırlıklı analiz yapılır.'
     });
+
+    if (result.source !== 'OPENAI') {
+      console.error('[AI MEDIA NOT OPENAI]', result.source, result.error || 'OpenAI anahtarı/çağrısı kullanılamadı.');
+      return res.status(502).json({
+        error: result.error || 'OpenAI görsel analizi çalışmadı.',
+        source: result.source
+      });
+    }
 
     await addLog(req.user.tenantId, {
       type: 'AI_CONTENT_GENERATED',
