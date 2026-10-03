@@ -99,7 +99,7 @@ class Api {
           response = await http.get(uri, headers: headers).timeout(const Duration(seconds: 20));
           break;
         case 'POST':
-          response = await http.post(uri, headers: headers, body: encodedBody).timeout(const Duration(seconds: 40));
+          response = await http.post(uri, headers: headers, body: encodedBody).timeout(const Duration(seconds: 90));
           break;
         case 'PUT':
           response = await http.put(uri, headers: headers, body: encodedBody).timeout(const Duration(seconds: 40));
