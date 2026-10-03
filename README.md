@@ -8,10 +8,23 @@ Advise Digital; Meta/Instagram reklam yönetimi, 12 saatlik erken karar motoru, 
 - `backend/database/schema.sql` PostgreSQL için üretim şeması
 - `advise-digital-reklam-karar-modeli.xlsx` karar modeli
 - `advise-digital-post-saat-modeli.xlsx` saat öğrenme modeli
-- `BUILD_ADVISE_DIGITAL_APK.ps1` tek komutla Android hazırlama + analyze + test + release build
-- `OPEN_PORT_3001_ADMIN.ps1` telefonun PC backend'ine ulaşamadığı durum için Windows Firewall kuralı
+- `BUILD_ADVISE_DIGITAL_APK.ps1` Android hazırlama + analyze + test + release build
+- `OPEN_PORT_3001_ADMIN.ps1` Windows Firewall yardımcı betiği
+
+## Güncel çalışma adresi
+
+AdVise AI backend:
+`http://localhost:3001`
+
+Internet üzerinden AdVise API:
+`https://advisedigital.poyrazteknikservis.com.tr`
+
+Bu alan adı Cloudflare Tunnel üzerinden yerel `localhost:3001` servisine yönlendirilir. Windows'taki `cloudflared` servisi otomatik çalışacak şekilde kullanılabilir.
+
+Poyraz Teknik backend ayrı olarak `localhost:3000` portunda çalışır ve aynı Cloudflare Tunnel üzerinden ayrı hostname ile yayınlanabilir.
 
 ## İlk kurulum
+
 Backend:
 ```powershell
 cd backend
@@ -19,21 +32,14 @@ npm.cmd install
 npm.cmd start
 ```
 
-Telefon için backend adresi:
-`http://192.168.1.61:3001`
-
-Telefon ve PC aynı ağda olmalı.
-
 APK için proje kökünden:
 ```powershell
 powershell -ExecutionPolicy Bypass -File .\\BUILD_ADVISE_DIGITAL_APK.ps1
 ```
 
-İstersen manuel:
+Manuel release build:
 ```powershell
 cd mobile
-flutter create --project-name advise_digital .
-powershell -ExecutionPolicy Bypass -File .\\BRANDING_FIX.ps1
 flutter pub get
 flutter analyze
 flutter test
@@ -41,14 +47,17 @@ flutter build apk --release
 ```
 
 ## Varsayılan sistem yöneticisi
+
 `.env` içindeki `ADMIN_USERNAME` ve `ADMIN_PASSWORD` değerleri kullanılır. Üretimde bunları mutlaka değiştir.
 
 ## Meta / Instagram
-Uygulamada tenant bazlı Meta & Instagram bağlantı ekranı ve OAuth başlangıç/callback akışı vardır. Gerçek bağlantı için Meta Developer uygulamasının App ID/Secret/Redirect URI değerleri backend `.env` içine konur. Redirect URI, Meta uygulamasında kayıtlı URI ile birebir aynı olmalıdır. Yerel LAN adresi üretim OAuth callback'i olarak düşünülmemelidir.
 
-OAuth ile alınan token backend tarafında tenant kaydına yazılır ve mobil API cevaplarında token değeri açığa çıkarılmaz. Canlı reklam yönetimi, Meta hesabı ve uygulama izinlerinin gerçekten verilmiş olmasına bağlıdır.
+Uygulamada tenant bazlı Meta & Instagram bağlantı ekranı ve OAuth başlangıç/callback akışı vardır. Gerçek bağlantı için Meta Developer uygulamasının App ID/Secret/Redirect URI değerleri backend `.env` içine konur. Redirect URI, Meta uygulamasında kayıtlı URI ile birebir aynı olmalıdır.
+
+Meta reklam işlemleri için `META_ACCESS_TOKEN`, Instagram içerik işlemleri için `INSTAGRAM_ACCESS_TOKEN` kullanılır. Token değerleri mobil uygulamaya gömülmemelidir.
 
 ## Reklam otomasyonu
+
 - İçerik yükleme
 - Haftalık bütçe
 - En uygun saat seçimi için geçmiş loglardan puanlama
@@ -60,6 +69,7 @@ OAuth ile alınan token backend tarafında tenant kaydına yazılır ve mobil AP
 - Tenant bazlı otomasyon
 
 ## SaaS
+
 - Super Admin
 - Müşteri oluştur/düzenle/pasife al/aktif et/süre uzat/sil
 - Müşteri şifresi sıfırlama
@@ -70,15 +80,14 @@ OAuth ile alınan token backend tarafında tenant kaydına yazılır ve mobil AP
 - Bildirim tercihleri
 - Billing özeti
 - Analitik
-- AI içgörüsü (kural tabanlı)
+- AI içgörüsü
 - Güvenlik görünümü
 - Sistem tanılama
 
 ## Güvenlik / üretim notu
-Yerel geliştirmede JSON fallback kullanılır. Ticari üretimde HTTPS, PostgreSQL, güçlü secret yönetimi, token encryption/secret store, rate limiting, yedekleme ve izleme servisi eklenmelidir. Bu paket bu geçiş için şema ve DB health temelini içerir; JSON verisini otomatik olarak PostgreSQL'e taşıyan migration servisi henüz burada çalıştırılmıyor.
+
+`.env` dosyaları Git'e alınmaz. Üretimde HTTPS, PostgreSQL, güçlü secret yönetimi, token encryption/secret store, rate limiting, yedekleme ve izleme servisi eklenmelidir. JSON fallback geliştirme için tutulur.
 
 ## Meta OAuth entegrasyonu
 
-Facebook Login for Business Configuration ID, App ID ve callback ayarları `META_CONNECTION_NOW.md` içinde güncel örneklerle bulunur. App Secret pakete dahil değildir.
-
-<!-- package-trigger -->
+Meta App ID, Configuration ID ve callback kurulum notları `META_CONNECTION_NOW.md` içindedir. App Secret pakete dahil değildir.
