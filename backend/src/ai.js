@@ -3,7 +3,8 @@ import {config} from './config.js';
 const MODEL = process.env.GEMINI_MODEL || config.aiModel || 'gemini-3.8-flash';
 const API_BASE_URL = 'https://generativelanguage.googleapis.com/v1beta/models';
 
-// Gemini generateContent responseSchema uses a restricted Schema shape.\nconst OUTPUT_SCHEMA = {
+// Gemini generateContent responseSchema uses a restricted Schema shape.
+const OUTPUT_SCHEMA = {
   type: 'object',
   properties: {
     productName: {type: 'string'},
