@@ -20,6 +20,7 @@ import {analyticsSummary, aiInsights, billingSummary, brandingSummary, saveBrand
 import {dbHealth} from './db.js';
 import {aiAdvisor, performanceSummary, getAlerts, createAlert, markAlert, getLeads, createLead, updateLead, deleteLead, analyzeCreative, getCreatives, simulateBudget, createExperiment, getExperiments, updateExperiment, buildUtm, reportPack, agencyOverview} from './pro.js';
 import {generateContentPack, generateCaption, generateCaptionVariants, scoreCreative, aiStatus} from './ai.js';
+import {learnFromGeneration, getMemorySummary} from './ai-memory.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const uploadDir = path.resolve(__dirname, '../uploads');
@@ -657,6 +658,7 @@ app.get('/api/notifications', async (req, res) => { try { res.json(await notific
 app.put('/api/notifications', async (req, res) => { try { res.json(await saveNotificationPrefs(req.user.tenantId, req.body || {})); } catch (e) { res.status(400).json({error:e.message}); } });
 app.get('/api/security/overview', async (req, res) => { try { res.json(await securityOverview(req.user.tenantId)); } catch (e) { res.status(500).json({error:e.message}); } });
 app.get('/api/ai/status', async (_req, res) => res.json(aiStatus()));
+app.get('/api/ai/memory', async (req, res) => { try { res.json(await getMemorySummary(req.user.tenantId)); } catch(e) { res.status(500).json({error:e.message}); } });
 app.post('/api/ai/content-pack', async (req, res) => {
   try {
     const settings=await getSettings(req.user.tenantId);
@@ -664,6 +666,7 @@ app.post('/api/ai/content-pack', async (req, res) => {
     const history=await getLogs(req.user.tenantId, 20);
     const result=await generateContentPack({...req.body, tone:req.body?.tone||settings.aiTone, goal:req.body?.goal||settings.aiGoal, language:req.body?.language||settings.aiLanguage, timezone:config.timezone, history});
     await addLog(req.user.tenantId,{type:'AI_CONTENT_GENERATED',source:result.source,mediaType:req.body?.mediaType||'AUTO'});
+    if (result.source === 'GEMINI') await learnFromGeneration(req.user.tenantId, result, {postId: String(req.body?.postId || '').trim()});
     res.json(result);
   } catch(e) { res.status(400).json({error:e.message}); }
 });
