@@ -21,6 +21,7 @@ const OUTPUT_SCHEMA = {
     selectedTone: {type: 'string'},
     contentAngle: {type: 'string'},
     hook: {type: 'string'},
+    hookType: {type: 'string'},
     caption: {type: 'string'},
     cta: {type: 'string'},
     hashtags: {type: 'array', items: {type: 'string'}},
@@ -37,7 +38,7 @@ const OUTPUT_SCHEMA = {
   },
   required: [
     'productName', 'brand', 'model', 'detectedText', 'detectedOffer',
-    'selectedTone', 'contentAngle', 'hook', 'caption', 'cta', 'hashtags',
+    'selectedTone', 'contentAngle', 'hook', 'hookType', 'caption', 'cta', 'hashtags',
     'recommendedFormat', 'recommendedPostTime', 'recommendedPostTimeReason',
     'contentGoal', 'targetAudience', 'visualSummary', 'creativeScore',
     'adRecommendation', 'nextAction', 'confidence'
@@ -135,6 +136,7 @@ function localPack(input={}) {
     selectedTone: 'samimi ve güven veren',
     contentAngle: 'Görseldeki gerçek ve doğrulanabilir avantajı öne çıkar.',
     hook: title + ': detayları yakala.',
+    hookType: 'DOĞRUDAN',
     caption: title + ' için net ve doğal bir içerik.' + (context ? ' ' + context : '') + (whatsappGoal ? ' Detaylı bilgi için WhatsApp üzerinden bize ulaşabilirsin.' : ' Detaylı bilgi için mesaj gönderebilirsin.'),
     cta: whatsappGoal ? 'WhatsApp üzerinden bize yazın.' : 'Detaylı bilgi için mesaj gönder.',
     contactChannel: whatsappGoal ? 'WHATSAPP' : '',
@@ -173,6 +175,7 @@ function normalizePack(raw, input={}, model=MODEL) {
     selectedTone: clean(pack.selectedTone, 120) || fallback.selectedTone,
     contentAngle: clean(pack.contentAngle, 300) || fallback.contentAngle,
     hook: clean(pack.hook, 300) || fallback.hook,
+    hookType: clean(pack.hookType, 120) || fallback.hookType,
     caption: clean(pack.caption, 2200) || fallback.caption,
     cta: whatsappGoal ? whatsappCta(pack.cta) : clean(pack.cta, 300) || fallback.cta,
     hashtags: safeHashtags(pack.hashtags).length ? safeHashtags(pack.hashtags) : fallback.hashtags,
@@ -342,6 +345,13 @@ export async function generateContentPack(input={}) {
     mediaNote: clean(input.mediaNote, 500),
     timezone: clean(input.timezone, 80) || config.timezone || 'Europe/Istanbul',
     history: Array.isArray(input.history) ? input.history : [],
+    industry: clean(input.industry, 100),
+    productCategory: clean(input.productCategory, 100),
+    targetAudience: clean(input.targetAudience, 500),
+    visualSummary: clean(input.visualSummary, 700),
+    brand: clean(input.brand, 100),
+    model: clean(input.model, 120),
+    hook: clean(input.hook, 300),
     tenantId: clean(input.tenantId, 120)
   };
   if (!String(process.env.GEMINI_API_KEY || '').trim()) return localPack(safe);
@@ -357,6 +367,7 @@ export async function generateContentPack(input={}) {
     'Ürünün sektörünü ve ürün kategorisini tanımla; emin değilsen tahminini kısa ve temkinli yaz.',
     'Ton, format, amaç ve içerik açısını AI kendi seçsin.',
     'Hook kısa ve güçlü; caption doğal Türkçe; CTA tek ve net; hashtag 4-8 adet olsun.',
+    'hookType alanında hook stratejisini kısa kategorik etiketle belirt (ör. SORU, MERAK, FAYDA, SORUN_ÇÖZÜM, TEKLİF, SOSYAL_KANIT, ACİLİYET, HİKAYE, DOĞRUDAN).',
     'recommendedPostTime Türkiye saatiyle HH:MM olsun.',
     'Geçmiş performans verisi yoksa bunu açıkça belirt; başarı garantisi verme.',
     ...(isWhatsAppGoal(safe.goal) ? [
@@ -375,6 +386,9 @@ export async function generateContentPack(input={}) {
     'Amaç tercihi: ' + safe.goal,
     'Zaman dilimi: ' + safe.timezone,
     'Medya notu: ' + (safe.mediaNote || '-'),
+    ...(safe.industry ? ['Bilinen sektör: ' + safe.industry] : []),
+    ...(safe.productCategory ? ['Bilinen ürün kategorisi: ' + safe.productCategory] : []),
+    ...(safe.targetAudience ? ['Bilinen hedef kitle: ' + safe.targetAudience] : []),
     'Geçmiş sinyaller:',
     buildHistoryText(safe.history),
     memoryContext
