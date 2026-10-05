@@ -65,9 +65,9 @@ async function _createAlert(tenantId, input) {
 async function _markAlert(tenantId, alertId, isRead=true) { const db=await read(); const a=(db.alerts||[]).find(x=>x.tenantId===tenantId&&x.id===alertId); if(!a) throw new Error('Uyarı bulunamadı.'); a.read=Boolean(isRead); await write(db); return a; }
 
 export async function getLeads(tenantId) { const db=await read(); return tenantRows(db,'leads',tenantId).slice(0,500); }
-async function _createLead(tenantId,input) {
+async function _createLead(tenantId,input,context={}) {
   const db=await read(); const lead={id:id('lead'),tenantId,...leadFields(input),createdAt:new Date().toISOString(),updatedAt:new Date().toISOString()};
-  if(!lead.name) throw new Error('Lead adı gerekli.'); db.leads=[lead,...(db.leads||[])]; await write(db); await addLog(tenantId,{type:'LEAD_CREATED',leadId:lead.id}); return lead;
+  if(!lead.name) throw new Error('Lead adı gerekli.'); db.leads=[lead,...(db.leads||[])]; await write(db); await addLog(tenantId,{type:'LEAD_CREATED',leadId:lead.id,actorId:String(context.actorId||'')}); return lead;
 }
 function leadFields(input={},current={}) {
   const value=Number(input.value??current.value??0);
@@ -79,8 +79,8 @@ function leadFields(input={},current={}) {
   next.source=next.source||'MANUAL';
   return next;
 }
-async function _updateLead(tenantId,leadId,input){ const db=await read(); const l=(db.leads||[]).find(x=>x.tenantId===tenantId&&x.id===leadId); if(!l) throw new Error('Lead bulunamadı.'); Object.assign(l,{...leadFields(input,l),updatedAt:new Date().toISOString()}); if(!l.name)throw new Error('Müşteri adayı adı gerekli.');await write(db); return l; }
-async function _deleteLead(tenantId,leadId){ const db=await read(); const before=db.leads?.length||0; db.leads=(db.leads||[]).filter(x=>!(x.tenantId===tenantId&&x.id===leadId)); if(db.leads.length===before) throw new Error('Lead bulunamadı.'); await write(db); return {deleted:true}; }
+async function _updateLead(tenantId,leadId,input,context={}){ const db=await read(); const l=(db.leads||[]).find(x=>x.tenantId===tenantId&&x.id===leadId); if(!l) throw new Error('Lead bulunamadı.'); Object.assign(l,{...leadFields(input,l),updatedAt:new Date().toISOString()}); if(!l.name)throw new Error('Müşteri adayı adı gerekli.');await write(db); await addLog(tenantId,{type:'LEAD_UPDATED',leadId:l.id,status:l.status,actorId:String(context.actorId||'')}); return l; }
+async function _deleteLead(tenantId,leadId,context={}){ const db=await read(); const lead=(db.leads||[]).find(x=>x.tenantId===tenantId&&x.id===leadId); if(!lead) throw new Error('Lead bulunamadı.'); db.leads=(db.leads||[]).filter(x=>!(x.tenantId===tenantId&&x.id===leadId)); await write(db); await addLog(tenantId,{type:'LEAD_DELETED',leadId,actorId:String(context.actorId||'')}); return {deleted:true}; }
 
 async function _analyzeCreative(tenantId,input){
   const title=String(input.title||'Kreatif'); const type=String(input.type||'IMAGE').toUpperCase(); const copy=String(input.copy||'');
