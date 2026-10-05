@@ -5,7 +5,6 @@ import path from 'node:path';
 import fs from 'node:fs/promises';
 import crypto from 'node:crypto';
 import {fileURLToPath} from 'node:url';
-import jwt from 'jsonwebtoken';
 import {config} from './config.js';
 import {ensureAdmin, login, authMiddleware, allowRoles, createCustomerAccount, resetUserPassword, createTenantUser, changeOwnPassword} from './auth.js';
 import {
@@ -523,10 +522,6 @@ app.post('/api/ads/gemini-apply', allowRoles('ADMIN','CUSTOMER_ADMIN','MANAGER',
   } catch (e) { res.status(400).json({error:e.message}); }
 });
 
-function oauthStatePayload(req) {
-  return jwt.sign({sub:req.user.id, tenantId:req.user.tenantId, purpose:'meta-oauth'}, config.jwtSecret, {expiresIn:'10m'});
-}
-
 app.get('/api/meta/health', async (req, res) => {
   try {
     const tenant=await getTenant(req.user.tenantId);
@@ -562,75 +557,7 @@ app.get('/api/meta/status', async (req, res) => {
   });
 });
 
-app.get('/api/meta/connect/start', allowRoles('ADMIN','CUSTOMER_ADMIN'), async (req, res) => {
-  try {
-    const igToken = String(process.env.INSTAGRAM_ACCESS_TOKEN || '').trim();
-    const configuredIgId = String(process.env.INSTAGRAM_USER_ID || '').trim();
-    const pageId = String(process.env.META_PAGE_ID || config.metaPageId || '').trim();
-    const businessId = String(process.env.META_BUSINESS_ID || config.metaBusinessId || '').trim();
-    const rawAdAccount = String(process.env.META_AD_ACCOUNT_ID || config.adAccountId || '').trim();
-    const adAccountId = rawAdAccount.replace(/^act_/, '');
-
-    if (!igToken || !configuredIgId) {
-      return res.status(503).json({
-        error: 'Instagram bağlantısı için INSTAGRAM_ACCESS_TOKEN ve INSTAGRAM_USER_ID .env içinde bulunmalı.'
-      });
-    }
-
-    const igUrl = new URL('https://graph.instagram.com/me');
-    igUrl.searchParams.set('fields', 'id,username');
-    igUrl.searchParams.set('access_token', igToken);
-
-    const igResp = await fetch(igUrl);
-    const igData = JSON.parse(await igResp.text());
-
-    if (!igResp.ok || igData.error) {
-      return res.status(401).json({
-        error: igData.error?.message || 'Instagram access token doğrulanamadı.'
-      });
-    }
-
-    const instagramUserId = String(igData.id || configuredIgId);
-    if (configuredIgId && instagramUserId !== configuredIgId) throw new Error(`Instagram kullanıcı ID uyuşmuyor. .env=${configuredIgId}, API=${instagramUserId}`);
-    const instagramUsername = String(igData.username || '');
-
-    const metaPatch = {
-      connected: true,
-      source: 'INSTAGRAM_ENV',
-      accessToken: config.metaAccessToken || '',
-      metaAccessToken: config.metaAccessToken || '',
-      instagramAccessToken: igToken,
-      adAccountId,
-      pageId,
-      instagramUserId,
-      instagramUsername,
-      businessId,
-      connectedAt: new Date().toISOString()
-    };
-
-    await updateTenant(req.user.tenantId, { meta: metaPatch });
-
-    await addLog(req.user.tenantId, {
-      type: 'META_CONNECTED',
-      source: 'INSTAGRAM_ENV',
-      adAccountId,
-      instagramUserId
-    });
-
-    res.json({
-      connected: true,
-      source: metaPatch.source,
-      adAccountId,
-      pageId,
-      instagramUserId,
-      instagramUsername,
-      businessId,
-      connectedAt: metaPatch.connectedAt
-    });
-  } catch (e) {
-    res.status(500).json({ error: e.message || String(e) });
-  }
-});
+app.get('/api/meta/connect/start', allowRoles('ADMIN','CUSTOMER_ADMIN'), startMetaOAuth);
 app.get('/api/meta/assets',allowRoles('ADMIN','CUSTOMER_ADMIN'),metaAssets);
 app.post('/api/meta/select',allowRoles('ADMIN','CUSTOMER_ADMIN'),async(req,res)=>{try {await selectMetaAssets(req,res);}catch(error){res.status(400).json({error:error.message});}});
 
