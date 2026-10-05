@@ -153,6 +153,7 @@ test('HTTP capability, auth, viewer enforcement and callback reachability',async
     const health=await nativeFetch(`${base}/health`).then(r=>r.json());assert.equal(health.version,'16.0.0');assert.equal(health.capabilities.safeAutomationV16,true);
     const callback=await nativeFetch(`${base}/api/meta/oauth/callback?error=access_denied`);assert.equal(callback.status,200);assert.match(await callback.text(),/bağlantısı tamamlanamadı/);
     assert.equal((await nativeFetch(`${base}/api/posts`)).status,401);
+    const adminSession=await auth.login('fixture-admin','fixture-password');const connect=await nativeFetch(`${base}/api/meta/connect/start`,{headers:{authorization:`Bearer ${adminSession.token}`}});assert.equal(connect.status,503);assert.match((await connect.json()).error,/Meta bağlantı kurulumu/);assert.equal(state.calls.filter(row=>row.endpoint==='me').length,0);
     const tenant=await store.createTenant({companyName:'Viewer fixture',plan:'AGENCY'});await auth.createTenantUser({tenantId:tenant.id,username:'fixture-viewer',password:'viewer-password',role:'VIEWER'});const session=await auth.login('fixture-viewer','viewer-password');
     const forbidden=await nativeFetch(`${base}/api/pro/leads`,{method:'POST',headers:{authorization:`Bearer ${session.token}`,'content-type':'application/json'},body:JSON.stringify({name:'Should not write'})});assert.equal(forbidden.status,403);
     const agency=await nativeFetch(`${base}/api/pro/agency`,{headers:{authorization:`Bearer ${session.token}`}});assert.equal(agency.status,403);
