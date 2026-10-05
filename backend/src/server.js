@@ -537,6 +537,7 @@ app.get('/api/meta/health', async (req, res) => {
 
 app.get('/api/meta/status', async (req, res) => {
   const meta = req.tenant?.meta || {};
+  const system = req.user?.tenantId === 'system';
   const configured = Boolean(config.metaAppId && config.metaAppSecret && config.metaRedirectUri);
   res.json({
     configured,
@@ -572,7 +573,7 @@ app.get('/api/meta/connect/start', allowRoles('ADMIN','CUSTOMER_ADMIN'), async (
 
     if (!igToken || !configuredIgId) {
       return res.status(503).json({
-        error: 'Instagram baÄŸlantÄ±sÄ± iÃ§in INSTAGRAM_ACCESS_TOKEN ve INSTAGRAM_USER_ID .env iÃ§inde bulunmalÄ±.'
+        error: 'Instagram bağlantısı için INSTAGRAM_ACCESS_TOKEN ve INSTAGRAM_USER_ID .env içinde bulunmalı.'
       });
     }
 
@@ -585,7 +586,7 @@ app.get('/api/meta/connect/start', allowRoles('ADMIN','CUSTOMER_ADMIN'), async (
 
     if (!igResp.ok || igData.error) {
       return res.status(401).json({
-        error: igData.error?.message || 'Instagram access token doÄŸrulanamadÄ±.'
+        error: igData.error?.message || 'Instagram access token doğrulanamadı.'
       });
     }
 
