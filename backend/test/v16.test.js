@@ -155,12 +155,12 @@ test('notifications deduplicate a persisted event and remain readable',async()=>
 });
 test('manual budget route enforces configured safety caps before mutation',async()=>{
   reset();const tenant=await store.createTenant({companyName:'Budget route fixture',plan:'AGENCY'});await store.updateTenant(tenant.id,{meta:{connected:true,...creds}});await store.saveSettings(tenant.id,{geminiAdsDailyCap:150,maxDailyBudget:200});
-  state.sets=[{id:'budget-safe-set',daily_budget:'10000',status:'ACTIVE',effective_status:'ACTIVE'}];
+  state.sets=[{id:'224',daily_budget:'10000',status:'ACTIVE',effective_status:'ACTIVE'}];
   await auth.createTenantUser({tenantId:tenant.id,username:'budget-manager',password:'manager-password',role:'MANAGER'});const session=await auth.login('budget-manager','manager-password');
   const {app}=await import('../src/server.js');const listener=app.listen(0,'127.0.0.1');await new Promise(resolve=>listener.once('listening',resolve));const base=`http://127.0.0.1:${listener.address().port}`;
   try {
-    const blocked=await nativeFetch(`${base}/api/budget/budget-safe-set`,{method:'POST',headers:{authorization:`Bearer ${session.token}`,'content-type':'application/json'},body:JSON.stringify({dailyBudget:250})});assert.equal(blocked.status,502);assert.equal(state.calls.filter(row=>row.method==='POST').length,0);
-    const allowed=await nativeFetch(`${base}/api/budget/budget-safe-set`,{method:'POST',headers:{authorization:`Bearer ${session.token}`,'content-type':'application/json'},body:JSON.stringify({dailyBudget:150})});assert.equal(allowed.status,200);assert.equal(state.calls.filter(row=>row.method==='POST').length,1);
+    const blocked=await nativeFetch(`${base}/api/budget/224`,{method:'POST',headers:{authorization:`Bearer ${session.token}`,'content-type':'application/json'},body:JSON.stringify({dailyBudget:250})});assert.equal(blocked.status,502);assert.equal(state.calls.filter(row=>row.method==='POST').length,0);
+    const allowed=await nativeFetch(`${base}/api/budget/224`,{method:'POST',headers:{authorization:`Bearer ${session.token}`,'content-type':'application/json'},body:JSON.stringify({dailyBudget:150})});assert.equal(allowed.status,200);assert.equal(state.calls.filter(row=>row.method==='POST').length,1);
   } finally {await new Promise(resolve=>listener.close(resolve));}
 });
 test('HTTP capability, auth, viewer enforcement and callback reachability',async()=>{
