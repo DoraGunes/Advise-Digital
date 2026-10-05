@@ -2,7 +2,6 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import 'api.dart';
-import 'product_ui.dart';
 import 'app_error.dart';
 import 'v14_ai.dart';
 
