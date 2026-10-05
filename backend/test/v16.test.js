@@ -90,6 +90,15 @@ test('CRM update cannot change tenant or identity',async()=>{
   await assert.rejects(pro.updateLead('b',lead.id,{name:'Cross tenant'}),/bulunamadı/);
   await assert.rejects(pro.updateLead('a',lead.id,{status:'FAKE'}),/durumu/);
 });
+test('CRM audit records authenticated actor for create update and delete',async()=>{
+  const lead=await pro.createLead('crm-audit',{name:'Audit lead',status:'NEW'},{actorId:'user-audit'});
+  await pro.updateLead('crm-audit',lead.id,{status:'CONTACTED'},{actorId:'user-audit'});
+  await pro.deleteLead('crm-audit',lead.id,{actorId:'user-audit'});
+  const logs=await store.getLogs('crm-audit',20);
+  const events=logs.filter(row=>['LEAD_CREATED','LEAD_UPDATED','LEAD_DELETED'].includes(row.type));
+  assert.deepEqual(events.map(row=>row.type),['LEAD_DELETED','LEAD_UPDATED','LEAD_CREATED']);
+  assert.ok(events.every(row=>row.actorId==='user-audit'));
+});
 test('public tenant/report contains no credential fields',async()=>{
   await store.createTenant({companyName:'Fixture',plan:'AGENCY'});const tenant=(await store.getTenants()).find(row=>row.id!=='system');
   await store.updateTenant(tenant.id,{meta:{...creds,oauthAssets:{accessToken:'fixture-pending'}}});
