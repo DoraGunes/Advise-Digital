@@ -125,6 +125,11 @@ test('optimizer does not finish a review before minimum spend is reached',async(
   state.ads=[{id:'100',adset_id:'222',status:'ACTIVE',created_time:new Date(Date.now()-13*3600000).toISOString()}];state.sets=[{id:'222',daily_budget:'50000',status:'ACTIVE'}];
   const result=await optimizer.optimizeAds(tenant.id);assert.equal(result.actions[0].action,'WAIT_MIN_SPEND');assert.equal((await store.getLogs(tenant.id)).filter(row=>row.type==='EARLY_REVIEW_DONE').length,0);
 });
+test('optimizer deduplicates equivalent Meta messaging actions before CPA decisions',async()=>{
+  reset();const tenant=await store.createTenant({companyName:'Optimizer duplicate fixture',plan:'AGENCY'});await store.updateTenant(tenant.id,{meta:{connected:true,...creds}});await store.saveSettings(tenant.id,{enabled:true,earlyMessageCostLimit:30,earlyMinSpendBeforeDecision:1,autoPause:true,autoReallocate:false,minDailyBudget:25,geminiAdsDailyCap:500});
+  state.ads=[{id:'dup-action-ad',adset_id:'dup-action-set',status:'ACTIVE',created_time:new Date(Date.now()-13*3600000).toISOString()}];state.sets=[{id:'dup-action-set',daily_budget:'10000',status:'ACTIVE'}];state.insights={spend:'100',impressions:'1000',reach:'900',clicks:'30',ctr:'3',actions:[{action_type:'onsite_conversion.messaging_conversation_started_7d',value:'2'},{action_type:'messaging_conversation_started_7d',value:'2'}]};
+  const result=await optimizer.optimizeAds(tenant.id);const review=result.actions.find(row=>row.adId==='dup-action-ad');assert.equal(review.action,'PAUSED_12H');assert.equal(review.metrics.messages,2);assert.equal(review.metrics.messageCost,50);
+});
 test('Gemini automatic activation cannot reopen a manual pause',async()=>{
   reset();const tenant=await store.createTenant({companyName:'Gemini fixture',plan:'AGENCY'});await store.updateTenant(tenant.id,{meta:{connected:true,...creds}});await store.saveSettings(tenant.id,{geminiAdsDailyCap:500});state.sets=[{id:'222',daily_budget:'10000',status:'PAUSED',effective_status:'PAUSED',campaign_id:'333',targeting:{geo_locations:{countries:['TR']}}}];
   await assert.rejects(gemini.applyGeminiAdDecision(tenant.id,{adSetId:'222',action:'ACTIVATE',automatic:true}),/Elle durdurulmuş/);assert.equal(state.calls.filter(row=>row.method==='POST').length,0);
