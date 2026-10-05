@@ -510,8 +510,11 @@ app.post('/api/budget/:id', allowRoles('ADMIN','CUSTOMER_ADMIN','MANAGER','OPERA
   try {
     const budget = Number(req.body?.dailyBudget);
     if (!Number.isFinite(budget) || budget <= 0) return res.status(400).json({error: 'Geçersiz günlük bütçe.'});
-    const tenant = await getTenant(req.user.tenantId);
-    const credentials = req.user.tenantId === 'system' ? {systemAccount:true} : tenant?.meta;
+    const tenantId = req.user.tenantId;
+    const tenant = await getTenant(tenantId);
+    const credentials = tenantId === 'system' ? {systemAccount:true} : tenant?.meta;
+    const settings = await getSettings(tenantId);
+    await budgetGuard(credentials || {}, settings, {adSetId:req.params.id, nextBudget:budget});
     res.json(await updateAdSetBudget(req.params.id, budget, credentials || {}));
   } catch (e) { res.status(502).json({error: e.message}); }
 });
