@@ -186,11 +186,16 @@ app.get('/api/me', async (req, res) => {
 app.get('/api/product/overview',async(req,res)=>{try{res.json(await productOverview(req.user.tenantId,req.user));}catch{res.status(503).json({error:'Ana sayfa verileri alınamadı. Yeniden deneyin.'});}});
 app.get('/api/product/report',async(req,res)=>{try{res.json(await productReport(req.user.tenantId,req.query));}catch(error){res.status(400).json({error:error.message});}});
 app.get('/api/product/onboarding',async(req,res)=>{try{res.json(await onboardingStatus(req.user.tenantId));}catch(error){res.status(503).json({error:'Kurulum bilgileri alınamadı.'});}});
-app.put('/api/product/onboarding',allowRoles('ADMIN','CUSTOMER_ADMIN'),async(req,res)=>{try{res.json(await saveOnboarding(req.user.tenantId,req.body));}catch(error){res.status(400).json({error:error.message});}});
+app.put('/api/product/onboarding',allowRoles('ADMIN','CUSTOMER_ADMIN'),async(req,res)=>{try{
+  const result=await saveOnboarding(req.user.tenantId,req.body);
+  await addLog(req.user.tenantId,{type:'ONBOARDING_UPDATED',actorId:req.user.id,step:Number(result.step||0),completed:result.completed===true});
+  res.json(result);
+}catch(error){res.status(400).json({error:error.message});}});
 
 app.post('/api/profile/password', async (req, res) => {
   try {
     const user = await changeOwnPassword(req.user.id, req.body?.currentPassword, req.body?.newPassword);
+    await addLog(req.user.tenantId,{type:'PASSWORD_CHANGED',actorId:req.user.id,userId:req.user.id});
     res.json({user});
   } catch (e) { res.status(400).json({error: e.message}); }
 });
@@ -333,6 +338,7 @@ app.put('/api/ads/targeting-preferences', allowRoles('ADMIN','CUSTOMER_ADMIN','M
     const locations = Array.isArray(req.body?.locations) ? [...new Set(req.body.locations.map(x => String(x || '').trim()).filter(Boolean))] : [];
     if (mode !== 'COUNTRY') provinceNamesForTargeting(mode, locations);
     const settings = await saveSettings(req.user.tenantId, {adTargetingMode:mode, adTargetingLocations:mode === 'COUNTRY' ? [] : locations});
+    await addLog(req.user.tenantId,{type:'AD_TARGETING_CHANGED',actorId:req.user.id,mode:settings.adTargetingMode,locationCount:settings.adTargetingLocations.length});
     res.json({mode:settings.adTargetingMode, locations:settings.adTargetingLocations});
   } catch (e) { res.status(400).json({error:e.message}); }
 });
@@ -515,7 +521,9 @@ app.post('/api/budget/:id', allowRoles('ADMIN','CUSTOMER_ADMIN','MANAGER','OPERA
     const credentials = tenantId === 'system' ? {systemAccount:true} : tenant?.meta;
     const settings = await getSettings(tenantId);
     await budgetGuard(credentials || {}, settings, {adSetId:req.params.id, nextBudget:budget});
-    res.json(await updateAdSetBudget(req.params.id, budget, credentials || {}));
+    const result=await updateAdSetBudget(req.params.id, budget, credentials || {});
+    await addLog(tenantId,{type:'META_BUDGET_CHANGED',actorId:req.user.id,adSetId:String(req.params.id),dailyBudget:Math.round(budget*100)/100,source:'USER_ACTION'});
+    res.json(result);
   } catch (e) { res.status(502).json({error: e.message}); }
 });
 
@@ -713,7 +721,10 @@ app.put('/api/settings', allowRoles('ADMIN', 'CUSTOMER_ADMIN'), async (req, res)
     const nextCap=Number(Object.prototype.hasOwnProperty.call(req.body||{},'geminiAdsDailyCap') ? req.body.geminiAdsDailyCap : current.geminiAdsDailyCap);
     const nextEnabled=Object.prototype.hasOwnProperty.call(req.body||{},'enabled')?req.body.enabled===true:current.enabled===true;
     if((nextAuto||nextEnabled) && (!Number.isFinite(nextCap)||nextCap<1)) return res.status(400).json({error:'Otomatik reklam yönetimi için hesap günlük bütçe sınırını belirleyin.'});
-    res.json(await saveSettings(req.user.tenantId, req.body || {}));
+    const result=await saveSettings(req.user.tenantId, req.body || {});
+    const changedKeys=Object.keys(req.body||{}).filter(key=>!/(token|secret|password|key)/i.test(key)).slice(0,50);
+    await addLog(req.user.tenantId,{type:'SETTINGS_UPDATED',actorId:req.user.id,changedKeys});
+    res.json(result);
   }
   catch (e) { res.status(400).json({error: e.message}); }
 });
