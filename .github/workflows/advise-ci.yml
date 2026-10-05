@@ -34,6 +34,8 @@ jobs:
           cache-dependency-path: backend/package-lock.json
       - run: npm ci
       - run: npm test
+      - name: Security audit (high/critical)
+        run: npm audit --omit=dev --audit-level=high
 
   flutter:
     name: Flutter analyze test Android Web
