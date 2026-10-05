@@ -8,9 +8,10 @@ import {tenantCredentials,metaReady,minorToMoney,budgetGuard} from './automation
 
 const n=v=>Number.isFinite(Number(v))?Number(v):0;
 function messageCount(row) {
-  let count=0;
-  for(const a of row?.actions||[]) if(config.messageActionTypes.includes(a.action_type)) count+=n(a.value);
-  return count;
+  const values=(row?.actions||[])
+    .filter(a=>config.messageActionTypes.includes(a.action_type))
+    .map(a=>Math.max(0,n(a.value)));
+  return values.length?Math.max(...values):0;
 }
 function metric(row) {
   const spend=n(row?.spend), messages=messageCount(row), ctr=n(row?.ctr);
