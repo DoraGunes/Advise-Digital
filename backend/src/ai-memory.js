@@ -14,7 +14,7 @@ function serialized(task) {
 function clean(value, max=500) { return String(value ?? '').trim().slice(0, max); }
 
 function emptyTenant() {
-  return {generations: [], patterns: {hooks: [], angles: [], tones: [], formats: [], times: [], audiences: []}, outcomes: []};
+  return {generations: [], patterns: {hooks: [], hookTypes: [], angles: [], tones: [], formats: [], times: [], audiences: []}, outcomes: []};
 }
 
 function normalizeDb(value) {
@@ -88,6 +88,7 @@ function upsertPattern(list, key, value, delta=0, incrementUse=true) {
 function adjustOutcomePatterns(memory, generation, delta) {
   const values = {
     hooks: generation.hook,
+    hookTypes: generation.hookType,
     angles: generation.contentAngle,
     tones: generation.selectedTone,
     formats: generation.recommendedFormat,
@@ -117,7 +118,7 @@ export async function learnFromGeneration(tenantId, pack, input={}) {
       postId: clean(input.postId, 120),
       productName: clean(pack.productName, 180), brand: clean(pack.brand, 100), model: clean(pack.model, 120),
       industry: clean(pack.industry, 100), productCategory: clean(pack.productCategory, 100),
-      hook: clean(pack.hook, 300), caption: clean(pack.caption, 2200), cta: clean(pack.cta, 300),
+      hook: clean(pack.hook, 300), hookType: clean(pack.hookType || pack.hookCategory, 120), caption: clean(pack.caption, 2200), cta: clean(pack.cta, 300),
       hashtags: Array.isArray(pack.hashtags) ? pack.hashtags.slice(0, 12).map(x => clean(x, 60)) : [],
       selectedTone: clean(pack.selectedTone, 120), contentAngle: clean(pack.contentAngle, 300),
       recommendedFormat: clean(pack.recommendedFormat, 40), recommendedPostTime: clean(pack.recommendedPostTime, 40),
@@ -127,6 +128,7 @@ export async function learnFromGeneration(tenantId, pack, input={}) {
     };
     memory.generations.push(generation);
     upsertPattern(memory.patterns.hooks, generation.hook, generation.hook);
+    upsertPattern(memory.patterns.hookTypes, generation.hookType, generation.hookType);
     upsertPattern(memory.patterns.angles, generation.contentAngle, generation.contentAngle);
     upsertPattern(memory.patterns.tones, generation.selectedTone, generation.selectedTone);
     upsertPattern(memory.patterns.formats, generation.recommendedFormat, generation.recommendedFormat);
@@ -201,32 +203,55 @@ function daysOld(value) {
   return Number.isFinite(stamp) ? Math.max(0, (Date.now() - stamp) / 86400000) : 365;
 }
 
+function similarity(a,b) {
+  if(!a?.size || !b?.size) return 0;
+  let common=0;
+  for(const word of a) if(b.has(word)) common++;
+  const union=new Set([...a,...b]).size;
+  return union ? common/union : 0;
+}
+
+function sameText(a,b) {
+  const left=clean(a,180).toLocaleLowerCase('tr-TR');
+  const right=clean(b,180).toLocaleLowerCase('tr-TR');
+  return Boolean(left && right && left===right);
+}
+
 export async function buildMemoryContext(tenantId, input={}) {
   return serialized(async () => {
     const db = await readMemory();
     const memory = tenantMemory(db, tenantId);
-    const query = terms([input.title, input.context, input.goal, input.tone, input.industry, input.productCategory].join(' '));
+    const query = terms([input.title, input.context, input.goal, input.tone, input.industry, input.productCategory, input.targetAudience, input.visualSummary, input.brand, input.model].join(' '));
+    const creativeQuery = terms([input.title, input.context, input.visualSummary, input.hook].join(' '));
     const outcomeByGeneration = new Map();
     for (const outcome of memory.outcomes) {
       const current = outcomeByGeneration.get(outcome.generationId);
       if (!current || Date.parse(outcome.at || '') > Date.parse(current.at || '')) outcomeByGeneration.set(outcome.generationId, outcome);
     }
     const scored = memory.generations.map(generation => {
-      const termsForGeneration = terms([generation.productName, generation.brand, generation.industry, generation.productCategory, generation.contentGoal, generation.targetAudience, generation.visualSummary, generation.hook].join(' '));
+      const termsForGeneration = terms([generation.productName, generation.brand, generation.model, generation.industry, generation.productCategory, generation.contentGoal, generation.targetAudience, generation.visualSummary, generation.hook, generation.caption].join(' '));
       let overlap = 0;
       for (const word of query) if (termsForGeneration.has(word)) overlap++;
       const outcome = outcomeByGeneration.get(generation.id);
       const outcomeScore = Number(outcome?.outcomeScore || 0);
       const mediaMatches = !input.mediaType || String(input.mediaType).toUpperCase() === 'AUTO' || generation.mediaType === String(input.mediaType).toUpperCase();
       const recency = Math.exp(-daysOld(generation.at) / 90);
-      return {generation, outcome, outcomeScore, score: overlap * 2 + (mediaMatches ? 0.35 : 0) + outcomeScore * 1.5 + recency * 0.25};
+      const industryMatch = sameText(input.industry,generation.industry) ? 1 : 0;
+      const categoryMatch = sameText(input.productCategory,generation.productCategory) ? 1 : 0;
+      const creativeSimilarity = similarity(creativeQuery,terms([generation.hook,generation.caption,generation.visualSummary].join(' ')));
+      const noveltyPenalty = creativeSimilarity > 0.72 ? (creativeSimilarity - 0.72) * 4 : 0;
+      const score = overlap * 1.6 + industryMatch * 1.25 + categoryMatch * 1.5 + (mediaMatches ? 0.35 : 0) + outcomeScore * 1.5 + recency * 0.30 - noveltyPenalty;
+      return {generation, outcome, outcomeScore, creativeSimilarity, score};
     });
-    const relevant = scored.sort((a,b) => b.score - a.score || Date.parse(b.generation.at || '') - Date.parse(a.generation.at || '')).slice(0, 4);
+    const relevant = scored.sort((a,b) => b.score - a.score || Date.parse(b.generation.at || '') - Date.parse(a.generation.at || '')).slice(0, 5);
     const bestHooks = (memory.patterns.hooks || []).filter(row=>Number(row.score)>0).sort((a,b) => Number(b.score || 0) - Number(a.score || 0)).slice(0, 3);
+    const bestHookTypes = (memory.patterns.hookTypes || []).filter(row=>Number(row.score)>0).sort((a,b) => Number(b.score || 0) - Number(a.score || 0)).slice(0, 3);
+    const nearCopies = scored.filter(row=>row.creativeSimilarity>0.72).sort((a,b)=>b.creativeSimilarity-a.creativeSimilarity).slice(0,3);
     const examples = relevant.map(row => ({
       ürün: row.generation.productName, sektör: row.generation.industry, kategori: row.generation.productCategory,
-      hook: row.generation.hook, açı: row.generation.contentAngle, ton: row.generation.selectedTone,
+      hook: row.generation.hook, hookTipi: row.generation.hookType, açı: row.generation.contentAngle, ton: row.generation.selectedTone,
       format: row.generation.recommendedFormat, kitle: row.generation.targetAudience,
+      yaratıcıBenzerlik: Number(row.creativeSimilarity.toFixed(2)),
       performans: row.outcome ? (row.outcomeScore >= 0.25 ? 'olumlu sinyal' : row.outcomeScore <= -0.25 ? 'zayıf sinyal' : 'nötr sinyal') : 'henüz ölçülmedi'
     }));
     return [
@@ -234,7 +259,9 @@ export async function buildMemoryContext(tenantId, input={}) {
       'Hafıza yalnızca aynı tenantın kendi kayıtlarından oluşur. Model ağırlıkları değişmez; gerçek üretim ve yayın performansı sonraki kararı yönlendirir.',
       'Bu medya ve istekle bağlama göre seçilmiş örnekler: ' + (examples.length ? JSON.stringify(examples) : 'Henüz geçmiş örnek yok.'),
       'Performansla güçlenen hooklar: ' + (bestHooks.length ? bestHooks.map(row => `${row.value} (skor:${Number(row.score || 0).toFixed(2)})`).join(' | ') : 'Henüz ölçülmüş kazanan yok.'),
-      'KURAL: Olumlu sinyalli örneklerden öğren, zayıf sinyalleri aynen tekrar etme. Yeni medya ve bağlama özgün içerik üret; hafızadaki iddia, fiyat veya sonucu yeni ürüne taşıma.'
+      'Performansla güçlenen hook tipleri: ' + (bestHookTypes.length ? bestHookTypes.map(row => `${row.value} (skor:${Number(row.score || 0).toFixed(2)})`).join(' | ') : 'Henüz ölçülmüş hook tipi yok.'),
+      'Novelty uyarısı: ' + (nearCopies.length ? nearCopies.map(row=>`${row.generation.hook || row.generation.productName} (benzerlik:${row.creativeSimilarity.toFixed(2)})`).join(' | ') : 'Yakın kopya riski görünmüyor.'),
+      'KURAL: Olumlu sinyalli örneklerden strateji öğren; metni veya görsel fikrini kopyalama. Yaratıcı benzerliği yüksek geçmiş örnekleri yeniden yazmak yerine yeni hook, açı ve anlatım üret. Zayıf sinyalleri aynen tekrar etme. Hafızadaki iddia, fiyat veya sonucu yeni ürüne taşıma.'
     ].join('\n');
   });
 }
@@ -261,6 +288,7 @@ export async function getMemorySummary(tenantId) {
       learningWins: memory.outcomes.filter(row => Number(row.outcomeScore) >= 0.25).length,
       learningLessons: memory.outcomes.filter(row => Number(row.outcomeScore) <= -0.25).length,
       bestHooks: best('hooks'),
+      bestHookTypes: best('hookTypes'),
       bestAngles: best('angles'),
       bestTimes: best('times'),
       bestFormats:best('formats'),
