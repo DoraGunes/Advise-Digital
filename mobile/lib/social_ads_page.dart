@@ -591,10 +591,8 @@ class _SocialAdsPageState extends State<SocialAdsPage> {
                                                         .textTheme
                                                         .titleMedium),
                                                 const SizedBox(height: 8),
-                                                Text('Günlük bütçe: ₺' +
-                                                    budget.text),
-                                                Text('Bölge: ' +
-                                                    _targetingSummary)
+                                                Text('Günlük bütçe: ₺\${budget.text}'),
+                                                Text('Bölge: \$_targetingSummary')
                                               ])),
                                           const SizedBox(height: 12),
                                           SwitchListTile.adaptive(
@@ -622,14 +620,8 @@ class _SocialAdsPageState extends State<SocialAdsPage> {
         context: context,
         builder: (ctx) => AlertDialog(
                 title: const Text('Reklamı onayla'),
-                content: Text('Günlük ₺' +
-                    budget.text +
-                    ' bütçe ile ' +
-                    _targetingSummary +
-                    ' hedefinde WhatsApp reklamı oluşturulacak.' +
-                    (activateAd
-                        ? ' Reklam hemen aktif edilecek.'
-                        : ' Reklam durdurulmuş durumda kalacak.')),
+                content: Text(
+                    'Günlük ₺\${budget.text} bütçe ile \$_targetingSummary hedefinde WhatsApp reklamı oluşturulacak.\${activateAd ? ' Reklam hemen aktif edilecek.' : ' Reklam durdurulmuş durumda kalacak.'}'),
                 actions: [
                   TextButton(
                       onPressed: () => Navigator.pop(ctx, false),
