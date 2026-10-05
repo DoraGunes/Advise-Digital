@@ -21,6 +21,20 @@ function weekKey(date=new Date()) {
   const d=new Intl.DateTimeFormat('en-CA',{timeZone:config.timezone,year:'numeric',month:'2-digit',day:'2-digit'}).format(date);
   return `${d}-d${p.day}`;
 }
+
+export function weeklyLaunchGate(logs=[],week='') {
+  const rows=(Array.isArray(logs)?logs:[]).filter(row=>row?.week===week);
+  if(rows.some(row=>row.type==='WEEKLY_LAUNCH')) {
+    return {blocked:true,reason:'already launched',retry:false};
+  }
+  const startedIndex=rows.findIndex(row=>row.type==='WEEKLY_LAUNCH_STARTED');
+  if(startedIndex<0) return {blocked:false,retry:false};
+  const errorIndex=rows.findIndex(row=>row.type==='WEEKLY_LAUNCH_ERROR');
+  if(errorIndex>=0 && errorIndex<startedIndex) {
+    return {blocked:false,retry:true,lastError:rows[errorIndex]?.error||''};
+  }
+  return {blocked:true,reason:'launch started and awaits verification',retry:false,startedAt:rows[startedIndex]?.at||null};
+}
 function chooseBestStart(settings,logs) {
   const fallback={day:settings.weeklyDay,hour:settings.startHour,minute:settings.startMinute};
   if(!settings.autoBestTime) return fallback;
@@ -217,20 +231,29 @@ async function weeklySchedulerTickLocked(tenantId='system') {
   const schedule=chooseBestStart(settings,logs), now=localParts();
   if(now.day!==schedule.day||now.hour!==schedule.hour||now.minute!==schedule.minute) return {scheduled:false};
   const currentWeek=weekKey();
-  if(logs.some(x=>['WEEKLY_LAUNCH','WEEKLY_LAUNCH_STARTED'].includes(x.type)&&x.week===currentWeek)) return {scheduled:false,reason:'already launched or awaiting verification',week:currentWeek};
+  const launchGate=weeklyLaunchGate(logs,currentWeek);
+  if(launchGate.blocked) return {scheduled:false,reason:launchGate.reason,week:currentWeek};
   const posts=await getPosts(tenantId);
   if(!posts.length) return {scheduled:false,reason:'No posts uploaded'};
   const sorted=[...posts].sort((a,b)=>Number(b.performanceScore||0)-Number(a.performanceScore||0)||new Date(b.createdAt)-new Date(a.createdAt));
   const post=sorted[0];
   const dailyBudget=Math.max(settings.minDailyBudget,Math.min(settings.maxDailyBudget,settings.weeklyBudget/Math.max(1,settings.durationHours/24)));
+  let stage='validation',createdCampaignId='',createdAdSetId='',createdCreativeId='',createdAdId='';
   try {
+    stage='budget_guard';
     await budgetGuard(credentials,settings,{nextBudget:dailyBudget,creating:true});
+    stage='targeting';
     const audience=await resolveAdGeoTargeting(settings.adTargetingMode,settings.adTargetingLocations,credentials);
-    await addLog(tenantId,{type:'WEEKLY_LAUNCH_STARTED',week:currentWeek,postId:post.id});
+    await addLog(tenantId,{type:'WEEKLY_LAUNCH_STARTED',week:currentWeek,postId:post.id,retry:Boolean(launchGate.retry)});
+    stage='campaign';
     const campaign=await createCampaign({name:`Advise Digital Weekly ${currentWeek}`,objective:'OUTCOME_ENGAGEMENT',status:'PAUSED',credentials});
+    createdCampaignId=String(campaign?.id||'');
+    stage='adset';
     const adset=await createAdSet({name:`Weekly ${post.title||post.id}`,campaignId:campaign.id,dailyBudget,targeting:{geo_locations:audience.geo_locations},destinationType:'WHATSAPP',optimizationGoal:'CONVERSATIONS',billingEvent:'IMPRESSIONS',instagramActorId:credentials.instagramUserId,pageId:credentials.pageId,credentials});
+    createdAdSetId=String(adset?.id||'');
     const instagramMediaId=String(post.instagramMediaId||post.instagramPublishResult?.id||'').trim();
     let creative;
+    stage='creative';
     if(instagramMediaId) {
       creative=await createAdCreativeFromInstagramMedia({
         name:`Creative ${post.title||post.id}`,
@@ -254,8 +277,13 @@ async function weeklySchedulerTickLocked(tenantId='system') {
         credentials
       });
     }
+    createdCreativeId=String(creative?.id||'');
+    stage='ad';
     const ad=await createAd({name:`Ad ${post.title||post.id}`,adsetId:adset.id,creativeId:creative.id,status:'PAUSED',credentials});
+    createdAdId=String(ad?.id||'');
+    stage='activation_guard';
     await budgetGuard(credentials,settings,{adSetId:adset.id,activate:true});
+    stage='activation';
     await setStatus(ad.id,'ACTIVE',credentials);
     await setStatus(campaign.id,'ACTIVE',credentials);
     await setStatus(adset.id,'ACTIVE',credentials);
@@ -264,7 +292,20 @@ async function weeklySchedulerTickLocked(tenantId='system') {
     const result={scheduled:true,campaignId:campaign.id,adsetId:adset.id,adId:ad.id,postId:post.id,week:currentWeek,selectionScore,schedule,launchAt};
     await addLog(tenantId,{type:'WEEKLY_LAUNCH',...result});
     return result;
-  } catch(e) { await addLog(tenantId,{type:'WEEKLY_LAUNCH_ERROR',error:e.message,postId:post.id,week:currentWeek}); return {scheduled:false,error:e.message}; }
+  } catch(e) {
+    const cleanup=[];
+    for(const [kind,id] of [['ad',createdAdId],['adset',createdAdSetId],['campaign',createdCampaignId]]) {
+      if(!id) continue;
+      try {
+        await setStatus(id,'PAUSED',credentials);
+        cleanup.push({kind,id,status:'PAUSED'});
+      } catch(cleanupError) {
+        cleanup.push({kind,id,status:'UNKNOWN',error:cleanupError.message});
+      }
+    }
+    await addLog(tenantId,{type:'WEEKLY_LAUNCH_ERROR',error:e.message,stage,postId:post.id,week:currentWeek,campaignId:createdCampaignId,adsetId:createdAdSetId,creativeId:createdCreativeId,adId:createdAdId,cleanup});
+    return {scheduled:false,error:e.message,stage,retryAllowed:true};
+  }
 }
 
 export async function weeklySchedulerTick(tenantId='system') { return withDataLock(()=>weeklySchedulerTickLocked(tenantId)); }
