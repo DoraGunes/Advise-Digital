@@ -2,6 +2,7 @@ import {getAds,getAdSets,insights,insightsRange,setStatus,updateAdSetBudget} fro
 import {getSettings,getPosts,getLogs,addLog,getTenant} from './store.js';
 import {config} from './config.js';
 import {earlyAdDecision} from './rules.js';
+import {learnFromOutcome} from './ai-memory.js';
 
 const n=v=>Number.isFinite(Number(v))?Number(v):0;
 function messageCount(row) {
@@ -128,6 +129,16 @@ export async function optimizeAds(tenantId='system') {
         decision:(decision.action==='REDUCE' && settings.autoPause === false) ? 'PAUSE_DISABLED' : decision.action,
         metrics:m
       });
+      if (launch.postId) {
+        await learnFromOutcome(tenantId, {
+          postId: launch.postId,
+          adId: ad.id,
+          spend: m.spend,
+          messages: m.messages,
+          ctr: m.ctr,
+          messageCost: m.messageCost
+        });
+      }
     } catch(e) { results.push({adId:ad.id,name:ad.name,action:'ERROR',reason:e.message}); }
   }
   const result={enabled:true,ranAt:new Date().toISOString(),actions:results,postsConsidered:posts.length,rule:'12h_message_cost'};
