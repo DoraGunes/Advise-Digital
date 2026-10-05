@@ -1,6 +1,7 @@
 import {config} from './config.js';
 import {GoogleGenAI} from '@google/genai';
 import fs from 'node:fs/promises';
+import {buildMemoryContext} from './ai-memory.js';
 
 const MODEL = process.env.GEMINI_MODEL || config.aiModel || 'gemini-3.8-flash';
 const FALLBACK_MODEL = process.env.GEMINI_FALLBACK_MODEL || 'gemini-3.7-flash';
@@ -282,9 +283,12 @@ export async function generateContentPack(input={}) {
     mimeType: clean(input.mimeType, 120),
     mediaNote: clean(input.mediaNote, 500),
     timezone: clean(input.timezone, 80) || config.timezone || 'Europe/Istanbul',
-    history: Array.isArray(input.history) ? input.history : []
+    history: Array.isArray(input.history) ? input.history : [],
+    tenantId: clean(input.tenantId, 120)
   };
   if (!String(process.env.GEMINI_API_KEY || '').trim()) return localPack(safe);
+
+  var memoryContext = safe.tenantId ? await buildMemoryContext(safe.tenantId) : 'ADVISE AI HAFIZA SARAYI: tenant hafızası bağlı değil.';
 
   var prompt = [
     'AdVise AI için sosyal medya içerik paketi oluştur.',
@@ -304,7 +308,8 @@ export async function generateContentPack(input={}) {
     'Zaman dilimi: ' + safe.timezone,
     'Medya notu: ' + (safe.mediaNote || '-'),
     'Geçmiş sinyaller:',
-    buildHistoryText(safe.history)
+    buildHistoryText(safe.history),
+    memoryContext
   ].join('\n');
 
   try {
