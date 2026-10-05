@@ -2114,9 +2114,8 @@ class _DecisionHubPageState extends State<DecisionHubPage> {
     final action = _text(row['action'], 'KEEP');
     if (action == 'KEEP' || busy) return;
     if (!await _confirm(
-            _label(action) + '?',
-            _text(row['reason']) +
-                '\n\nBu aksiyon bağlı Meta hesabına uygulanacak.') ||
+            '\${_label(action)}?',
+            '\${_text(row['reason'])}\n\nBu aksiyon bağlı Meta hesabına uygulanacak.') ||
         !mounted) return;
     setState(() => busy = true);
     try {
@@ -2137,7 +2136,7 @@ class _DecisionHubPageState extends State<DecisionHubPage> {
         : 'ACTIVE';
     if (!await _confirm(
             next == 'ACTIVE' ? 'Reklamı başlat?' : 'Reklamı durdur?',
-            _text(ad['name']) + ' için yayın durumu değiştirilecek.') ||
+            '\${_text(ad['name'])} için yayın durumu değiştirilecek.') ||
         !mounted) return;
     setState(() => busy = true);
     try {
@@ -2188,10 +2187,7 @@ class _DecisionHubPageState extends State<DecisionHubPage> {
     if (value == null || !mounted) return;
     if (!await _confirm(
             'Bütçe değişikliğini onayla',
-            before.toStringAsFixed(2) +
-                ' TL → ' +
-                value.toStringAsFixed(2) +
-                ' TL / gün') ||
+            '\${before.toStringAsFixed(2)} TL → \${value.toStringAsFixed(2)} TL / gün') ||
         !mounted) return;
     setState(() => busy = true);
     try {
@@ -2238,12 +2234,12 @@ class _DecisionHubPageState extends State<DecisionHubPage> {
                       child: Column(mainAxisSize: MainAxisSize.min, children: [
                     _Line(
                         label: 'Harcama',
-                        value: spend.toStringAsFixed(2) + ' TL'),
+                        value: '\${spend.toStringAsFixed(2)} TL'),
                     _Line(label: 'Mesaj', value: messages.round().toString()),
                     _Line(
                         label: 'Mesaj maliyeti',
                         value: messages > 0
-                            ? (spend / messages).toStringAsFixed(2) + ' TL'
+                            ? '\${(spend / messages).toStringAsFixed(2)} TL'
                             : 'Henüz sonuç yok'),
                     _Line(label: 'CTR', value: _text(row['ctr'], '—'))
                   ])),
@@ -2284,8 +2280,7 @@ class _DecisionHubPageState extends State<DecisionHubPage> {
           ProductInsightCard(
               title: 'Otomasyon kararı',
               body:
-                  '12 saatlik pencere, minimum harcama ve hesap bütçe sınırı kontrol edilir. Otomatik yönetim ' +
-                      (settings['geminiAdsAuto'] == true ? 'açık.' : 'kapalı.'),
+                  '12 saatlik pencere, minimum harcama ve hesap bütçe sınırı kontrol edilir. Otomatik yönetim \${settings['geminiAdsAuto'] == true ? 'açık.' : 'kapalı.'}',
               icon: Icons.shield_outlined,
               action: TextButton(
                   onPressed: () => Navigator.push(
@@ -2322,10 +2317,7 @@ class _DecisionHubPageState extends State<DecisionHubPage> {
                                   style:
                                       Theme.of(context).textTheme.titleMedium),
                               const SizedBox(height: 6),
-                              Text(_label(_text(raw['action'], 'KEEP')) +
-                                  ' · Güven: ' +
-                                  _text(raw['confidence'], '—') +
-                                  '%'),
+                              Text('\${_label(_text(raw['action'], 'KEEP'))} · Güven: \${_text(raw['confidence'], '—')}%'),
                               const SizedBox(height: 8),
                               Text(_text(raw['reason'])),
                               if (_text(raw['action'], 'KEEP') != 'KEEP' &&
