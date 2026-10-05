@@ -8,6 +8,7 @@ on:
   pull_request:
     branches:
       - main
+      - ci/advise-validation-2026-10-05
   workflow_dispatch:
 
 permissions:
