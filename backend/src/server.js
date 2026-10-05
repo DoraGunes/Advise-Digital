@@ -664,9 +664,8 @@ app.post('/api/ai/content-pack', async (req, res) => {
     const settings=await getSettings(req.user.tenantId);
     if(settings.aiEnabled===false) return res.json({source:'DISABLED',message:'AI modu kapalı.',recommendedFormat:String(req.body?.mediaType||'IMAGE').toUpperCase()==='VIDEO'?'REELS':'POST'});
     const history=await getLogs(req.user.tenantId, 20);
-    const result=await generateContentPack({...req.body, tone:req.body?.tone||settings.aiTone, goal:req.body?.goal||settings.aiGoal, language:req.body?.language||settings.aiLanguage, timezone:config.timezone, history});
+    const result=await generateContentPack({...req.body, tone:req.body?.tone||settings.aiTone, goal:req.body?.goal||settings.aiGoal, language:req.body?.language||settings.aiLanguage, timezone:config.timezone, tenantId:req.user.tenantId, history});
     await addLog(req.user.tenantId,{type:'AI_CONTENT_GENERATED',source:result.source,mediaType:req.body?.mediaType||'AUTO'});
-    if (result.source === 'GEMINI') await learnFromGeneration(req.user.tenantId, result, {postId: String(req.body?.postId || '').trim()});
     if (result.source === 'GEMINI') await learnFromGeneration(req.user.tenantId, result, {postId: String(req.body?.postId || '').trim()});
     res.json(result);
   } catch(e) { res.status(400).json({error:e.message}); }
@@ -729,7 +728,6 @@ app.post('/api/ai/content-pack-from-file', upload.single('image'), async (req, r
       filePath: req.file.path,
       mimeType: kind === 'IMAGE' ? (visionMime || req.file.mimetype) : (req.file.mimetype || 'video/mp4'),
       timezone: config.timezone,
-      tenantId: req.user.tenantId,
       history,
       mediaNote: kind === 'VIDEO'
         ? 'Video Gemini tarafından içerik, sahne ve görünen bilgiler açısından analiz edilecek.'
@@ -765,7 +763,7 @@ app.post('/api/ai/caption', async (req, res) => {
     const settings=await getSettings(req.user.tenantId);
     if(settings.aiEnabled===false) return res.status(403).json({error:'AI modu kapalı.'});
     const history=await getLogs(req.user.tenantId, 20);
-    res.json(await generateCaption({...req.body,tone:req.body?.tone||settings.aiTone,goal:req.body?.goal||settings.aiGoal,language:req.body?.language||settings.aiLanguage,timezone:config.timezone,history}));
+    res.json(await generateCaption({...req.body,tone:req.body?.tone||settings.aiTone,goal:req.body?.goal||settings.aiGoal,language:req.body?.language||settings.aiLanguage,timezone:config.timezone,tenantId:req.user.tenantId,history}));
   } catch(e) { res.status(400).json({error:e.message}); }
 });
 app.post('/api/ai/caption-variants', async (req,res)=>{ try { res.json(await generateCaptionVariants(req.body||{})); } catch(e) { res.status(400).json({error:e.message}); } });
@@ -875,6 +873,7 @@ app.post('/api/posts', upload.single('image'), async (req, res) => {
     posts.unshift(post);
     await savePosts(tenantId,posts);
     await addLog(tenantId,{type:'POST_UPLOADED',postId:post.id,title:post.title,mediaType,aiGenerated:post.aiGenerated});
+    if (post.aiGenerated && memoryPack && memoryPack.source === 'GEMINI') await learnFromGeneration(tenantId, memoryPack, {postId:post.id});
     res.status(201).json(post);
   } catch (e) { res.status(500).json({error:e.message}); }
 });
@@ -969,14 +968,18 @@ app.post('/api/posts/bulk', upload.array('files', 20), async (req, res) => {
       for(const post of accepted) post.publishStatus='MANUAL';
     }
 
+    const memoryPacks = new Map();
+    for (const post of accepted) {
+      if (post.aiMemoryPack) memoryPacks.set(post.id, post.aiMemoryPack);
+      delete post.aiMemoryPack;
+    }
     const nextPosts=[...accepted,...existing];
     await savePosts(tenantId,nextPosts);
 
     for(const post of accepted) {
-      const memoryPack = post.aiMemoryPack;
-      delete post.aiMemoryPack;
+      const memoryPack = memoryPacks.get(post.id);
       await addLog(tenantId,{type:'POST_UPLOADED',postId:post.id,title:post.title,mediaType:post.mediaType,aiGenerated:post.aiGenerated,bulk:true});
-      if (post.aiGenerated && memoryPack) await learnFromGeneration(tenantId, memoryPack, {postId:post.id});
+      if (post.aiGenerated && memoryPack && memoryPack.source === 'GEMINI') await learnFromGeneration(tenantId, memoryPack, {postId:post.id});
     }
 
     res.status(201).json({
