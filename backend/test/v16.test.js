@@ -130,6 +130,12 @@ test('ambiguous publish holds same container and reconciles instead of duplicati
   state.containerStatus='PUBLISHED';state.failPublish=false;await scheduler.publishPost(tenant.id,'ambiguous');
   assert.equal(state.calls.filter(row=>row.endpoint.endsWith('/media_publish')).length,1);
 });
+test('weekly launch gate retries after an explicit failed attempt but blocks unresolved starts',()=>{
+  const week='2026-10-05-d1';
+  assert.equal(scheduler.weeklyLaunchGate([{type:'WEEKLY_LAUNCH_STARTED',week,at:'2026-10-05T10:00:00Z'}],week).blocked,true);
+  const retry=scheduler.weeklyLaunchGate([{type:'WEEKLY_LAUNCH_ERROR',week,at:'2026-10-05T10:01:00Z',error:'fixture'},{type:'WEEKLY_LAUNCH_STARTED',week,at:'2026-10-05T10:00:00Z'}],week);assert.equal(retry.blocked,false);assert.equal(retry.retry,true);
+  assert.equal(scheduler.weeklyLaunchGate([{type:'WEEKLY_LAUNCH',week,at:'2026-10-05T10:02:00Z'},{type:'WEEKLY_LAUNCH_ERROR',week,at:'2026-10-05T10:01:00Z'}],week).blocked,true);
+});
 test('optimizer does not finish a review before minimum spend is reached',async()=>{
   reset();const tenant=await store.createTenant({companyName:'Optimizer fixture',plan:'AGENCY'});await store.updateTenant(tenant.id,{meta:{connected:true,...creds}});await store.saveSettings(tenant.id,{enabled:true,geminiAdsDailyCap:500});
   state.ads=[{id:'100',adset_id:'222',status:'ACTIVE',created_time:new Date(Date.now()-13*3600000).toISOString()}];state.sets=[{id:'222',daily_budget:'50000',status:'ACTIVE'}];
@@ -146,6 +152,16 @@ test('Gemini automatic activation cannot reopen a manual pause',async()=>{
 });
 test('notifications deduplicate a persisted event and remain readable',async()=>{
   const a=await pro.createAlert('notifications',{title:'Real event',sourceEventId:'event1'}),b=await pro.createAlert('notifications',{title:'Duplicate',sourceEventId:'event1'});assert.equal(a.id,b.id);await pro.markAlert('notifications',a.id,true);assert.equal((await pro.getAlerts('notifications'))[0].read,true);
+});
+test('manual budget route enforces configured safety caps before mutation',async()=>{
+  reset();const tenant=await store.createTenant({companyName:'Budget route fixture',plan:'AGENCY'});await store.updateTenant(tenant.id,{meta:{connected:true,...creds}});await store.saveSettings(tenant.id,{geminiAdsDailyCap:150,maxDailyBudget:200});
+  state.sets=[{id:'budget-safe-set',daily_budget:'10000',status:'ACTIVE',effective_status:'ACTIVE'}];
+  await auth.createTenantUser({tenantId:tenant.id,username:'budget-manager',password:'manager-password',role:'MANAGER'});const session=await auth.login('budget-manager','manager-password');
+  const {app}=await import('../src/server.js');const listener=app.listen(0,'127.0.0.1');await new Promise(resolve=>listener.once('listening',resolve));const base=`http://127.0.0.1:${listener.address().port}`;
+  try {
+    const blocked=await nativeFetch(`${base}/api/budget/budget-safe-set`,{method:'POST',headers:{authorization:`Bearer ${session.token}`,'content-type':'application/json'},body:JSON.stringify({dailyBudget:250})});assert.equal(blocked.status,502);assert.equal(state.calls.filter(row=>row.method==='POST').length,0);
+    const allowed=await nativeFetch(`${base}/api/budget/budget-safe-set`,{method:'POST',headers:{authorization:`Bearer ${session.token}`,'content-type':'application/json'},body:JSON.stringify({dailyBudget:150})});assert.equal(allowed.status,200);assert.equal(state.calls.filter(row=>row.method==='POST').length,1);
+  } finally {await new Promise(resolve=>listener.close(resolve));}
 });
 test('HTTP capability, auth, viewer enforcement and callback reachability',async()=>{
   const {app}=await import('../src/server.js');const listener=app.listen(0,'127.0.0.1');await new Promise(resolve=>listener.once('listening',resolve));const base=`http://127.0.0.1:${listener.address().port}`;
