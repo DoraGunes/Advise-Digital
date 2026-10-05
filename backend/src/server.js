@@ -75,14 +75,22 @@ function adTargetingPrompt(settings = {}) {
 const storage = multer.diskStorage({
   destination: (_req, _file, cb) => cb(null, uploadDir),
   filename: (_req, file, cb) => {
-    const safe = file.originalname.replace(/[^a-zA-Z0-9._-]/g, '_');
-    cb(null, `${Date.now()}-${safe}`);
+    const ext = fileExtension(file.originalname);
+    cb(null, `${crypto.randomUUID()}${ext}`);
   }
 });
 
 const upload = multer({
   storage,
-  limits: {fileSize: 100 * 1024 * 1024},
+  limits: {
+    fileSize: 100 * 1024 * 1024,
+    files: 20,
+    fields: 50,
+    parts: 80,
+    fieldNameSize: 100,
+    fieldSize: 1024 * 1024,
+    fieldArrayIndexLimit: 100
+  },
   fileFilter: (_req, file, cb) => {
     const kind = mediaKind(file);
     if (kind === 'OTHER') {
