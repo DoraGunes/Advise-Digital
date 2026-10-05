@@ -2,7 +2,7 @@ import {analyzeAdPerformance} from './ai.js';
 import {getAdSets,insights,setStatus,updateAdSetBudget,updateAdSetTargeting,resolveAdGeoTargeting} from './meta.js';
 import {getSettings,getTenant,getLogs,addLog} from './store.js';
 import {config} from './config.js';
-import {withDataLock} from './persistence.js';
+import {withTenantLock} from './persistence.js';
 import {tenantCredentials,metaReady,budgetGuard,assertAutomaticReactivation} from './automation-safety.js';
 
 const num = value => Number.isFinite(Number(value)) ? Number(value) : 0;
@@ -242,5 +242,5 @@ async function applyGeminiAdDecisionLocked(tenantId='system', {adSetId,action,au
   return {...record,applied:true};
 }
 
-export async function runGeminiAdReview(tenantId='system',options={}) { return withDataLock(()=>runGeminiAdReviewLocked(tenantId,options)); }
-export async function applyGeminiAdDecision(tenantId='system',options={}) { return withDataLock(()=>applyGeminiAdDecisionLocked(tenantId,options)); }
+export async function runGeminiAdReview(tenantId='system',options={}) { return withTenantLock(tenantId,()=>runGeminiAdReviewLocked(tenantId,options)); }
+export async function applyGeminiAdDecision(tenantId='system',options={}) { return withTenantLock(tenantId,()=>applyGeminiAdDecisionLocked(tenantId,options)); }
