@@ -200,7 +200,7 @@ app.post('/api/profile/password', async (req, res) => {
   } catch (e) { res.status(400).json({error: e.message}); }
 });
 
-app.get('/api/users', async (req, res) => {
+app.get('/api/users', allowRoles('ADMIN','CUSTOMER_ADMIN'), async (req, res) => {
   try { res.json({data: await getUsersForTenant(req.user.tenantId)}); }
   catch (e) { res.status(400).json({error: e.message}); }
 });
@@ -596,7 +596,7 @@ app.get('/api/billing', async (req, res) => { try { res.json(await billingSummar
 app.get('/api/branding', async (req, res) => { try { res.json(await brandingSummary(req.user.tenantId)); } catch (e) { res.status(500).json({error:e.message}); } });
 app.put('/api/branding', allowRoles('ADMIN', 'CUSTOMER_ADMIN'), async (req, res) => { try { res.json(await saveBranding(req.user.tenantId, req.body || {})); } catch (e) { res.status(400).json({error:e.message}); } });
 app.get('/api/notifications', async (req, res) => { try { res.json(await notificationPrefs(req.user.tenantId)); } catch (e) { res.status(500).json({error:e.message}); } });
-app.put('/api/notifications', async (req, res) => { try { res.json(await saveNotificationPrefs(req.user.tenantId, req.body || {})); } catch (e) { res.status(400).json({error:e.message}); } });
+app.put('/api/notifications', allowRoles('ADMIN','CUSTOMER_ADMIN'), async (req, res) => { try { const result=await saveNotificationPrefs(req.user.tenantId, req.body || {}); await addLog(req.user.tenantId,{type:'NOTIFICATION_PREFS_UPDATED',actorId:req.user.id}); res.json(result); } catch (e) { res.status(400).json({error:e.message}); } });
 app.get('/api/security/overview', async (req, res) => { try { res.json(await securityOverview(req.user.tenantId)); } catch (e) { res.status(500).json({error:e.message}); } });
 app.get('/api/ai/status', async (_req, res) => res.json(aiStatus()));
 app.get('/api/ai/memory', async (req, res) => { try { res.json(await getMemorySummary(req.user.tenantId)); } catch(e) { res.status(500).json({error:e.message}); } });
