@@ -107,6 +107,16 @@ test('memory insights remain empty before measured outcomes',async()=>{
   await memory.learnFromGeneration('unmeasured',{source:'GEMINI',hook:'Fixture hook',recommendedFormat:'POST',recommendedPostTime:'19:30'});
   const summary=await memory.getMemorySummary('unmeasured');assert.equal(summary.generationCount,1);assert.equal(summary.hasMeasuredInsights,false);assert.deepEqual(summary.bestHooks,[]);
 });
+test('Memory Palace v2 learns hook types and ranks sector-relevant examples before unrelated winners',async()=>{
+  const tenantId='memory-v2-fixture';
+  await memory.learnFromGeneration(tenantId,{productName:'Espresso Pro',brand:'Fixture',model:'E1',industry:'Kafe',productCategory:'Kahve',hook:'Kahven neden istediğin gibi olmuyor?',hookType:'SORU',caption:'Espresso Pro ile kahve hazırlama deneyimini görseldeki gerçek detaylar üzerinden anlat.',contentAngle:'Sorun çözüm',selectedTone:'uzman',recommendedFormat:'REELS',recommendedPostTime:'19:30',targetAudience:'Kahve severler',visualSummary:'Tezgah üzerinde espresso makinesi',source:'GEMINI'},{generationId:'mem-sector',postId:'post-sector',mediaType:'IMAGE'});
+  await memory.learnFromOutcome(tenantId,{generationId:'mem-sector',postId:'post-sector',adId:'ad-sector',spend:20,messages:10,ctr:3,messageCost:0.5});
+  await memory.learnFromGeneration(tenantId,{productName:'Telefon Kılıfı',industry:'Aksesuar',productCategory:'Telefon Aksesuarı',hook:'Telefonunu koru',hookType:'FAYDA',caption:'Telefon kılıfı için güçlü koruma anlatımı.',contentAngle:'Fayda',selectedTone:'dinamik',recommendedFormat:'POST',recommendedPostTime:'20:00',targetAudience:'Telefon kullanıcıları',visualSummary:'Telefon kılıfı',source:'GEMINI'},{generationId:'mem-unrelated',postId:'post-unrelated',mediaType:'IMAGE'});
+  await memory.learnFromOutcome(tenantId,{generationId:'mem-unrelated',postId:'post-unrelated',adId:'ad-unrelated',spend:20,messages:20,ctr:4,messageCost:0.2});
+  const context=await memory.buildMemoryContext(tenantId,{title:'Espresso Pro kahve makinesi',context:'espresso kahve hazırlama',industry:'Kafe',productCategory:'Kahve',visualSummary:'Tezgah üzerinde espresso makinesi',mediaType:'IMAGE',hook:'Kahven neden istediğin gibi olmuyor?'});
+  assert.ok(context.indexOf('Espresso Pro')>=0);assert.ok(context.indexOf('Espresso Pro')<context.indexOf('Telefon Kılıfı'));assert.match(context,/Performansla güçlenen hook tipleri:/);assert.match(context,/Novelty uyarısı:/);
+  const summary=await memory.getMemorySummary(tenantId);assert.ok(summary.bestHookTypes.some(row=>row.value==='SORU'));
+});
 test('concurrent and repeated publish produces only one remote publish',async()=>{
   reset();const tenant=await store.createTenant({companyName:'Publish fixture',plan:'AGENCY'});await store.updateTenant(tenant.id,{meta:{connected:true,...creds}});
   await store.savePosts(tenant.id,[{id:'post1',publicUrl:'https://fixture.invalid/image.jpg',publishStatus:'QUEUED',nextPublishAt:new Date(Date.now()-10000).toISOString(),autoPublish:true}]);
