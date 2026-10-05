@@ -13,6 +13,89 @@ const dateString=value=>new Intl.DateTimeFormat('en-CA',{timeZone:config.timezon
 const dateShift=(value,days)=>new Date(new Date(`${value}T12:00:00Z`).getTime()+days*86400000).toISOString().slice(0,10);
 const cache=new Map();
 
+export function buildProductRecommendations({metaConnected=false,onboarding={},today={},posts=[],leads=[],memory={},settings={}}={}) {
+  const recommendations=[];
+  const add=(id,priority,kind,title,body,action,tone='info',evidence={})=>{
+    if(recommendations.some(row=>row.id===id))return;
+    recommendations.push({id,priority,kind,title,body,action,tone,evidence});
+  };
+  const postRows=Array.isArray(posts)?posts:[];
+  const leadRows=Array.isArray(leads)?leads:[];
+  const metrics=today?.metrics||{};
+  const queued=postRows.filter(row=>['QUEUED','RETRY'].includes(String(row.publishStatus||'').toUpperCase()));
+  const failed=postRows.filter(row=>['ERROR','RECONCILE'].includes(String(row.publishStatus||'').toUpperCase()));
+  const published=postRows.filter(row=>String(row.publishStatus||'').toUpperCase()==='PUBLISHED');
+  const newLeads=leadRows.filter(row=>String(row.status||'').toUpperCase()==='NEW');
+  const activeAds=Number(metrics.activeAds||0);
+  const spend=Number(metrics.spend||0);
+  const messages=Number(metrics.messages||0);
+  const cpa=metrics.cpa==null?null:Number(metrics.cpa);
+  const costLimit=Math.max(0,Number(settings.earlyMessageCostLimit||settings.messageCostLimit||0));
+  const noMessageSpend=Math.max(0,Number(settings.earlyNoMessageSpendThreshold||settings.minSpendBeforeDecision||0));
+
+  if(!metaConnected) add(
+    'connect-meta',100,'CONNECTION','Meta hesabını bağla',
+    'Reklam performansı, otomatik optimizasyon ve gerçek sonuç önerileri için Meta/Instagram bağlantısını tamamla.',
+    'META_CONNECTION','warning',{metaConnected:false}
+  );
+  if(onboarding&&onboarding.completed!==true) add(
+    'complete-onboarding',95,'SETUP','İşletme kurulumunu tamamla',
+    'Hedef, bütçe ve bölge bilgileri tamamlandığında AdVise önerileri işletmene göre daralır.',
+    'ONBOARDING','warning',{step:Number(onboarding.step||0)}
+  );
+  if(failed.length) add(
+    'repair-publishing',92,'PUBLISHING','Yayın hatalarını kontrol et',
+    `${failed.length} içerik ERROR/RECONCILE durumunda. Çift paylaşım riski oluşturmadan önce yayın durumlarını doğrula.`,
+    'PLANNER','danger',{failedPosts:failed.length}
+  );
+  if(newLeads.length) add(
+    'follow-up-leads',88,'CRM','Yeni müşteri adaylarını takip et',
+    `${newLeads.length} yeni lead işlem bekliyor. Reklam harcamasının satışa dönmesi için CRM takibini geciktirme.`,
+    'CRM','info',{newLeads:newLeads.length}
+  );
+  if(today?.available===true&&messages===0&&spend>=noMessageSpend&&noMessageSpend>0) add(
+    'review-no-message-spend',86,'ADS','Harcama var, mesaj sonucu yok',
+    `Bugün ${spend.toFixed(2)} harcama oluştu ancak ölçülmüş mesaj sonucu yok. Reklam Karar Merkezi'nde hedefleme ve kreatifi incele.`,
+    'AUTOMATION','danger',{spend,messages,threshold:noMessageSpend}
+  );
+  if(today?.available===true&&cpa!=null&&costLimit>0&&cpa>=costLimit) add(
+    'review-high-cpa',84,'ADS','Mesaj maliyeti eşiğin üzerinde',
+    `Mesaj başına maliyet ${cpa.toFixed(2)}; tanımlı erken karar eşiği ${costLimit.toFixed(2)}. Otomasyon kararını ve bütçe dağılımını kontrol et.`,
+    'AUTOMATION','warning',{cpa,threshold:costLimit}
+  );
+  if(metaConnected&&activeAds===0&&published.length) add(
+    'launch-campaign',76,'ADS','Yayınlanmış içerikten kampanya başlat',
+    `${published.length} yayınlanmış içerik var ancak aktif reklam görünmüyor. Uygun içeriği seçip kontrollü kampanya başlatabilirsin.`,
+    'ADS','info',{publishedPosts:published.length,activeAds}
+  );
+  if(queued.length===0) {
+    const hookType=memory?.bestHookTypes?.[0]?.value||'';
+    add(
+      'prepare-next-content',72,'CONTENT','Sonraki içeriği hazırla',
+      hookType
+        ? `Yayın kuyruğun boş. Hafıza Sarayı'nda güçlenen ${hookType} hook tipini kopyalamadan yeni bir kreatifte test et.`
+        : 'Yayın kuyruğun boş. Yeni medya ekleyip içerik planını devam ettir.',
+      'STUDIO','info',{queuedPosts:0,winningHookType:hookType||null}
+    );
+  }
+  if(Number(memory?.outcomeCount||0)>0&&Number(memory?.learningWins||0)>0) {
+    const format=memory?.bestFormats?.[0]?.value||'';
+    add(
+      'use-memory-winner',58,'MEMORY','Kazanan örüntüyü yeni kreatife taşı',
+      format
+        ? `Hafıza Sarayı ölçülmüş kazananlar buldu. ${format} formatındaki güçlü örüntüyü yeni ürün bağlamında özgün biçimde kullan.`
+        : 'Hafıza Sarayı ölçülmüş kazananlar buldu. Kazanan hook ve açıları kopyalamadan yeni kreatife uyarlayabilirsin.',
+      'MEMORY','success',{learningWins:Number(memory.learningWins||0),format:format||null}
+    );
+  }
+  if(!recommendations.length) add(
+    'review-performance',40,'REPORTING','Performansı gözden geçir',
+    'Kritik bir uyarı görünmüyor. Son 7 günlük trendi ve kampanya sonuçlarını karşılaştırarak bir sonraki testi seç.',
+    'REPORTS','success',{activeAds,queuedPosts:queued.length}
+  );
+  return recommendations.sort((a,b)=>b.priority-a.priority).slice(0,5);
+}
+
 export function reportRange(input={},now=new Date()) {
   const today=dateString(now),range=String(input.range||'7d').toLowerCase();
   let since=today,until=today;
@@ -112,8 +195,10 @@ async function syncNotifications(tenantId,logs) {
 }
 
 export async function productOverview(tenantId,user) {
-  const [today,week,tenant,posts,logs,leads,memory,onboarding]=await Promise.all([productReport(tenantId,{range:'today'}),productReport(tenantId,{range:'7d'}),getTenant(tenantId),getPosts(tenantId),getLogs(tenantId,100),getLeads(tenantId),getMemorySummary(tenantId),onboardingStatus(tenantId)]);
+  const [today,week,tenant,posts,logs,leads,memory,onboarding,settings]=await Promise.all([productReport(tenantId,{range:'today'}),productReport(tenantId,{range:'7d'}),getTenant(tenantId),getPosts(tenantId),getLogs(tenantId,100),getLeads(tenantId),getMemorySummary(tenantId),onboardingStatus(tenantId),getSettings(tenantId)]);
   const notifications=await syncNotifications(tenantId,logs);
+  const metaConnected=metaReady(tenantCredentials(tenantId,tenant));
+  const recommendations=buildProductRecommendations({metaConnected,onboarding,today,posts,leads,memory,settings});
   const summary=[];
   if(today.available) {
     summary.push(`Bugün ${today.metrics.activeAds} aktif reklam var. Harcama ${today.metrics.spend.toFixed(2)} ${today.currency||''}.`);
@@ -124,5 +209,6 @@ export async function productOverview(tenantId,user) {
   const failures=posts.filter(row=>['ERROR','RECONCILE'].includes(row.publishStatus)).length;
   if(failures)summary.push(`${failures} içerik yayını için durum kontrolü gerekiyor.`);
   if(!memory.outcomeCount)summary.push('AdVise öğreniyor; ölçülmüş sonuçlar biriktikçe öneriler güçlenecek.');
-  return {...today,metaConnected:metaReady(tenantCredentials(tenantId,tenant)),trend:week.trend,posts,leads,logs,notifications,memory,onboarding,me:{user,tenant:publicTenant(tenant)},dailyBrief:{source:'REAL_DATA_SUMMARY',summary,generatedAt:new Date().toISOString()}};
+  if(recommendations[0])summary.push(`Öncelikli hamle: ${recommendations[0].title}.`);
+  return {...today,metaConnected,trend:week.trend,posts,leads,logs,notifications,memory,onboarding,recommendations,me:{user,tenant:publicTenant(tenant)},dailyBrief:{source:'REAL_DATA_RULE_ENGINE',summary,generatedAt:new Date().toISOString()}};
 }
