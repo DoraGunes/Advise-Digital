@@ -7,7 +7,7 @@ import {optimizeAds} from './optimizer.js';
 import {runGeminiAdReview} from './gemini-ads.js';
 import fs from 'node:fs/promises';
 import path from 'node:path';
-import {withDataLock} from './persistence.js';
+import {withTenantLock} from './persistence.js';
 import {tenantCredentials,metaReady,budgetGuard} from './automation-safety.js';
 
 function localParts(date=new Date()) {
@@ -151,7 +151,7 @@ export async function scheduleUploadedPost(post, tenantId='system', requestedTim
 }
 
 export async function publishPost(tenantId,postId,{manual=false}={}) {
-  return withDataLock(async()=>{
+  return withTenantLock(tenantId,async()=>{
     const posts=await getPosts(tenantId);
     const post=posts.find(row=>row.id===postId);
     if(!post) throw new Error('İçerik bulunamadı.');
@@ -217,7 +217,7 @@ async function publishDuePostsLocked(tenantId='system') {
   return {published};
 }
 
-export async function publishDuePosts(tenantId='system') { return withDataLock(()=>publishDuePostsLocked(tenantId)); }
+export async function publishDuePosts(tenantId='system') { return withTenantLock(tenantId,()=>publishDuePostsLocked(tenantId)); }
 
 async function weeklySchedulerTickLocked(tenantId='system') {
   const settings=await getSettings(tenantId);
@@ -308,7 +308,7 @@ async function weeklySchedulerTickLocked(tenantId='system') {
   }
 }
 
-export async function weeklySchedulerTick(tenantId='system') { return withDataLock(()=>weeklySchedulerTickLocked(tenantId)); }
+export async function weeklySchedulerTick(tenantId='system') { return withTenantLock(tenantId,()=>weeklySchedulerTickLocked(tenantId)); }
 
 export function startScheduler() {
   if(!config.cronEnabled) return;
