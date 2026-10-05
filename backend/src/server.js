@@ -667,6 +667,7 @@ app.post('/api/ai/content-pack', async (req, res) => {
     const result=await generateContentPack({...req.body, tone:req.body?.tone||settings.aiTone, goal:req.body?.goal||settings.aiGoal, language:req.body?.language||settings.aiLanguage, timezone:config.timezone, history});
     await addLog(req.user.tenantId,{type:'AI_CONTENT_GENERATED',source:result.source,mediaType:req.body?.mediaType||'AUTO'});
     if (result.source === 'GEMINI') await learnFromGeneration(req.user.tenantId, result, {postId: String(req.body?.postId || '').trim()});
+    if (result.source === 'GEMINI') await learnFromGeneration(req.user.tenantId, result, {postId: String(req.body?.postId || '').trim()});
     res.json(result);
   } catch(e) { res.status(400).json({error:e.message}); }
 });
@@ -724,9 +725,11 @@ app.post('/api/ai/content-pack-from-file', upload.single('image'), async (req, r
       mediaType: req.body?.mediaType || (kind === 'VIDEO' ? 'REELS' : 'AUTO'),
       imageUrl: '',
       imageDataUrl: kind === 'IMAGE' ? imageDataUrl : '',
+      tenantId: req.user.tenantId,
       filePath: req.file.path,
       mimeType: kind === 'IMAGE' ? (visionMime || req.file.mimetype) : (req.file.mimetype || 'video/mp4'),
       timezone: config.timezone,
+      tenantId: req.user.tenantId,
       history,
       mediaNote: kind === 'VIDEO'
         ? 'Video Gemini tarafından içerik, sahne ve görünen bilgiler açısından analiz edilecek.'
@@ -747,6 +750,7 @@ app.post('/api/ai/content-pack-from-file', upload.single('image'), async (req, r
       mediaType: req.body?.mediaType || 'AUTO',
       visualAnalysis: true
     });
+    await learnFromGeneration(req.user.tenantId, result, {postId: String(req.body?.postId || '').trim()});
 
     res.json({...result, visualAnalysis: true});
   } catch (e) {
@@ -846,10 +850,11 @@ app.post('/api/posts', upload.single('image'), async (req, res) => {
     };
     if(useAI && settings.aiEnabled!==false && !post.caption) {
       const history=await getLogs(tenantId, 20);
-      const pack=await generateContentPack({title:post.title,context:req.body?.aiContext||'',tone:settings.aiTone,goal:settings.aiGoal,language:settings.aiLanguage,mediaType,timezone:config.timezone,history,imageUrl:mediaType==='POST' && /^https:\/\//i.test(post.publicUrl)?post.publicUrl:'',
+      const pack=await generateContentPack({title:post.title,context:req.body?.aiContext||'',tone:settings.aiTone,goal:settings.aiGoal,language:settings.aiLanguage,mediaType,timezone:config.timezone,tenantId,history,imageUrl:mediaType==='POST' && /^https:\/\//i.test(post.publicUrl)?post.publicUrl:'',
         filePath:post.filePath,
         mimeType:post.mimeType});
       post.aiGenerated=true;
+      post.aiMemoryPack=pack;
       post.aiSource=pack.source;
       post.aiHook=String(pack.hook||'').trim();
       post.aiCta=String(pack.cta||'').trim();
@@ -865,6 +870,8 @@ app.post('/api/posts', upload.single('image'), async (req, res) => {
       ].filter(Boolean).join('\\n\\n');
     }
     if(post.autoPublish) await scheduleUploadedPost(post,tenantId); else post.publishStatus='MANUAL';
+    const memoryPack = post.aiMemoryPack;
+    delete post.aiMemoryPack;
     posts.unshift(post);
     await savePosts(tenantId,posts);
     await addLog(tenantId,{type:'POST_UPLOADED',postId:post.id,title:post.title,mediaType,aiGenerated:post.aiGenerated});
@@ -925,12 +932,14 @@ app.post('/api/posts/bulk', upload.array('files', 20), async (req, res) => {
             language:settings.aiLanguage,
             mediaType,
             timezone:config.timezone,
+            tenantId,
             history:aiHistory,
             imageUrl:mediaType==='POST' && /^https:\/\//i.test(post.publicUrl) ? post.publicUrl : '',
             filePath:post.filePath,
             mimeType:post.mimeType
           });
           post.aiGenerated=true;
+          post.aiMemoryPack=pack;
           post.aiSource=pack.source;
           post.aiHook=String(pack.hook||'').trim();
           post.aiCta=String(pack.cta||'').trim();
@@ -964,7 +973,10 @@ app.post('/api/posts/bulk', upload.array('files', 20), async (req, res) => {
     await savePosts(tenantId,nextPosts);
 
     for(const post of accepted) {
+      const memoryPack = post.aiMemoryPack;
+      delete post.aiMemoryPack;
       await addLog(tenantId,{type:'POST_UPLOADED',postId:post.id,title:post.title,mediaType:post.mediaType,aiGenerated:post.aiGenerated,bulk:true});
+      if (post.aiGenerated && memoryPack) await learnFromGeneration(tenantId, memoryPack, {postId:post.id});
     }
 
     res.status(201).json({
