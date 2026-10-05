@@ -243,11 +243,12 @@ class _ProductShellState extends State<ProductShell> {
       child: Image.asset('assets/advise_logo.jpg',
           width: size, height: size, fit: BoxFit.cover));
 
-  Widget _sidebar(BuildContext context) => Container(
+  Widget _sidebar(BuildContext context) => SizedBox(
         width: 244,
-        color: Theme.of(context).colorScheme.surface,
-        child: SafeArea(
-            child: Column(children: [
+        child: Material(
+            color: Theme.of(context).colorScheme.surface,
+            child: SafeArea(
+                child: Column(children: [
           Padding(
               padding: const EdgeInsets.fromLTRB(20, 24, 20, 28),
               child: Row(children: [
@@ -304,7 +305,7 @@ class _ProductShellState extends State<ProductShell> {
               title: const Text('Çıkış yap'),
               onTap: widget.onLogout),
           const SizedBox(height: 12),
-        ])),
+        ]))),
       );
 
   Widget _topBar(BuildContext context) => Container(
