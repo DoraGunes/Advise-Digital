@@ -127,6 +127,7 @@ class _ProductDashboardPageState extends State<ProductDashboardPage> {
     final brief = _map(data['dailyBrief'])['summary'];
     final briefLines =
         brief is List ? brief.map((e) => e.toString()).toList() : <String>[];
+    final recommendations = _list(data['recommendations']);
     final notifications = _list(data['notifications']);
     final leads = _list(data['leads']);
     final logs = _list(data['logs']);
@@ -266,6 +267,10 @@ class _ProductDashboardPageState extends State<ProductDashboardPage> {
                     }),
                     const SizedBox(height: 20),
                     _brief(context, briefLines, navigation),
+                    if (recommendations.isNotEmpty) ...[
+                      const SizedBox(height: 20),
+                      _recommendations(context, recommendations, navigation),
+                    ],
                     const SizedBox(height: 20),
                     LayoutBuilder(builder: (context, box) {
                       final left = Column(children: [
@@ -343,6 +348,119 @@ class _ProductDashboardPageState extends State<ProductDashboardPage> {
               child: const Text('AdVise neler öğreniyor?')),
         ]),
       );
+
+  Future<void> _openRecommendation(
+      String action, ProductNavigation navigation) async {
+    switch (action) {
+      case 'META_CONNECTION':
+        await navigation.open(const MetaConnectionPage());
+        return;
+      case 'ONBOARDING':
+        await navigation.open(const ProductOnboardingPage());
+        return;
+      case 'PLANNER':
+        navigation.go(ProductDestination.planner);
+        return;
+      case 'ADS':
+        navigation.go(ProductDestination.ads);
+        return;
+      case 'CRM':
+        await navigation.open(const ProductCrmPage());
+        return;
+      case 'AUTOMATION':
+        await navigation.open(const ProductAutomationPage());
+        return;
+      case 'MEMORY':
+        await navigation.open(const MemoryInsightsPage());
+        return;
+      case 'REPORTS':
+        await navigation.open(const ProductReportsPage());
+        return;
+      case 'STUDIO':
+      default:
+        navigation.go(ProductDestination.studio);
+    }
+  }
+
+  Widget _recommendations(
+          BuildContext context,
+          List<Map<String, dynamic>> items,
+          ProductNavigation? navigation) =>
+      _section(
+          context,
+          'Sonraki hamleler',
+          Column(
+            children: items.take(5).map((item) {
+              final tone = item['tone']?.toString() ?? 'info';
+              final icon = switch (item['kind']?.toString()) {
+                'CONNECTION' => Icons.link_rounded,
+                'SETUP' => Icons.tune_rounded,
+                'PUBLISHING' => Icons.sync_problem_rounded,
+                'CRM' => Icons.people_alt_outlined,
+                'ADS' => Icons.campaign_outlined,
+                'MEMORY' => Icons.psychology_alt_outlined,
+                'REPORTING' => Icons.analytics_outlined,
+                _ => Icons.auto_awesome_rounded,
+              };
+              final color = switch (tone) {
+                'danger' => Theme.of(context).colorScheme.error,
+                'warning' => Colors.orange.shade700,
+                'success' => Colors.green.shade700,
+                _ => Theme.of(context).colorScheme.primary,
+              };
+              return Padding(
+                padding: const EdgeInsets.only(bottom: 12),
+                child: InkWell(
+                  borderRadius: BorderRadius.circular(14),
+                  onTap: navigation == null
+                      ? null
+                      : () => _openRecommendation(
+                          item['action']?.toString() ?? 'STUDIO', navigation),
+                  child: Container(
+                    width: double.infinity,
+                    padding: const EdgeInsets.all(14),
+                    decoration: BoxDecoration(
+                      borderRadius: BorderRadius.circular(14),
+                      border: Border.all(
+                          color: Theme.of(context).dividerColor.withValues(alpha: .7)),
+                    ),
+                    child: Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Container(
+                          width: 38,
+                          height: 38,
+                          decoration: BoxDecoration(
+                              color: color.withValues(alpha: .10),
+                              borderRadius: BorderRadius.circular(10)),
+                          child: Icon(icon, color: color, size: 20),
+                        ),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(item['title']?.toString() ?? 'Öneri',
+                                  style: const TextStyle(
+                                      fontWeight: FontWeight.w700)),
+                              const SizedBox(height: 4),
+                              Text(item['body']?.toString() ?? '',
+                                  style: Theme.of(context).textTheme.bodySmall),
+                            ],
+                          ),
+                        ),
+                        if (navigation != null)
+                          const Padding(
+                            padding: EdgeInsets.only(left: 8, top: 8),
+                            child: Icon(Icons.chevron_right_rounded, size: 20),
+                          ),
+                      ],
+                    ),
+                  ),
+                ),
+              );
+            }).toList(),
+          ));
 
   Widget _section(BuildContext context, String title, Widget content,
           {Widget? action}) =>
