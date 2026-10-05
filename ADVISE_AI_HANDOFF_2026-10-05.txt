@@ -1,0 +1,708 @@
+ADVISE AI – GELİŞTİRME DEVİR TESLİM / YENİ SOHBET DOSYASI
+Tarih: 2026-10-05
+Proje: DoraGunes/Advise-Digital
+Yerel klasör: C:\Users\ANL\Desktop\AdVise AI-FINAL
+Backend: Node.js + Express, port 3001
+Mobile: Flutter
+Public API: https://advisedigital.poyrazteknikservis.com.tr
+
+============================================================
+1. PROJENİN AMACI
+============================================================
+
+AdVise AI; Instagram/Meta reklam yönetimi, içerik üretimi, otomasyon, müşteri/abonelik/lisans yönetimi ve AI destekli karar sistemini tek uygulamada toplamak için geliştiriliyor.
+
+AI tarafındaki ana hedef:
+- Kullanıcı mümkün olduğunca az alan doldursun.
+- Kullanıcı fotoğraf/video seçsin.
+- AdVise AI görseli/medyayı analiz etsin.
+- Ürünü, markayı, modeli ve görünen metni çıkarsın.
+- Gerçekten görülen teklif/fiyat varsa tespit etsin.
+- İçerik açısını kendi seçsin.
+- Tonu kendi seçsin.
+- Hook, caption, CTA, hashtag üretsin.
+- POST/REELS/CAROUSEL önerisi versin.
+- Paylaşım zamanı önerisi versin.
+- Hedef kitle ve reklam önerisi üretsin.
+- Zaman içinde hangi hook/ton/açı/saatin işe yaradığını öğrenen kalıcı bir AdVise AI hafızası olsun.
+
+Önemli ürün kararı:
+Gemini tamamen kaldırılmayacak. Gemini ilk aşamada güçlü AI üretim motoru/öğretmen olacak. AdVise AI'ın asıl uzun vadeli farklılaştırıcı tarafı ise ayrı bir kalıcı 'Hafıza Sarayı' katmanında tutulacak.
+
+Hafıza Sarayı model ağırlıklarını eğitmez. Geçmiş üretim ve performans verisini saklar ve sonraki Gemini çağrısına bağlamsal öğrenme olarak geri verir. İleride istenirse küçük/yerel bir model veya başka sağlayıcı ile bu hafıza kullanılabilir.
+
+============================================================
+2. BUGÜNE KADAR YAPILANLAR
+============================================================
+
+A) Görsel yükleme sorunu çözüldü.
+İlk sürümlerde JPG/PNG seçimi HTTP 400 dönüyordu.
+Eski Multer MIME filtresi çok katıydı.
+Dosya uzantısına göre de medya tespiti yapan IMAGE_EXTENSIONS ve VIDEO_EXTENSIONS eklendi.
+JPEG/PNG/WebP/GIF/BMP/HEIC/HEIF/AVIF/TIFF ve MP4/MOV/M4V/WEBM/AVI/MKV/3GP/MPEG/MPG/OGV kabul edilecek şekilde genişletildi.
+
+B) Eski içerik-pack route içindeki hatalı image MIME kontrolü bulundu ve kaldırıldı.
+Bu kontrol, upload kabul edilse bile AI analizini 400 ile durduruyordu.
+
+C) Telefon tarafından Android/Dart bazen
+mimetype = application/octet-stream
+gönderilse bile uzantıdan JPG olduğu tespit edilip
+visionMime = image/jpeg
+olarak işleniyor.
+
+Örnek başarılı upload logu:
+[AI MEDIA]
+originalName: scaled_1000114270.jpg
+mimetype: application/octet-stream
+kind: IMAGE
+size: 473504
+visionMime: image/jpeg
+hasImageDataUrl: true
+
+D) Cloudflare/public route doğru backend'e gidiyor.
+GET /health üzerinden lokal 3001 ile public hostname aynı build marker'ı döndürdü.
+
+E) OpenAI denemesi yapıldı.
+OPENAI_API_KEY olmadığı için LOCAL_FALLBACK kullanıldı.
+Daha sonra OpenAI API yerine Gemini kullanma kararı alındı.
+
+F) Gemini API anahtarı .env'den başarıyla okunuyor.
+Kontrol komutu:
+node -e "import('dotenv/config').then(()=>console.log('GEMINI_API_KEY mevcut:',!!process.env.GEMINI_API_KEY,'uzunluk:',(process.env.GEMINI_API_KEY||'').length,'MODEL:',process.env.GEMINI_MODEL||'gemini-3.8-flash'))"
+
+Başarılı sonuç:
+GEMINI_API_KEY mevcut: true
+MODEL: gemini-3.8-flash
+
+API key asla sohbet/GitHub'a gönderilmemeli.
+
+G) Gemini REST yaklaşımı ilk denemede çalıştı ancak:
+- responseSchema içinde JSON Schema'dan gelen additionalProperties alanı Gemini tarafında kabul edilmedi.
+Bu alanlar kaldırıldı.
+
+H) Sonraki aşamada Gemini'nin resmi JavaScript SDK'sına geçildi:
+@google/genai
+ve Interactions API kullanılmaya başlandı.
+
+backend/package.json içine:
+"@google/genai": "^2.27.0"
+eklendi.
+
+Kullanılan temel yaklaşım:
+GoogleGenAI({apiKey})
+client.interactions.create(...)
+
+Gemini sayfasında görülen güncel örneklere dayanarak:
+- Interactions API
+- multimodal input
+- structured output / response_format
+yaklaşımı kullanılıyor.
+
+I) Görsel ve video için multimodal yapı kuruldu.
+20 MB'a kadar medya inline olarak gönderiliyor.
+Daha büyük medya için Gemini Files API kullanılacak şekilde kod hazırlandı.
+Video, Reels olarak sınıflandırılıyor.
+
+J) Gemini 3.8 Flash geçici 503/high demand hatası verdi.
+Log:
+[AI GEMINI RESPONSE] { status: 503, ok: false }
+This model is currently experiencing high demand.
+
+Bunun üzerine retry + model fallback eklendi:
+3 deneme, exponential backoff
+sonra GEMINI_FALLBACK_MODEL
+varsayılan fallback: gemini-3.7-flash
+
+.env.example:
+GEMINI_API_KEY=
+GEMINI_MODEL=gemini-3.8-flash
+GEMINI_FALLBACK_MODEL=gemini-3.7-flash
+
+K) Gemini Interactions isteğinde 60 saniyelik timeout eklendi.
+Böylece request sonsuza kadar asılı kalmıyor.
+
+L) Sağlık kontrolü:
+GET /health şu anda:
+{
+  "ok": true,
+  "app": "AdVise AI",
+  "version": "14.0.0",
+  "buildMarker": "GEMINI_INTERACTIONS_2026_10_03_V1",
+  "uploadMode": "EXTENSION_AWARE",
+  "aiImageMode": "GEMINI_INTERACTIONS_MULTIMODAL"
+}
+
+Bu daha önce lokal 3001 ve public Cloudflare endpointinde test edildi.
+
+============================================================
+3. MEVCUT GEMINI YAPISI
+============================================================
+
+Dosya:
+backend/src/ai.js
+
+Artık:
+import {GoogleGenAI} from '@google/genai';
+import fs from 'node:fs/promises';
+import {buildMemoryContext} from './ai-memory.js';
+
+Temel model:
+GEMINI_MODEL || gemini-3.8-flash
+
+Fallback:
+GEMINI_FALLBACK_MODEL || gemini-3.7-flash
+
+AI çıktısı structured JSON olarak şu alanları döndürüyor:
+- productName
+- brand
+- model
+- detectedText
+- detectedOffer
+- selectedTone
+- contentAngle
+- hook
+- caption
+- cta
+- hashtags
+- recommendedFormat
+- recommendedPostTime
+- recommendedPostTimeReason
+- contentGoal
+- targetAudience
+- visualSummary
+- creativeScore
+- adRecommendation
+- nextAction
+- confidence
+
+AI promptunun ana kuralları:
+- Önce medyayı analiz et.
+- Sonra strateji seç.
+- Sonra metni yaz.
+- Gerçek görülmeyen bilgi uydurma.
+- Fiyat/indirim/garanti/stok/teknik özellik uydurma.
+- Marka/model/yazılar görünüyorsa doğru çıkar.
+- Ton, format, amaç ve içerik açısını AI seçsin.
+- Hook kısa ve güçlü.
+- Caption doğal Türkçe.
+- CTA tek ve net.
+- Hashtag 4-8 adet.
+- Başarı garantisi verme.
+
+Fallback artık eski kötü generic PoyrazTeknik metinlerinden temizlendi ve AdVise AI mantığına göre düşük güvenli bir fallback olarak tutuluyor.
+
+============================================================
+4. HAFIZA SARAYI SİSTEMİ
+============================================================
+
+Yeni dosya:
+backend/src/ai-memory.js
+
+Yeni başlangıç verisi:
+backend/data/ai_memory.json
+
+Hafıza tenant bazlı çalışıyor.
+
+Her tenant için:
+generations
+patterns:
+  hooks
+  angles
+  tones
+  formats
+  times
+  audiences
+outcomes
+
+saklanıyor.
+
+A) learnFromGeneration(tenantId, pack, input)
+AI tarafından üretilen içeriği hafızaya kaydeder.
+
+Kaydedilen başlıca bilgiler:
+- productName
+- brand
+- model
+- hook
+- caption
+- cta
+- hashtags
+- selectedTone
+- contentAngle
+- recommendedFormat
+- recommendedPostTime
+- contentGoal
+- targetAudience
+- visualSummary
+- creativeScore
+- source
+- modelUsed
+- postId
+- üretim zamanı
+
+B) learnFromOutcome(tenantId, input)
+Reklam performansı ile daha önceki üretimi ilişkilendirir.
+
+Şu sinyaller kullanılıyor:
+- spend
+- messages
+- ctr
+- messageCost
+- adId
+- postId
+
+Bunlardan bir outcomeScore hesaplanıp ilgili hook/açı/ton/format/saat/hedef kitle skoruna işleniyor.
+
+C) buildMemoryContext(tenantId)
+Hafızadan en güçlü öğrenilmiş örüntüleri seçer ve Gemini promptuna ekler.
+
+Gemini'ye:
+GÜÇLÜ HOOKLAR
+GÜÇLÜ İÇERİK AÇILARI
+GÜÇLÜ TONLAR
+GÜÇLÜ FORMATLAR
+GÜÇLÜ SAATLER
+GÜÇLÜ HEDEF KİTLELER
+SON ÜRETİMLER
+
+olarak bağlam veriliyor.
+
+Bu sayede her yeni içerik:
+'Gemini ilk defa gördü'
+gibi değil,
+'AdVise AI'ın daha önce öğrendiği şeyler var; bunları yeni medya bağlamında kullan'
+şeklinde ele alınacak.
+
+Önemli:
+Bu sistem gerçek ML model eğitimi değildir.
+Kalıcı dış hafıza + retrieval + prompt bağlamıdır.
+Gelecekte bunun üzerine gerçek model fine-tuning/yerel model katmanı eklenebilir.
+
+D) GET /api/ai/memory
+tenant bazında hafıza özetini döndürmek için eklendi.
+Şimdilik UI zorunlu değil; debug ve yönetim için kullanılabilir.
+
+============================================================
+5. HAFIZANIN GERÇEKTEN ÖĞRENMESİ NASIL ÇALIŞIYOR?
+============================================================
+
+İçerik üretildiğinde:
+Gemini -> sonuç -> learnFromGeneration()
+
+Post oluşturma akışlarında postId ile ilişkilendirilmesi hedefleniyor.
+Böylece daha sonra Meta'dan 12 saatlik performans geldiğinde aynı post bulunabilecek.
+
+Optimizer içinde:
+EARLY_REVIEW_DONE
+işleminden sonra launch.postId varsa
+learnFromOutcome()
+çağrılıyor.
+
+Yani:
+İçerik
+-> hook
+-> ton
+-> açı
+-> format
+-> saat
+-> hedef kitle
+-> yayın
+-> reklam
+-> 12 saat performans
+-> messageCost/CTR/messages
+-> outcomeScore
+-> hafıza puanı
+-> sonraki Gemini çağrısı
+
+şeklinde öğrenme döngüsü kurulmuş durumda.
+
+============================================================
+6. UYGULAMADAKİ REKLAM MOTORU
+============================================================
+
+Mevcut optimizer.js zaten 12 saatlik karar motoruna sahip.
+
+Ana yaklaşım:
+- Meta reklamlarını çek.
+- Reklamın launch zamanını bul.
+- 12 saat dolmadan sert karar verme.
+- 12 saat sonunda spend/messages/CTR/messageCost çıkar.
+- Kural motoruna gönder.
+- Gerekirse reklamı durdur.
+- Serbest bütçeyi daha iyi reklam setine aktar.
+- EARLY_REVIEW_DONE logu yaz.
+- Aynı performans verisini AI hafızasına aktar.
+
+Bu taraf Gemini'ye bağlı değil.
+AI hafızası sadece kararların yanında öğrenme sinyali olarak kullanılıyor.
+
+============================================================
+7. SAAS / META / INSTAGRAM
+============================================================
+
+Proje şu özellikleri içeriyor:
+- Super Admin
+- müşteri oluşturma
+- müşteri aktif/pasif
+- abonelik süresi
+- lisans
+- kullanıcı/rol yönetimi
+- Meta bağlantısı
+- Instagram bağlantısı
+- reklam kampanyası/adset/ad oluşturma
+- bütçe yönetimi
+- 12 saatlik optimizasyon
+- haftalık içerik/reklam planlama
+- en iyi zaman modeli
+- raporlama
+- pro araçları
+- UTM
+- CRM/leads
+- bildirimler
+- branding/white label temel alanları
+
+Public backend:
+https://advisedigital.poyrazteknikservis.com.tr
+
+Local:
+http://127.0.0.1:3001
+ve
+http://0.0.0.0:3001
+
+Cloudflare Tunnel local 3001'e yönleniyor.
+
+============================================================
+8. MOBİL UYGULAMA AI TASARIMI
+============================================================
+
+AI Content Studio kullanıcıyı gereksiz alanlarla boğmamak için sadeleştirildi.
+
+Kullanıcının ana işi:
+- medya seçmek
+- gerekiyorsa kısa not vermek
+
+AI'nin çıkaracağı şeyler:
+- ürün
+- marka
+- model
+- görünen yazılar
+- teklif
+- ton
+- içerik açısı
+- hook
+- caption
+- CTA
+- hashtag
+- format
+- saat
+- hedef
+- reklam önerisi
+- next action
+- creative score
+- confidence
+
+Bu tasarım korunacak.
+
+Backend değişiklikleri için APK yeniden derlemek gerekmez.
+Flutter UI/API değişikliklerinde APK yeniden derlenir.
+
+============================================================
+9. SON KOD DEĞİŞİKLİKLERİ / GİTHUB DURUMU
+============================================================
+
+Repository:
+DoraGunes/Advise-Digital
+
+Önemli commitler:
+
+5a895e540c2459d69c3e78360e092918e12c2d8d
+MIME handling genişletildi.
+
+6674406685cc8d916b6d47c1b5c6d99e10ef1239
+Görsel data URL yaklaşımı.
+
+8ebacd847d95dceec422202c4aaabd0d46ba2463
+AI server route değişiklikleri.
+
+9e853925a7b16e20eb3ca4ce0d1cfc7953a481e8
+Mobil medya selector değişikliği.
+
+719f287a71e49b60ddfae9918345734fa0dc37c7
+Health build marker.
+
+fef0123cc1f94be416d05abf7708ea528d83195f
+AI media diagnostic marker.
+
+abf16f8c408417d68bdb0462ec0d60f289818d2a
+Eski hatalı image MIME rejection kaldırıldı.
+
+7e4297724386604fd066478fe896a20558aa1bed
+OpenAI model ayarı önce gpt-6-luna'ya geçirildi.
+
+b802df9357554ccbb96a5260e82c61334ce0b024
+OpenAI hata logları.
+
+c954ebf16d0ae9c164c5809454ac77062ef56dcf
+Mobil fallback hata görünürlüğü.
+
+37b26411c72c003c621ef26d4da59b29d65469fc
+OpenAI timeout/diagnostic.
+
+90f78f3b3322ad48bf75c908deee86cac704b8a0
+AI media failure fallback masking düzeltmesi.
+
+7e... sonrası OpenAI yerine Gemini geçişi başladı.
+
+342f10b3639ccc1e95e11c8ca0a120f47d23755d
+Official Google GenAI SDK package dependency eklendi.
+
+85fe27a2cf0fac03cf483259ddc521c55a53c095
+ai.js official Gemini Interactions SDK yaklaşımı ile yeniden yazıldı.
+
+8e36128a81a54b032d662fa071e9a2b28110efa6
+server.js multimodal media aktarımı.
+
+17ca4b31eb45aeda03e8d3e04208b3e8bbe98de0
+Gemini'ye memory context bağlantısının ilk adımı.
+
+96844bd447aa31197974fe4421eb12050d44cd7e
+ai-memory.js oluşturuldu.
+
+0ab8d0441a959c5692b6fda6a39295fac3f5453e
+Server memory integration.
+
+e100c84fc93904e0b078b0e12d1c2bfcdeb8251d
+Tenant-aware AI memory integration tamamlandı.
+
+1f27f0071c1a4b41386784afafebfa5dc9100fd4
+Optimizer performance outcomes -> memory.
+
+27234554e8d3da0a8efa55f8af5c4df57e36d2ee
+Başlangıç ai_memory.json.
+
+Bu dosyanın yazıldığı anda ana branch'in son commit'i:
+27234554e8d3da0a8efa55f8af5c4df57e36d2ee
+
+NOT:
+GitHub'daki package.json güncel.
+Kullanıcının local npm install komutu çalıştırıldı ve @google/genai yüklendi.
+package-lock.json'ın GitHub üzerinde npm install sonrası tam güncellenmiş hali ayrıca senkronize edilmelidir. Güvenli yaklaşım: yerelde npm install çalıştırıp package-lock değişikliğini ayrı commit ile göndermek.
+
+============================================================
+10. .ENV DURUMU
+============================================================
+
+Gerçek .env GitHub'da tutulmaz.
+
+backend/.env.example içinde:
+GEMINI_API_KEY=
+GEMINI_MODEL=gemini-3.8-flash
+GEMINI_FALLBACK_MODEL=gemini-3.7-flash
+
+Kullanıcının local .env dosyasında:
+GEMINI_API_KEY mevcut.
+GEMINI_MODEL=gemini-3.8-flash
+
+API anahtarını GitHub'a veya sohbete koyma.
+
+============================================================
+11. ÇALIŞTIRMA KOMUTLARI
+============================================================
+
+Backend'i başlatmak:
+cd C:\Users\ANL\Desktop\AdVise AI-FINAL
+cd backend
+node src/server.js
+
+Gerekirse önce:
+Ctrl+C
+
+GitHub'dan son değişiklikleri almak:
+cd C:\Users\ANL\Desktop\AdVise AI-FINAL
+git pull origin main
+
+SDK kurulumu:
+cd backend
+npm install
+
+Sadece Google SDK:
+npm install @google/genai@2.27.0
+
+Health:
+curl.exe http://127.0.0.1:3001/health
+
+Gemini env kontrolü:
+node -e "import('dotenv/config').then(()=>console.log('GEMINI_API_KEY mevcut:',!!process.env.GEMINI_API_KEY,'uzunluk:',(process.env.GEMINI_API_KEY||'').length,'MODEL:',process.env.GEMINI_MODEL||'gemini-3.8-flash'))"
+
+Not:
+GET /api/ai/status auth arkasında olduğu için token olmadan:
+Authentication required
+döner. Bu bir Gemini hatası değildir.
+
+============================================================
+12. BİLİNEN SON DURUM / SON TEST
+============================================================
+
+Gemini API key çalışıyor ve request oluşturuluyor.
+
+Başarısız olan son önceki deneme:
+Gemini 3.8 Flash 503 high demand.
+
+Daha sonra resmi @google/genai + Interactions API yaklaşımına geçildi.
+
+Henüz bu son Interactions + memory sürümünde gerçek fotoğrafın final başarılı çıktısı bu devir dosyası hazırlanırken görülmüş değil.
+
+Sonraki testte beklenen log:
+[AI GEMINI INTERACTIONS REQUEST]
+...
+[AI GEMINI INTERACTIONS RESPONSE]
+status veya completed
+hasOutput: true
+
+Başarılıysa telefonda LOCAL_FALLBACK değil:
+source = GEMINI
+model = gemini-3.8-flash
+veya geçici problemde gemini-3.7-flash
+görülmeli.
+
+Eğer Interactions çağrısı hata verirse:
+hatanın tamamı backend CMD'den alınmalı.
+API key paylaşılmamalı.
+
+============================================================
+13. HAFIZA SARAYI İÇİN SONRAKİ GELİŞTİRMELER
+============================================================
+
+Birinci hedef:
+Her AI üretiminin postId ile mutlaka bağlanması.
+
+İkinci hedef:
+Meta reklam sonucunu post/creative ile daha sağlam eşlemek.
+
+Üçüncü hedef:
+Tek bir genel score yerine sektör + ürün + kitle bazında score üretmek.
+
+Örneğin:
+TV
+beyaz eşya
+kahve
+giyim
+yerel servis
+vb.
+
+Her biri farklı hook davranışına sahip olabilir.
+
+Dördüncü hedef:
+'kazanan örnekler' ve 'kaybeden örnekler' ayrı tutulmalı.
+
+Beşinci hedef:
+Gemini promptuna bütün hafızayı basmak yerine retrieval yapılmalı:
+- aynı sektör
+- benzer ürün
+- benzer hedef
+- benzer format
+- benzer medya
+- son performansı yüksek örnekler
+
+en alakalı 3-5 örnek seçilmeli.
+
+Altıncı hedef:
+Hafıza çürümesi / zaman ağırlığı eklenmeli.
+6 ay önceki kampanya ile dün başarılı olan içerik aynı ağırlıkta tutulmamalı.
+
+Yedinci hedef:
+Aynı hook'un sürekli tekrar edilmesini engelleyecek novelty kontrolü.
+
+Sekizinci hedef:
+Gemini'nin sadece üretici değil, 'öğretmen' olarak kullanılabileceği ikinci bir değerlendirme çağrısı eklemek.
+Örneğin ilk çıktı:
+HOOK A
+HOOK B
+HOOK C
+
+sonra ikinci çağrı:
+'hangisi hedef kitleye daha uygun ve neden?'
+
+Ancak bu aşamada API maliyeti/ücretsiz kota hesaba katılmalı.
+
+============================================================
+14. UZUN VADELİ MİMARİ
+============================================================
+
+HEDEF:
+
+Flutter
+  ->
+AdVise AI Backend
+  ->
+AI Orchestrator
+  ->
++ Gemini
++ başka provider
++ yerel model
+  ->
+Memory Palace
+  ->
+Meta/Instagram performans
+  ->
+Memory Palace güncelleme
+  ->
+sonraki içerik
+
+İleride:
+Gemini öğretmen / güçlü fallback
+Yerel model günlük işlerin bir kısmını üstlenebilir.
+
+Ancak 'hafıza sarayı' tek başına LLM değildir.
+Hafıza verisi + kurallar + retrieval + bir üretici model birlikte çalışır.
+
+============================================================
+15. TASARIM FELSEFESİ
+============================================================
+
+AdVise AI sadece:
+'caption yazan bir chatbot'
+olmamalı.
+
+Hedef ürün:
+'Görseli anlayan, içerik stratejisini seçen, reklam sonucunu izleyen ve kendi geçmişinden öğrenen sosyal medya reklam asistanı.'
+
+Kullanıcının gördüğü:
+Medya seç
+Oluştur
+Sonucu kontrol et
+
+Sistemin arkada yaptığı:
+Analiz
+Strateji
+Üretim
+Yayın
+Performans
+Öğrenme
+Hatırlama
+Yeni öneri
+
+Bu fark ürünün asıl değeridir.
+
+============================================================
+16. YENİ SOHBETTE İLK YAPILACAK İŞ
+============================================================
+
+Önce:
+git pull origin main
+
+Sonra:
+npm install
+node src/server.js
+
+Ardından fotoğraf testi.
+
+Başarılı gerçek Gemini cevabını gördükten sonra:
+- çıkan hook/caption kalitesini değerlendirmek
+- hafıza kaydının oluştuğunu kontrol etmek
+- /api/ai/memory endpointini auth ile kontrol etmek
+- package-lock'ı senkronize etmek
+- video testi
+- sonra Memory Palace v2 retrieval iyileştirmelerine geçmek
+
+END OF HANDOFF
