@@ -179,6 +179,28 @@ Win32Window::MessageHandler(HWND hwnd,
                             WPARAM const wparam,
                             LPARAM const lparam) noexcept {
   switch (message) {
+    case WM_GETMINMAXINFO: {
+      // Use logical pixels so the workspace remains usable on high-DPI screens.
+      const HMONITOR monitor = MonitorFromWindow(hwnd, MONITOR_DEFAULTTONEAREST);
+      const UINT dpi = FlutterDesktopGetDpiForMonitor(monitor);
+      const double scale_factor = dpi > 0 ? dpi / 96.0 : 1.0;
+      auto min_max = reinterpret_cast<MINMAXINFO*>(lparam);
+      min_max->ptMinTrackSize.x = Scale(1100, scale_factor);
+      min_max->ptMinTrackSize.y = Scale(700, scale_factor);
+      MONITORINFO monitor_info{sizeof(MONITORINFO)};
+      if (GetMonitorInfo(monitor, &monitor_info)) {
+        const LONG available_width = monitor_info.rcWork.right - monitor_info.rcWork.left;
+        const LONG available_height = monitor_info.rcWork.bottom - monitor_info.rcWork.top;
+        // Small laptop displays must still fit the complete window on screen.
+        if (min_max->ptMinTrackSize.x > available_width) {
+          min_max->ptMinTrackSize.x = available_width;
+        }
+        if (min_max->ptMinTrackSize.y > available_height) {
+          min_max->ptMinTrackSize.y = available_height;
+        }
+      }
+      return 0;
+    }
     case WM_DESTROY:
       window_handle_ = nullptr;
       Destroy();

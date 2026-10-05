@@ -1,10 +1,13 @@
-import 'dart:io';
-
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:image_picker/image_picker.dart';
 
 import 'api.dart';
+import 'content_queue_page.dart';
+import 'media_access.dart';
+import 'app_error.dart';
+import 'product_ui.dart';
+import 'social_ads_page.dart';
 
 class AiContentStudioPage extends StatefulWidget {
   const AiContentStudioPage({super.key});
@@ -16,6 +19,7 @@ class AiContentStudioPage extends StatefulWidget {
 class _AiContentStudioPageState extends State<AiContentStudioPage> {
   final title = TextEditingController();
   final contextText = TextEditingController();
+  final captionDraft = TextEditingController();
 
   String tone = '';
   String goal = '';
@@ -24,23 +28,29 @@ class _AiContentStudioPageState extends State<AiContentStudioPage> {
   bool loading = false;
   bool variantsLoading = false;
   bool scoreLoading = false;
+  bool draftSaving = false;
+  String? savedPostId;
+  DateTime? selectedScheduleTime;
 
   XFile? image;
   Map<String, dynamic>? result;
   List<dynamic> variants = [];
   Map<String, dynamic> score = {};
   Map<String, dynamic> aiStatus = {};
+  Map<String, dynamic> memory = {};
 
   @override
   void initState() {
     super.initState();
     _loadAiStatus();
+    _loadMemory();
   }
 
   @override
   void dispose() {
     title.dispose();
     contextText.dispose();
+    captionDraft.dispose();
     super.dispose();
   }
 
@@ -51,10 +61,15 @@ class _AiContentStudioPageState extends State<AiContentStudioPage> {
     } catch (_) {}
   }
 
+  Future<void> _loadMemory() async {
+    try {
+      final data = await Api.aiMemory();
+      if (mounted) setState(() => memory = data);
+    } catch (_) {}
+  }
+
   Future<void> _pickMedia() async {
-    final picked = await ImagePicker().pickMedia(
-      imageQuality: 92,
-    );
+    final picked = await MediaAccess.pickOne();
     if (picked == null || !mounted) return;
 
     setState(() {
@@ -62,21 +77,33 @@ class _AiContentStudioPageState extends State<AiContentStudioPage> {
       result = null;
       variants = [];
       score = {};
+      savedPostId = null;
     });
   }
 
   bool _selectedMediaIsImage() {
     final name = image?.name.toLowerCase() ?? '';
     return [
-      '.jpg', '.jpeg', '.jfif', '.png', '.webp', '.gif', '.bmp',
-      '.heic', '.heif', '.avif', '.tif', '.tiff'
+      '.jpg',
+      '.jpeg',
+      '.jfif',
+      '.png',
+      '.webp',
+      '.gif',
+      '.bmp',
+      '.heic',
+      '.heif',
+      '.avif',
+      '.tif',
+      '.tiff'
     ].any(name.endsWith);
   }
 
   Future<void> _generate() async {
     if (image == null && title.text.trim().isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Önce bir görsel/video seç veya ürün başlığı gir.')),
+        const SnackBar(
+            content: Text('Önce bir görsel/video seç veya ürün başlığı gir.')),
       );
       return;
     }
@@ -87,6 +114,7 @@ class _AiContentStudioPageState extends State<AiContentStudioPage> {
       final data = image != null
           ? await Api.generateContentPackFromFile(
               image!.path,
+              mediaFile: image,
               title: title.text,
               context: contextText.text,
               tone: tone,
@@ -102,6 +130,15 @@ class _AiContentStudioPageState extends State<AiContentStudioPage> {
             );
 
       if (!mounted) return;
+      final generatedTitle = data['productName']?.toString() ?? '';
+      if (title.text.trim().isEmpty && generatedTitle.isNotEmpty)
+        title.text = generatedTitle;
+      captionDraft.text = [
+        data['hook']?.toString() ?? '',
+        data['caption']?.toString() ?? '',
+        data['cta']?.toString() ?? '',
+        data['hashtags'] is List ? (data['hashtags'] as List).join(' ') : '',
+      ].where((part) => part.trim().isNotEmpty).join('\n\n');
       setState(() => result = data);
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
@@ -164,6 +201,78 @@ class _AiContentStudioPageState extends State<AiContentStudioPage> {
     }
   }
 
+  void _applyVariant(Map<String, dynamic> variant) {
+    captionDraft.text = [
+      variant['hook']?.toString() ?? '',
+      variant['caption']?.toString() ?? '',
+      variant['cta']?.toString() ?? result?['cta']?.toString() ?? '',
+      hashtagsFromResult,
+    ].where((part) => part.trim().isNotEmpty).join('\n\n');
+    setState(() {
+      result = {
+        ...?result,
+        'hook': variant['hook'] ?? result?['hook'],
+        'caption': variant['caption'] ?? result?['caption'],
+        'cta': variant['cta'] ?? result?['cta']
+      };
+    });
+    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+        content: Text('Varyant taslağa uygulandı; metni düzenleyebilirsin.')));
+  }
+
+  Future<void> _previewDraft() async {
+    if (result == null) return;
+    await showDialog<void>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Gönderi önizlemesi'),
+        content: SizedBox(
+          width: 420,
+          child: SingleChildScrollView(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                if (image != null && _selectedMediaIsImage())
+                  ClipRRect(
+                      borderRadius: BorderRadius.circular(14),
+                      child: MediaPreview(
+                          file: image!,
+                          height: 220,
+                          width: double.infinity,
+                          fit: BoxFit.cover))
+                else
+                  Container(
+                      height: 120,
+                      width: double.infinity,
+                      decoration: BoxDecoration(
+                          color: const Color(0xFFF0F1F6),
+                          borderRadius: BorderRadius.circular(14)),
+                      child:
+                          const Icon(Icons.video_library_outlined, size: 46)),
+                const SizedBox(height: 12),
+                Text(
+                    title.text.trim().isEmpty
+                        ? 'Yeni gönderi'
+                        : title.text.trim(),
+                    style: const TextStyle(
+                        fontSize: 18, fontWeight: FontWeight.w800)),
+                const SizedBox(height: 8),
+                SelectableText(captionDraft.text.trim(),
+                    style: const TextStyle(height: 1.5)),
+              ],
+            ),
+          ),
+        ),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.pop(dialogContext),
+              child: const Text('KAPAT'))
+        ],
+      ),
+    );
+  }
+
   Future<void> _scoreCreative() async {
     if (result == null) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -205,6 +314,239 @@ class _AiContentStudioPageState extends State<AiContentStudioPage> {
     );
   }
 
+  String _packText(Map<String, dynamic> pack) {
+    final tags =
+        pack['hashtags'] is List ? (pack['hashtags'] as List).join(' ') : '';
+    return [
+      pack['productName'],
+      'Hook: ${pack['hook'] ?? ''}',
+      pack['caption'],
+      'CTA: ${pack['cta'] ?? ''}',
+      tags,
+      'Format: ${pack['recommendedFormat'] ?? ''}',
+      'Paylaşım zamanı: ${pack['recommendedPostTime'] ?? ''}',
+      'Hedef kitle: ${pack['targetAudience'] ?? ''}',
+      'İçerik açısı: ${pack['contentAngle'] ?? ''}',
+      'Görsel analizi: ${pack['visualSummary'] ?? ''}',
+    ]
+        .where((part) => part != null && part.toString().trim().isNotEmpty)
+        .join('\n\n');
+  }
+
+  Future<void> _saveAsDraft() async {
+    if (image == null || result == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+            content:
+                Text('Taslak oluşturmak için önce medya seçip içerik üret.')),
+      );
+      return;
+    }
+
+    setState(() => draftSaving = true);
+    try {
+      await _storeDraft();
+      await _loadMemory();
+      if (!mounted) return;
+      _clearCurrentDraft();
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+        content: const Text('Taslak kaydedildi ve Hafıza Sarayı’na bağlandı.'),
+        action: SnackBarAction(
+            label: 'Kuyruğu aç',
+            onPressed: () => Navigator.push(context,
+                MaterialPageRoute(builder: (_) => const ContentQueuePage()))),
+      ));
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text(AppError.message(e))));
+      }
+    } finally {
+      if (mounted) setState(() => draftSaving = false);
+    }
+  }
+
+  Future<Map<String, dynamic>> _storeDraft() async {
+    if (savedPostId != null) {
+      return Api.updatePost(savedPostId!,
+          title: title.text.trim(),
+          caption: captionDraft.text.trim(),
+          linkUrl: '');
+    }
+    final saved = await Api.uploadPost(
+      image!.path,
+      title.text.trim().isNotEmpty
+          ? title.text.trim()
+          : result!['productName']?.toString() ?? 'Yeni içerik',
+      captionDraft.text.trim(),
+      '',
+      mediaFile: image,
+      autoPublish: false,
+      useAI: false,
+      mediaType: _selectedMediaIsImage() ? 'IMAGE' : 'VIDEO',
+      memoryGenerationId: result!['memoryGenerationId']?.toString() ?? '',
+    );
+    savedPostId = saved['id']?.toString();
+    if (savedPostId == null || savedPostId!.isEmpty)
+      throw const ApiException('İçerik kaydı doğrulanamadı.');
+    return saved;
+  }
+
+  Future<void> _publishNow({bool openAd = false}) async {
+    if (image == null || result == null) return;
+    final accepted = await showDialog<bool>(
+        context: context,
+        builder: (ctx) => AlertDialog(
+              title: Text(openAd
+                  ? 'İçeriği reklam için yayınla'
+                  : 'Şimdi Instagram’da yayınla'),
+              content: Text(openAd
+                  ? 'Mevcut reklam akışı yayınlanmış Instagram gönderilerini kullanır. Önce içeriğin yayınlanacak, ardından bütçe ve bölge seçip reklamı ayrıca onaylayacaksın.'
+                  : 'Önizlediğin içerik bağlı Instagram hesabında hemen yayınlanacak.'),
+              actions: [
+                TextButton(
+                    onPressed: () => Navigator.pop(ctx, false),
+                    child: const Text('Vazgeç')),
+                FilledButton(
+                    onPressed: () => Navigator.pop(ctx, true),
+                    child: const Text('İçeriği yayınla'))
+              ],
+            ));
+    if (accepted != true || !mounted) return;
+    setState(() => draftSaving = true);
+    try {
+      await _storeDraft();
+      final published = await Api.publishPost(savedPostId!);
+      if (!mounted) return;
+      final mediaId = (published['instagramMediaId'] ??
+              published['instagramPostId'] ??
+              published['publishedMediaId'])
+          ?.toString();
+      _clearCurrentDraft();
+      ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('İçerik Instagram’da yayınlandı.')));
+      if (openAd)
+        await Navigator.push(
+            context,
+            MaterialPageRoute(
+                builder: (_) => SocialAdsPage(initialMediaId: mediaId)));
+    } catch (e) {
+      if (mounted)
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text(AppError.message(e))));
+    } finally {
+      if (mounted) setState(() => draftSaving = false);
+    }
+  }
+
+  DateTime _recommendedSlot() {
+    final now = DateTime.now();
+    final raw = result?['recommendedPostTime']?.toString() ?? '';
+    final match = RegExp(r'(\d{1,2}):(\d{2})').firstMatch(raw);
+    final hour = match == null ? 19 : int.parse(match.group(1)!);
+    final minute = match == null ? 30 : int.parse(match.group(2)!);
+    var slot = DateTime(now.year, now.month, now.day, hour, minute);
+    if (!slot.isAfter(now.add(const Duration(minutes: 2)))) {
+      slot = slot.add(const Duration(days: 1));
+    }
+    return slot;
+  }
+
+  Future<DateTime?> _pickPublishTime() async {
+    final now = DateTime.now();
+    final initial = selectedScheduleTime ?? _recommendedSlot();
+    final date = await showDatePicker(
+      context: context,
+      initialDate: initial,
+      firstDate: DateTime(now.year, now.month, now.day),
+      lastDate: DateTime(now.year + 2),
+      helpText: 'Yayın gününü seç',
+    );
+    if (date == null || !mounted) return null;
+    final time = await showTimePicker(
+      context: context,
+      initialTime: TimeOfDay.fromDateTime(initial),
+      helpText: 'Yayın saatini seç',
+    );
+    if (time == null || !mounted) return null;
+    final selected =
+        DateTime(date.year, date.month, date.day, time.hour, time.minute);
+    if (!selected.isAfter(DateTime.now())) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+          content: Text('Yayın zamanı şu andan sonraki bir saat olmalı.')));
+      return null;
+    }
+    setState(() => selectedScheduleTime = selected);
+    return selected;
+  }
+
+  Future<void> _queueForPublish() async {
+    if (image == null || result == null) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+          content: Text('Kuyruğa eklemek için önce medya seçip içerik üret.')));
+      return;
+    }
+    final scheduleAt = await _pickPublishTime();
+    if (scheduleAt == null || !mounted) return;
+    setState(() => draftSaving = true);
+    try {
+      await _storeDraft();
+      final queued = await Api.queuePost(savedPostId!,
+          scheduleAt: scheduleAt.toUtc().toIso8601String());
+      await _loadMemory();
+      if (!mounted) return;
+      final status = queued['publishStatus']?.toString().toUpperCase();
+      final localTime =
+          DateTime.tryParse(queued['nextPublishAt']?.toString() ?? '')
+                  ?.toLocal() ??
+              scheduleAt;
+      _clearCurrentDraft();
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+        content: Text(status == 'QUEUED'
+            ? 'Kuyruğa alındı • ${_dateLabel(localTime)}’de otomatik paylaşılacak.'
+            : 'Yayın için hazır • ${_dateLabel(localTime)}. Otomatik yayın ayarını açınca paylaşılacak.'),
+        duration: const Duration(seconds: 6),
+        action: SnackBarAction(
+          label: 'Kuyruğu aç',
+          onPressed: () => Navigator.push(context,
+              MaterialPageRoute(builder: (_) => const ContentQueuePage())),
+        ),
+      ));
+    } catch (e) {
+      if (mounted)
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text(e.toString())));
+    } finally {
+      if (mounted) setState(() => draftSaving = false);
+    }
+  }
+
+  String _dateLabel(DateTime date) =>
+      '${date.day.toString().padLeft(2, '0')}.${date.month.toString().padLeft(2, '0')} ${date.hour.toString().padLeft(2, '0')}:${date.minute.toString().padLeft(2, '0')}';
+
+  void _clearCurrentDraft() {
+    setState(() {
+      image = null;
+      result = null;
+      variants = [];
+      score = {};
+      selectedScheduleTime = null;
+      title.clear();
+      contextText.clear();
+      captionDraft.clear();
+      savedPostId = null;
+    });
+  }
+
+  String get hashtagsFromResult => result?['hashtags'] is List
+      ? (result!['hashtags'] as List).join(' ')
+      : '';
+
+  Future<void> _openQueue() async {
+    await Navigator.push(
+        context, MaterialPageRoute(builder: (_) => const ContentQueuePage()));
+  }
+
   Widget _section(String title, Widget child) {
     return Card(
       child: Padding(
@@ -230,7 +572,7 @@ class _AiContentStudioPageState extends State<AiContentStudioPage> {
       margin: const EdgeInsets.only(bottom: 9),
       padding: const EdgeInsets.all(13),
       decoration: BoxDecoration(
-        color: const Color(0xFFF7F7FA),
+        color: Theme.of(context).colorScheme.surfaceContainerLow,
         borderRadius: BorderRadius.circular(15),
       ),
       child: Column(
@@ -260,12 +602,7 @@ class _AiContentStudioPageState extends State<AiContentStudioPage> {
   @override
   Widget build(BuildContext context) {
     final source = result?['source']?.toString() ?? '';
-    final model = aiStatus['model']?.toString() ?? '-';
     final configured = aiStatus['configured'] == true;
-    final hashtags = result?['hashtags'] is List
-        ? (result!['hashtags'] as List).join(' ')
-        : '';
-
     return Scaffold(
       appBar: AppBar(
         title: const Text(
@@ -273,6 +610,11 @@ class _AiContentStudioPageState extends State<AiContentStudioPage> {
           style: TextStyle(fontWeight: FontWeight.w900),
         ),
         actions: [
+          TextButton.icon(
+            onPressed: _openQueue,
+            icon: const Icon(Icons.calendar_month_rounded, size: 19),
+            label: const Text('Kuyruk'),
+          ),
           IconButton(
             tooltip: 'AI durumunu yenile',
             onPressed: _loadAiStatus,
@@ -280,54 +622,97 @@ class _AiContentStudioPageState extends State<AiContentStudioPage> {
           ),
         ],
       ),
-      body: ListView(
+      body: ProductContent(
+          child: ListView(
         padding: const EdgeInsets.fromLTRB(14, 10, 14, 40),
         children: [
-          Container(
-            padding: const EdgeInsets.all(18),
-            decoration: BoxDecoration(
-              borderRadius: BorderRadius.circular(24),
-              gradient: const LinearGradient(
-                colors: [Color(0xFF1F2454), Color(0xFF4F46E5)],
-              ),
+          TweenAnimationBuilder<double>(
+            tween: Tween(begin: 0, end: 1),
+            duration: const Duration(milliseconds: 440),
+            curve: Curves.easeOutCubic,
+            builder: (context, value, child) => Opacity(
+              opacity: value,
+              child: Transform.translate(
+                  offset: Offset(0, 14 * (1 - value)), child: child),
             ),
-            child: const Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  'AdVise AI içerik motoru',
-                  style: TextStyle(
+            child: Container(
+              padding: const EdgeInsets.fromLTRB(16, 15, 10, 15),
+              decoration: BoxDecoration(
+                gradient: LinearGradient(
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
+                  colors: configured
+                      ? const [Color(0xFF202143), Color(0xFF4F48AE)]
+                      : const [Color(0xFF39405A), Color(0xFF59627A)],
+                ),
+                borderRadius: BorderRadius.circular(22),
+                boxShadow: const [
+                  BoxShadow(
+                      color: Color(0x20352D86),
+                      blurRadius: 20,
+                      offset: Offset(0, 9))
+                ],
+              ),
+              child: Row(children: [
+                Container(
+                  width: 43,
+                  height: 43,
+                  decoration: BoxDecoration(
+                      color: const Color(0x223DE0B0),
+                      borderRadius: BorderRadius.circular(14)),
+                  child: Icon(
+                      configured
+                          ? Icons.auto_awesome_rounded
+                          : Icons.cloud_off_outlined,
+                      color: const Color(0xFFB8F5DE)),
+                ),
+                const SizedBox(width: 11),
+                Expanded(
+                    child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                      Text(configured ? 'GEMINI STÜDYOSU' : 'YEREL ÜRETİM MODU',
+                          style: const TextStyle(
+                              color: Color(0xFFB8F5DE),
+                              fontSize: 10,
+                              letterSpacing: 1.2,
+                              fontWeight: FontWeight.w900)),
+                      const SizedBox(height: 4),
+                      Text(
+                          'Hafıza Sarayı • ${memory['generationCount'] ?? 0} üretim',
+                          style: const TextStyle(
+                              color: Colors.white,
+                              fontWeight: FontWeight.w800)),
+                      Text(
+                          configured
+                              ? 'Medyanı anlar, deneyiminden öğrenir.'
+                              : 'AI bağlantısını kontrol etmek için yeniden dene.',
+                          style: TextStyle(
+                              color: Colors.white.withValues(alpha: .76),
+                              fontSize: 12)),
+                    ])),
+                IconButton(
                     color: Colors.white,
-                    fontSize: 22,
-                    fontWeight: FontWeight.w900,
-                  ),
-                ),
-                SizedBox(height: 6),
-                Text(
-                  'Görseli yükle → ürünü analiz et → caption, hook, CTA ve format önerisi üret.',
-                  style: TextStyle(color: Colors.white70, height: 1.4),
-                ),
-              ],
+                    tooltip: 'Durumu yenile',
+                    onPressed: _loadAiStatus,
+                    icon: const Icon(Icons.refresh_rounded)),
+              ]),
             ),
           ),
           const SizedBox(height: 12),
-          Card(
-            child: ListTile(
-              leading: CircleAvatar(
-                child: Icon(
-                  configured ? Icons.auto_awesome : Icons.offline_bolt_outlined,
-                ),
-              ),
-              title: Text(
-                configured ? 'AI sağlayıcısı bağlı' : 'Yerel AI fallback aktif',
-                style: const TextStyle(fontWeight: FontWeight.w900),
-              ),
-              subtitle: Text('Model: $model'),
-            ),
-          ),
-          const SizedBox(height: 12),
+          Wrap(spacing: 8, runSpacing: 8, children: [
+            ProductStatusChip(
+                label: '1 · Medya seç',
+                tone: image != null ? 'success' : 'neutral'),
+            ProductStatusChip(
+                label: '2 · Analiz',
+                tone: result != null ? 'success' : 'neutral'),
+            ProductStatusChip(label: '3 · Düzenle'),
+            ProductStatusChip(label: '4 · Yayınla / planla'),
+          ]),
+          const SizedBox(height: 16),
           _section(
-            '1 • İçerik kaynağı',
+            'İçerik kaynağı',
             Column(
               children: [
                 SizedBox(
@@ -346,8 +731,8 @@ class _AiContentStudioPageState extends State<AiContentStudioPage> {
                   if (_selectedMediaIsImage())
                     ClipRRect(
                       borderRadius: BorderRadius.circular(16),
-                      child: Image.file(
-                        File(image!.path),
+                      child: MediaPreview(
+                        file: image!,
                         height: 230,
                         width: double.infinity,
                         fit: BoxFit.cover,
@@ -359,7 +744,8 @@ class _AiContentStudioPageState extends State<AiContentStudioPage> {
                       width: double.infinity,
                       decoration: BoxDecoration(
                         borderRadius: BorderRadius.circular(16),
-                        border: Border.all(color: Theme.of(context).dividerColor),
+                        border:
+                            Border.all(color: Theme.of(context).dividerColor),
                       ),
                       child: const Column(
                         mainAxisAlignment: MainAxisAlignment.center,
@@ -386,12 +772,19 @@ class _AiContentStudioPageState extends State<AiContentStudioPage> {
                     ),
                   ),
                 ],
+                const SizedBox(height: 10),
+                TextField(
+                  controller: title,
+                  decoration: const InputDecoration(
+                      labelText: 'Ürün veya gönderi başlığı (isteğe bağlı)',
+                      prefixIcon: Icon(Icons.title_rounded)),
+                ),
               ],
             ),
           ),
           const SizedBox(height: 12),
           _section(
-            '2 • AI otomatik karar',
+            'Kreatif notu',
             Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
@@ -400,7 +793,8 @@ class _AiContentStudioPageState extends State<AiContentStudioPage> {
                   padding: const EdgeInsets.all(14),
                   decoration: BoxDecoration(
                     borderRadius: BorderRadius.circular(16),
-                    color: Theme.of(context).colorScheme.surfaceContainerHighest,
+                    color:
+                        Theme.of(context).colorScheme.surfaceContainerHighest,
                   ),
                   child: const Row(
                     crossAxisAlignment: CrossAxisAlignment.start,
@@ -409,7 +803,7 @@ class _AiContentStudioPageState extends State<AiContentStudioPage> {
                       SizedBox(width: 10),
                       Expanded(
                         child: Text(
-                          'Senin seçmen gereken sadece medya. AdVise AI ürünü, markayı, görünen bilgileri, içerik açısını, tonu, amacı ve formatı görselden çıkarır.',
+                          'Görseli analiz edip metin, format ve paylaşım zamanı önereceğiz. Metni yayınlamadan önce düzenleyebilirsin.',
                           style: TextStyle(height: 1.45),
                         ),
                       ),
@@ -455,7 +849,7 @@ class _AiContentStudioPageState extends State<AiContentStudioPage> {
           if (result != null) ...[
             const SizedBox(height: 12),
             _section(
-              '3 • AI sonucu',
+              'İçerik taslağı',
               Column(
                 children: [
                   Row(
@@ -476,40 +870,98 @@ class _AiContentStudioPageState extends State<AiContentStudioPage> {
                   ),
                   const SizedBox(height: 8),
                   if (source.isNotEmpty)
-                    Align(
-                      alignment: Alignment.centerLeft,
-                      child: Text(
-                        'Kaynak: $source',
-                        style: Theme.of(context).textTheme.bodySmall,
-                      ),
-                    ),
+                    ProductStatusChip(
+                        label: source == 'GEMINI'
+                            ? 'AI analizi tamamlandı'
+                            : 'AI bağlantısı kontrol gerekiyor',
+                        tone: source == 'GEMINI' ? 'success' : 'warning'),
                   if ((result?['error']?.toString() ?? '').trim().isNotEmpty)
                     _resultBox(
-                      'AI HATASI',
-                      result!['error']?.toString() ?? '',
+                      'AI bağlantısı',
+                      AppError.message(result!['error']),
                     ),
                   const SizedBox(height: 10),
-                  _resultBox('ÜRÜN', result!['productName']?.toString() ?? ''),
-                  _resultBox('MARKA', result!['brand']?.toString() ?? ''),
-                  _resultBox('MODEL', result!['model']?.toString() ?? ''),
-                  _resultBox('GÖRSELDEKİ METİNLER', result!['detectedText']?.toString() ?? ''),
-                  _resultBox('GÖRÜLEN TEKLİF', result!['detectedOffer']?.toString() ?? ''),
-                  _resultBox('SEÇİLEN TON', result!['selectedTone']?.toString() ?? ''),
-                  _resultBox('İÇERİK AÇISI', result!['contentAngle']?.toString() ?? ''),
-                  _resultBox('HOOK', result!['hook']?.toString() ?? ''),
-                  _resultBox('CTA', result!['cta']?.toString() ?? ''),
-                  _resultBox('CAPTION', result!['caption']?.toString() ?? ''),
-                  _resultBox('HASHTAGS', hashtags),
-                  _resultBox('PAYLAŞIM ZAMANI', result!['recommendedPostTime']?.toString() ?? ''),
-                  _resultBox('ZAMAN GEREKÇESİ', result!['recommendedPostTimeReason']?.toString() ?? ''),
-                  _resultBox('HEDEF KİTLE', result!['targetAudience']?.toString() ?? ''),
-                  _resultBox('İÇERİK AMACI', result!['contentGoal']?.toString() ?? ''),
-                  _resultBox('GÖRSEL ANALİZİ', result!['visualSummary']?.toString() ?? ''),
-                  _resultBox('REKLAM ÖNERİSİ', result!['adRecommendation']?.toString() ?? ''),
-                  _resultBox('SONRAKİ ADIM', result!['nextAction']?.toString() ?? ''),
-                  _resultBox('KREATİF SKORU', result!['creativeScore']?.toString() ?? ''),
-                  _resultBox('AI GÜVENİ', result!['confidence']?.toString() ?? ''),
+                  Padding(
+                    padding: const EdgeInsets.only(bottom: 9),
+                    child: TextField(
+                      controller: captionDraft,
+                      minLines: 5,
+                      maxLines: 12,
+                      maxLength: 2200,
+                      decoration: const InputDecoration(
+                        labelText: 'Yayın metni',
+                        helperText:
+                            'Metne dokunup istemediğin bölümü değiştir.',
+                        alignLabelWithHint: true,
+                      ),
+                    ),
+                  ),
+                  ListTile(
+                    contentPadding: EdgeInsets.zero,
+                    leading: const Icon(Icons.schedule_rounded),
+                    title: const Text('Önerilen paylaşım saati',
+                        style: TextStyle(fontWeight: FontWeight.w800)),
+                    subtitle: Text(selectedScheduleTime == null
+                        ? '${result!['recommendedPostTime'] ?? '19:30'} önerisi  •  Türkiye saati'
+                        : 'Seçilen: ${_dateLabel(selectedScheduleTime!)}  •  Türkiye saati'),
+                  ),
+                  Container(
+                    width: double.infinity,
+                    padding: const EdgeInsets.all(12),
+                    decoration: BoxDecoration(
+                        color:
+                            Theme.of(context).colorScheme.surfaceContainerLow,
+                        borderRadius: BorderRadius.circular(14)),
+                    child: Row(children: [
+                      const Icon(Icons.chat_outlined, size: 19),
+                      const SizedBox(width: 8),
+                      Expanded(
+                          child: Text(
+                              'Dönüş kanalı: ${result!['contactChannel'] ?? 'WHATSAPP'}',
+                              style:
+                                  const TextStyle(fontWeight: FontWeight.w700)))
+                    ]),
+                  ),
                   const SizedBox(height: 4),
+                  SizedBox(
+                    width: double.infinity,
+                    child: OutlinedButton.icon(
+                      onPressed: _previewDraft,
+                      icon: const Icon(Icons.preview_outlined),
+                      label: const Text('Gönderi önizlemesi'),
+                    ),
+                  ),
+                  ExpansionTile(
+                    tilePadding: EdgeInsets.zero,
+                    title: const Text('Analiz ve strateji ayrıntıları'),
+                    children: [
+                      _resultBox('Görseldeki metin',
+                          result!['detectedText']?.toString() ?? ''),
+                      _resultBox('Görülen teklif',
+                          result!['detectedOffer']?.toString() ?? ''),
+                      _resultBox(
+                          'Marka / model',
+                          '${result!['brand'] ?? ''} ${result!['model'] ?? ''}'
+                              .trim()),
+                      _resultBox('Hook', result!['hook']?.toString() ?? ''),
+                      _resultBox('Ton ve içerik açısı',
+                          '${result!['selectedTone'] ?? ''} • ${result!['contentAngle'] ?? ''}'),
+                      _resultBox('Hedef kitle',
+                          result!['targetAudience']?.toString() ?? ''),
+                      _resultBox('Reklam önerisi',
+                          result!['adRecommendation']?.toString() ?? ''),
+                      _resultBox('Görsel analizi',
+                          result!['visualSummary']?.toString() ?? ''),
+                      _resultBox(
+                          'Zaman gerekçesi',
+                          result!['recommendedPostTimeReason']?.toString() ??
+                              ''),
+                      _resultBox('Kreatif skoru',
+                          result!['creativeScore']?.toString() ?? ''),
+                      _resultBox(
+                          'AI güveni', result!['confidence']?.toString() ?? ''),
+                    ],
+                  ),
                   Row(
                     children: [
                       Expanded(
@@ -545,6 +997,57 @@ class _AiContentStudioPageState extends State<AiContentStudioPage> {
                       ),
                     ],
                   ),
+                  const SizedBox(height: 8),
+                  SizedBox(
+                    width: double.infinity,
+                    child: OutlinedButton.icon(
+                      onPressed: () =>
+                          _copy('İçerik paketi', _packText(result!)),
+                      icon: const Icon(Icons.content_copy_rounded),
+                      label: const Text('İçerik paketini kopyala'),
+                    ),
+                  ),
+                  if (image != null) ...[
+                    const SizedBox(height: 12),
+                    Wrap(spacing: 8, runSpacing: 8, children: [
+                      OutlinedButton.icon(
+                          onPressed: draftSaving ? null : () => _publishNow(),
+                          icon: const Icon(Icons.send_outlined),
+                          label: const Text('Şimdi yayınla')),
+                      OutlinedButton.icon(
+                          onPressed: draftSaving
+                              ? null
+                              : () => _publishNow(openAd: true),
+                          icon: const Icon(Icons.campaign_outlined),
+                          label: const Text('Reklama dönüştür')),
+                    ]),
+                    const SizedBox(height: 8),
+                    SizedBox(
+                      width: double.infinity,
+                      child: FilledButton.icon(
+                        onPressed: draftSaving ? null : _queueForPublish,
+                        icon: draftSaving
+                            ? const SizedBox(
+                                width: 18,
+                                height: 18,
+                                child:
+                                    CircularProgressIndicator(strokeWidth: 2))
+                            : const Icon(Icons.schedule_send_rounded),
+                        label: Text(draftSaving
+                            ? 'YAYIN PLANI HAZIRLANIYOR…'
+                            : 'Saat seç • Kuyruğa al'),
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    SizedBox(
+                      width: double.infinity,
+                      child: OutlinedButton.icon(
+                        onPressed: draftSaving ? null : _saveAsDraft,
+                        icon: const Icon(Icons.bookmark_add_outlined),
+                        label: const Text('Taslak kaydet • Hafızaya bağla'),
+                      ),
+                    ),
+                  ],
                 ],
               ),
             ),
@@ -561,15 +1064,14 @@ class _AiContentStudioPageState extends State<AiContentStudioPage> {
                   final variantId = variant['id']?.toString() ?? '-';
                   final variantStyle =
                       variant['style']?.toString() ?? 'Varyant';
-                  final variantCaption =
-                      variant['caption']?.toString() ?? '-';
+                  final variantCaption = variant['caption']?.toString() ?? '-';
 
                   return Container(
                     width: double.infinity,
                     margin: const EdgeInsets.only(bottom: 9),
                     padding: const EdgeInsets.all(13),
                     decoration: BoxDecoration(
-                      color: const Color(0xFFF7F7FA),
+                      color: Theme.of(context).colorScheme.surfaceContainerLow,
                       borderRadius: BorderRadius.circular(15),
                     ),
                     child: Column(
@@ -579,7 +1081,8 @@ class _AiContentStudioPageState extends State<AiContentStudioPage> {
                           children: [
                             Text(
                               '$variantId • $variantStyle',
-                              style: const TextStyle(fontWeight: FontWeight.w900),
+                              style:
+                                  const TextStyle(fontWeight: FontWeight.w900),
                             ),
                             const Spacer(),
                             IconButton(
@@ -592,6 +1095,15 @@ class _AiContentStudioPageState extends State<AiContentStudioPage> {
                         Text(
                           variantCaption,
                           style: const TextStyle(height: 1.4),
+                        ),
+                        const SizedBox(height: 8),
+                        SizedBox(
+                          width: double.infinity,
+                          child: OutlinedButton.icon(
+                            onPressed: () => _applyVariant(variant),
+                            icon: const Icon(Icons.edit_note_rounded),
+                            label: const Text('BU VARYANTI TASLAĞA UYGULA'),
+                          ),
                         ),
                       ],
                     ),
@@ -610,9 +1122,9 @@ class _AiContentStudioPageState extends State<AiContentStudioPage> {
                   Center(
                     child: Text(
                       (score['scores'] is Map
-                              ? (score['scores'] as Map)['overall']
-                              : null)
-                          ?.toString() ??
+                                  ? (score['scores'] as Map)['overall']
+                                  : null)
+                              ?.toString() ??
                           '-',
                       style: const TextStyle(
                         fontSize: 34,
@@ -623,9 +1135,9 @@ class _AiContentStudioPageState extends State<AiContentStudioPage> {
                   const SizedBox(height: 8),
                   Text(
                     (score['scores'] is Map
-                            ? (score['scores'] as Map)['signal']
-                            : null)
-                        ?.toString() ??
+                                ? (score['scores'] as Map)['signal']
+                                : null)
+                            ?.toString() ??
                         '-',
                     style: const TextStyle(fontWeight: FontWeight.w800),
                   ),
@@ -643,7 +1155,7 @@ class _AiContentStudioPageState extends State<AiContentStudioPage> {
             ),
           ),
         ],
-      ),
+      )),
     );
   }
 

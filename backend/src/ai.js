@@ -5,6 +5,7 @@ import {buildMemoryContext} from './ai-memory.js';
 
 const MODEL = process.env.GEMINI_MODEL || config.aiModel || 'gemini-3.8-flash';
 const FALLBACK_MODEL = process.env.GEMINI_FALLBACK_MODEL || 'gemini-3.7-flash';
+const RESCUE_MODEL = process.env.GEMINI_RESCUE_MODEL || 'gemini-3.5-flash-lite';
 const MAX_INLINE_MEDIA_BYTES = 20 * 1024 * 1024;
 
 const OUTPUT_SCHEMA = {
@@ -13,6 +14,8 @@ const OUTPUT_SCHEMA = {
     productName: {type: 'string'},
     brand: {type: 'string'},
     model: {type: 'string'},
+    industry: {type: 'string'},
+    productCategory: {type: 'string'},
     detectedText: {type: 'string'},
     detectedOffer: {type: 'string'},
     selectedTone: {type: 'string'},
@@ -64,8 +67,46 @@ const VARIANTS_SCHEMA = {
   required: ['variants']
 };
 
+const AD_DECISIONS_SCHEMA = {
+  type: 'object',
+  properties: {
+    decisions: {
+      type: 'array',
+      maxItems: 50,
+      items: {
+        type: 'object',
+        properties: {
+          adSetId: {type: 'string'},
+          action: {type: 'string', enum: ['KEEP', 'PAUSE', 'ACTIVATE', 'INCREASE_BUDGET', 'DECREASE_BUDGET', 'APPLY_SAVED_AUDIENCE']},
+          reason: {type: 'string'},
+          confidence: {type: 'integer', minimum: 0, maximum: 100}
+        },
+        required: ['adSetId', 'action', 'reason', 'confidence']
+      }
+    },
+    summary: {type: 'string'}
+  },
+  required: ['decisions', 'summary']
+};
+
 function clean(value, max=1600) {
   return String(value ?? '').trim().slice(0, max);
+}
+
+function isWhatsAppGoal(value) {
+  return /whatsapp|whats\s*app|\bwp\b/i.test(String(value || ''));
+}
+
+function whatsappCta(value) {
+  var text = clean(value, 300);
+  if (!text || !/whatsapp|whats\s*app|\bwp\b/i.test(text) || /\bdm\b|\binstagram\b|direct/i.test(text)) {
+    return 'WhatsApp üzerinden bize yazın.';
+  }
+  return text;
+}
+
+function adTargetingPrompt(value) {
+  return clean(value, 600);
 }
 
 function safeHashtags(value) {
@@ -79,11 +120,13 @@ function safeHashtags(value) {
 function localPack(input={}) {
   var title = clean(input.title, 180) || 'Ürün';
   var context = clean(input.context, 900);
+  var whatsappGoal = isWhatsAppGoal(input.goal);
   var mediaType = String(input.mediaType || 'AUTO').toUpperCase();
   var format = ['REELS', 'VIDEO'].includes(mediaType) ? 'REELS' : 'POST';
   return {
     source: 'LOCAL_FALLBACK',
-    model: null,
+    providerModel: null,
+    modelUsed: null,
     productName: title,
     brand: '',
     model: '',
@@ -92,18 +135,19 @@ function localPack(input={}) {
     selectedTone: 'samimi ve güven veren',
     contentAngle: 'Görseldeki gerçek ve doğrulanabilir avantajı öne çıkar.',
     hook: title + ': detayları yakala.',
-    caption: title + ' için net ve doğal bir içerik.' + (context ? ' ' + context : '') + ' Detaylı bilgi için mesaj gönderebilirsin.',
-    cta: 'Detaylı bilgi için mesaj gönder.',
+    caption: title + ' için net ve doğal bir içerik.' + (context ? ' ' + context : '') + (whatsappGoal ? ' Detaylı bilgi için WhatsApp üzerinden bize ulaşabilirsin.' : ' Detaylı bilgi için mesaj gönderebilirsin.'),
+    cta: whatsappGoal ? 'WhatsApp üzerinden bize yazın.' : 'Detaylı bilgi için mesaj gönder.',
+    contactChannel: whatsappGoal ? 'WHATSAPP' : '',
     hashtags: ['#AdViseAI', '#instagram', '#sosyalmedya', '#reklam'],
     recommendedFormat: format,
     recommendedPostTime: '19:00',
     recommendedPostTimeReason: 'AI yanıtı alınamadığı için genel bir öneri kullanıldı.',
-    contentGoal: 'mesaj',
+    contentGoal: whatsappGoal ? 'WhatsApp mesajı' : 'mesaj',
     targetAudience: 'Ürünle ilgilenebilecek potansiyel müşteriler.',
     visualSummary: 'AI analiz edilemedi.',
     creativeScore: 0,
-    adRecommendation: 'AI analizi olmadan reklam performansı hakkında kesin sonuç çıkarma.',
-    nextAction: 'İçeriği kontrol edip yeniden AI analizi çalıştır.',
+    adRecommendation: whatsappGoal ? 'Reklamdan gelen kişileri WhatsApp iletişimine yönlendir; performans ölçümü olmadan sonuç varsayma.' : 'AI analizi olmadan reklam performansı hakkında kesin sonuç çıkarma.',
+    nextAction: whatsappGoal ? 'WhatsApp iletişim bağlantının profilde güncel olduğunu kontrol et.' : 'İçeriği kontrol edip yeniden AI analizi çalıştır.',
     confidence: 0
   };
 }
@@ -112,24 +156,30 @@ function normalizePack(raw, input={}, model=MODEL) {
   var fallback = localPack(input);
   var pack = raw && typeof raw === 'object' ? raw : {};
   var format = String(pack.recommendedFormat || '').toUpperCase();
+  var whatsappGoal = isWhatsAppGoal(input.goal);
   return {
     source: 'GEMINI',
-    model: model,
+    providerModel: model,
+    modelUsed: model,
     productName: clean(pack.productName, 180) || fallback.productName,
     brand: clean(pack.brand, 100),
     model: clean(pack.model, 120),
+    industry: clean(pack.industry, 100),
+    productCategory: clean(pack.productCategory, 100),
+    contactChannel: whatsappGoal ? 'WHATSAPP' : clean(pack.contactChannel, 40),
+    mediaType: String(input.mediaType || 'AUTO').toUpperCase(),
     detectedText: clean(pack.detectedText, 900),
     detectedOffer: clean(pack.detectedOffer, 300),
     selectedTone: clean(pack.selectedTone, 120) || fallback.selectedTone,
     contentAngle: clean(pack.contentAngle, 300) || fallback.contentAngle,
     hook: clean(pack.hook, 300) || fallback.hook,
     caption: clean(pack.caption, 2200) || fallback.caption,
-    cta: clean(pack.cta, 300) || fallback.cta,
+    cta: whatsappGoal ? whatsappCta(pack.cta) : clean(pack.cta, 300) || fallback.cta,
     hashtags: safeHashtags(pack.hashtags).length ? safeHashtags(pack.hashtags) : fallback.hashtags,
     recommendedFormat: ['POST', 'REELS', 'CAROUSEL'].includes(format) ? format : fallback.recommendedFormat,
     recommendedPostTime: clean(pack.recommendedPostTime, 100) || fallback.recommendedPostTime,
     recommendedPostTimeReason: clean(pack.recommendedPostTimeReason, 500) || fallback.recommendedPostTimeReason,
-    contentGoal: clean(pack.contentGoal, 120) || fallback.contentGoal,
+    contentGoal: whatsappGoal ? 'WhatsApp mesajı' : clean(pack.contentGoal, 120) || fallback.contentGoal,
     targetAudience: clean(pack.targetAudience, 500) || fallback.targetAudience,
     visualSummary: clean(pack.visualSummary, 700) || fallback.visualSummary,
     creativeScore: Math.max(0, Math.min(100, Number(pack.creativeScore) || 0)),
@@ -211,17 +261,22 @@ async function imageUrlToInputPart(imageUrl) {
 
 function retryableError(error) {
   var message = String(error && error.message || error || '').toLowerCase();
+  if (/daily quota|per day|retry in \d+h|quota exceeded/.test(message)) return false;
+  if (String(error && error.code || '') === 'INVALID_JSON_OUTPUT') return true;
   var status = Number(error && (error.status || error.code || 0));
-  return status === 408 || status === 429 || status === 500 || status === 502 || status === 503 || status === 504 || /high demand|temporar|unavailable|overloaded|rate limit|quota|503|429/.test(message);
+  return status === 408 || status === 429 || status === 500 || status === 502 || status === 503 || status === 504 || /incomplete|high demand|temporar|unavailable|overloaded|rate limit|quota|503|429/.test(message);
 }
 
 async function callGemini(options) {
   var client = getGeminiClient();
-  var models = Array.from(new Set([MODEL, FALLBACK_MODEL].filter(Boolean)));
+  var models = Array.from(new Set([MODEL, FALLBACK_MODEL, RESCUE_MODEL].filter(Boolean)));
+  var configuredTimeout = Number(process.env.GEMINI_REQUEST_TIMEOUT_MS || 60000);
+  var timeoutMs = Number.isFinite(configuredTimeout) ? Math.max(15000, Math.min(90000, configuredTimeout)) : 60000;
   var lastError = null;
   for (var modelIndex = 0; modelIndex < models.length; modelIndex++) {
     var model = models[modelIndex];
-    for (var attempt = 1; attempt <= 3; attempt++) {
+    var maxAttempts = 3;
+    for (var attempt = 1; attempt <= maxAttempts; attempt++) {
       try {
         console.log('[AI GEMINI INTERACTIONS REQUEST]', {
           model: model,
@@ -229,7 +284,7 @@ async function callGemini(options) {
           hasMedia: (options.mediaParts || []).length > 0
         });
 
-        var requestPromise = client.interactions.create({
+        var interaction = await client.interactions.create({
           model: model,
           input: (options.mediaParts || []).filter(Boolean).concat([{type: 'text', text: options.prompt}]),
           system_instruction: options.systemInstruction || undefined,
@@ -238,26 +293,28 @@ async function callGemini(options) {
             mime_type: 'application/json',
             schema: options.schema || OUTPUT_SCHEMA
           },
-          generation_config: {max_output_tokens: options.maxOutputTokens || 1500},
+          generation_config: {max_output_tokens: options.maxOutputTokens || 8192, thinking_level: 'low'},
           store: false
-        });
-
-        var interaction = await Promise.race([
-          requestPromise,
-          new Promise(function(_, reject) {
-            setTimeout(function() {
-              reject(new Error('Gemini isteği 60 saniyede cevap vermedi.'));
-            }, 60000);
-          })
-        ]);
+        }, {timeout: timeoutMs, maxRetries: 0});
+        var status = String(interaction && interaction.status || '').toLowerCase();
         var outputText = String(interaction && interaction.output_text || '').trim();
-        console.log('[AI GEMINI INTERACTIONS RESPONSE]', {model: model, attempt: attempt, status: interaction && interaction.status || '-', hasOutput: Boolean(outputText)});
+        console.log('[AI GEMINI INTERACTIONS RESPONSE]', {model: model, attempt: attempt, status: status || '-', hasOutput: Boolean(outputText)});
+        if (status !== 'completed') {
+          var stateError = new Error('Gemini yanıtı tamamlanmadı. status=' + (status || 'bilinmiyor'));
+          stateError.code = status === 'incomplete' ? 'INCOMPLETE' : 'INTERACTION_NOT_COMPLETED';
+          throw stateError;
+        }
         if (!outputText) throw new Error('Gemini boş cevap döndürdü. status=' + String(interaction && interaction.status || '-'));
-        return {parsed: JSON.parse(outputText), model: model};
+        try {
+          return {parsed: JSON.parse(outputText), model: model};
+        } catch (parseError) {
+          parseError.code = 'INVALID_JSON_OUTPUT';
+          throw parseError;
+        }
       } catch (error) {
         lastError = error;
         console.error('[AI GEMINI INTERACTIONS ERROR]', {model: model, attempt: attempt, error: String(error && error.message || error)});
-        if (!retryableError(error) || attempt === 3) break;
+        if (!retryableError(error) || attempt === maxAttempts) break;
         var waitMs = 1000 * Math.pow(2, attempt - 1);
         await new Promise(function(resolve) { setTimeout(resolve, waitMs); });
       }
@@ -274,7 +331,8 @@ export async function generateContentPack(input={}) {
     title: clean(input.title, 180),
     context: clean(input.context, 1200),
     tone: clean(input.tone, 100) || 'AI seçsin',
-    goal: clean(input.goal, 100) || 'AI seçsin',
+    goal: isWhatsAppGoal(input.goal) ? clean(input.goal, 100) : 'WhatsApp mesajı',
+    adTargeting: adTargetingPrompt(input.adTargeting),
     language: clean(input.language, 30) || 'Türkçe',
     mediaType: String(input.mediaType || 'AUTO').toUpperCase(),
     imageUrl: clean(input.imageUrl, 1800),
@@ -288,7 +346,7 @@ export async function generateContentPack(input={}) {
   };
   if (!String(process.env.GEMINI_API_KEY || '').trim()) return localPack(safe);
 
-  var memoryContext = safe.tenantId ? await buildMemoryContext(safe.tenantId) : 'ADVISE AI HAFIZA SARAYI: tenant hafızası bağlı değil.';
+  var memoryContext = safe.tenantId ? await buildMemoryContext(safe.tenantId, safe) : 'ADVISE AI HAFIZA SARAYI: tenant hafızası bağlı değil.';
 
   var prompt = [
     'AdVise AI için sosyal medya içerik paketi oluştur.',
@@ -296,10 +354,20 @@ export async function generateContentPack(input={}) {
     'Görsel/video üzerinde görülen gerçek bilgileri temel al.',
     'Görselde veya kullanıcı notunda olmayan fiyat, kampanya, garanti, stok, teknik özellik veya sonuç uydurma.',
     'Marka/model/yazılar görünüyorsa mümkün olduğunca doğru çıkar.',
+    'Ürünün sektörünü ve ürün kategorisini tanımla; emin değilsen tahminini kısa ve temkinli yaz.',
     'Ton, format, amaç ve içerik açısını AI kendi seçsin.',
     'Hook kısa ve güçlü; caption doğal Türkçe; CTA tek ve net; hashtag 4-8 adet olsun.',
     'recommendedPostTime Türkiye saatiyle HH:MM olsun.',
     'Geçmiş performans verisi yoksa bunu açıkça belirt; başarı garantisi verme.',
+    ...(isWhatsAppGoal(safe.goal) ? [
+      'İLETİŞİM KANALI WHATSAPP: İşletme müşteri dönüşlerini WhatsApp üzerinden alıyor.',
+      'Caption ve CTA içinde Instagram DM, doğrudan mesaj veya yorum yoluyla iletişim isteme; tüm iletişim çağrıları WhatsApp yönlendirmeli olsun.',
+      'CTA açıkça WhatsApp üzerinden yazmaya çağırmalı. Kullanıcı vermediyse telefon numarası veya wa.me bağlantısı uydurma.'
+    ] : []),
+    ...(safe.adTargeting ? [
+      'REKLAM HEDEFLEME TERCİHİ: ' + safe.adTargeting,
+      'Bu hedeflemeyi adRecommendation alanında uygula; caption içine şehir adlarını ancak kullanıcı notu veya görsel bunu gerektiriyorsa yaz.'
+    ] : []),
     'Kullanıcı notu: ' + (safe.context || '-'),
     'Ürün başlığı/dosya adı: ' + (safe.title || '-'),
     'Medya tipi: ' + safe.mediaType,
@@ -327,11 +395,12 @@ export async function generateContentPack(input={}) {
         'Fotoğraf ve videoyu gerçek bir kreatif yönetmen gibi incele.',
         'Klişe ve robotik reklam dili kullanma.',
         'Kanıtlanamayan bilgileri kesin gerçek gibi yazma.',
-        'Çıktı tamamen Türkçe ve uygulanabilir olsun.'
+        'Çıktı tamamen Türkçe ve uygulanabilir olsun.',
+        ...(isWhatsAppGoal(safe.goal) ? ['Dönüş hedefi yalnızca WhatsApp mesajıdır; Instagram DM önerme ve WhatsApp numarası/linki uydurma.'] : [])
       ].join('\n'),
       mediaParts: mediaParts,
       schema: OUTPUT_SCHEMA,
-      maxOutputTokens: 1500
+      maxOutputTokens: 8192
     });
     return normalizePack(result.parsed, safe, result.model);
   } catch (error) {
@@ -345,7 +414,7 @@ export async function generateCaption(input={}) {
 }
 
 export async function generateCaptionVariants(input={}) {
-  var safe = {title: clean(input.title, 180) || 'Ürün', context: clean(input.context, 900), tone: clean(input.tone, 80) || 'samimi ve güven veren', goal: clean(input.goal, 80) || 'mesaj'};
+  var safe = {title: clean(input.title, 180) || 'Ürün', context: clean(input.context, 900), tone: clean(input.tone, 80) || 'samimi ve güven veren', goal: isWhatsAppGoal(input.goal) ? clean(input.goal, 80) : 'WhatsApp mesajı'};
   if (!String(process.env.GEMINI_API_KEY || '').trim()) {
     var base = localPack(safe);
     return {source: 'LOCAL_FALLBACK', model: null, variants: [
@@ -356,13 +425,15 @@ export async function generateCaptionVariants(input={}) {
   }
   try {
     var result = await callGemini({
-      prompt: ['Aynı Instagram içeriğinin 3 farklı caption varyasyonunu üret.', 'Türkçe yaz.', 'Uydurma özellik veya fiyat ekleme.', 'Ürün: ' + safe.title, 'Bilgi: ' + (safe.context || '-'), 'Ton: ' + safe.tone, 'Amaç: ' + safe.goal].join('\n'),
+      prompt: ['Aynı Instagram içeriğinin 3 farklı caption varyasyonunu üret.', 'Türkçe yaz.', 'Uydurma özellik veya fiyat ekleme.', ...(isWhatsAppGoal(safe.goal) ? ['İşletme yalnızca WhatsApp üzerinden dönüş alıyor. CTA ve caption içinde Instagram DM/yorum isteme; WhatsApp üzerinden iletişim iste. Numara veya wa.me linki uydurma.'] : []), 'Ürün: ' + safe.title, 'Bilgi: ' + (safe.context || '-'), 'Ton: ' + safe.tone, 'Amaç: ' + safe.goal].join('\n'),
       systemInstruction: 'AdVise AI için kısa, doğal ve farklılaştırılmış Instagram metinleri üret.',
       mediaParts: [],
       schema: VARIANTS_SCHEMA,
-      maxOutputTokens: 1000
+      maxOutputTokens: 2048
     });
-    return {source: 'GEMINI', model: result.model, variants: Array.isArray(result.parsed.variants) ? result.parsed.variants.slice(0, 3) : []};
+    var variants = Array.isArray(result.parsed.variants) ? result.parsed.variants.slice(0, 3) : [];
+    if (isWhatsAppGoal(safe.goal)) variants = variants.map(function(item) { return {...item, cta: whatsappCta(item && item.cta)}; });
+    return {source: 'GEMINI', model: result.model, variants: variants};
   } catch (error) {
     var fallback = localPack(safe);
     return {source: 'LOCAL_FALLBACK_AFTER_AI_ERROR', model: null, error: clean(error && error.message || 'Gemini varyasyon çağrısı başarısız.', 500), variants: [
@@ -389,6 +460,66 @@ export async function scoreCreative(input={}) {
   scores.overall = Math.round(Object.values(scores).reduce(function(a, b) { return a + b; }, 0) / Object.keys(scores).length);
   scores.signal = scores.overall >= 80 ? 'Güçlü hazırlık sinyali' : scores.overall >= 60 ? 'Orta hazırlık sinyali' : 'İyileştirme gerekli';
   return {source: 'HEURISTIC', scores: scores, generatedAt: new Date().toISOString()};
+}
+
+export async function analyzeAdPerformance(input={}) {
+  var adSets = (Array.isArray(input.adSets) ? input.adSets : []).slice(0, 50).map(function(row) {
+    return {
+      adSetId: clean(row.adSetId, 100),
+      name: clean(row.name, 120),
+      status: clean(row.status, 30),
+      dailyBudget: Math.max(0, Number(row.dailyBudget) || 0),
+      spend7d: Math.max(0, Number(row.spend7d) || 0),
+      impressions7d: Math.max(0, Number(row.impressions7d) || 0),
+      clicks7d: Math.max(0, Number(row.clicks7d) || 0),
+      ctr7d: Math.max(0, Number(row.ctr7d) || 0),
+      messages7d: Math.max(0, Number(row.messages7d) || 0),
+      messageCost7d: row.messageCost7d == null ? null : Math.max(0, Number(row.messageCost7d) || 0),
+      audienceMode: clean(row.audienceMode, 20),
+      usesSavedAudience: Boolean(row.usesSavedAudience)
+    };
+  });
+  if (!String(process.env.GEMINI_API_KEY || '').trim()) {
+    return {source:'LOCAL_FALLBACK', model:null, error:'Gemini API anahtarı yapılandırılmamış.', summary:'Reklamlar için Gemini analizi yapılamadı.', decisions:[]};
+  }
+  try {
+    var result = await callGemini({
+      prompt: [
+        'Meta reklam ad set performansını incele ve her ad set için tek bir uygulanabilir karar üret.',
+        'Harcanan bütçe ve metrikler son 7 günlük gerçekleşen değerlerdir; gelecek sonucu garanti etme.',
+        'Yetersiz veri varsa KEEP seç. Mesaj maliyetini, harcamayı, CTR ve mesaj sayısını birlikte değerlendir.',
+        'Bütçe artırımı sadece hesabın toplam günlük limitini ve ad set günlük üst sınırını aşmamalı; sistem bu sınırları ayrıca zorunlu uygular.',
+        'Manuel durdurulmuş bir reklamı ACTIVE önermeden önce dikkatli ol; auto yönetici bu öneriyi kullanıcı onayı olmadan uygulamaz.',
+        'Hedefleme değişikliği için yalnızca işletme tarafından önceden kaydedilmiş hedef kitleyi öner: ' + clean(input.savedAudience, 400),
+        'Bölge veya şehir kırılımında performans verisi verilmediyse şehirlerin performansını tahmin etme. APPLY_SAVED_AUDIENCE kararını ancak ad set mevcut tercihten farklıysa ver.',
+        'İşletmenin reklam mesaj hedefi WhatsApp. Karar metninde farklı bir iletişim kanalı önerme.',
+        'Sınırlar: minimum ad set günlük bütçe ' + (Number(input.minDailyBudget)||0) + ' TL; maksimum ad set günlük bütçe ' + (Number(input.maxDailyBudget)||0) + ' TL; tüm hesap günlük bütçe üst sınırı ' + (Number(input.dailyBudgetCap)||0) + ' TL.',
+        'Rapor verisi:\n' + JSON.stringify(adSets)
+      ].join('\n'),
+      systemInstruction: 'Sen AdVise AI reklam optimizasyon analistisin. Yalnızca verilen performans verisine ve sınırlarına göre ölçülü, açıklanabilir kararlar ver. Meta hesabında hiçbir işlemi doğrudan yapma; uygulama kararlarını ayrıca doğrular.',
+      mediaParts: [],
+      schema: AD_DECISIONS_SCHEMA,
+      maxOutputTokens: 4096
+    });
+    var allowed = new Set(['KEEP', 'PAUSE', 'ACTIVATE', 'INCREASE_BUDGET', 'DECREASE_BUDGET', 'APPLY_SAVED_AUDIENCE']);
+    var decisions = Array.isArray(result.parsed?.decisions) ? result.parsed.decisions : [];
+    return {
+      source:'GEMINI',
+      model:result.model,
+      summary:clean(result.parsed?.summary, 700),
+      decisions:decisions.slice(0,50).map(function(item) {
+        return {
+          adSetId:clean(item?.adSetId, 100),
+          action:allowed.has(String(item?.action||'').toUpperCase()) ? String(item.action).toUpperCase() : 'KEEP',
+          reason:clean(item?.reason, 500),
+          confidence:Math.max(0,Math.min(100,Number(item?.confidence)||0))
+        };
+      })
+    };
+  } catch (error) {
+    console.error('[AI GEMINI ADS ERROR]', error && error.message || error);
+    return {source:'LOCAL_FALLBACK_AFTER_AI_ERROR', model:null, error:clean(error && error.message || 'Gemini analizi başarısız.', 800), summary:'Gemini şu anda reklam verisini değerlendiremedi; Meta üzerinde işlem yapılmadı.', decisions:[]};
+  }
 }
 
 export function aiStatus() {

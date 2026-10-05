@@ -1,21 +1,26 @@
 import {config} from './config.js';
+import {normalizeLocationName, provinceNamesForTargeting} from './ad-targeting.js';
 
 const base=`https://graph.facebook.com/${config.metaApiVersion}`;
 
-function resolveCredentials(credentials={}) {
+export function resolveCredentials(credentials=null) {
+  const system = credentials == null || credentials.systemAccount === true;
+  const fallback = system ? config : {};
   return {
-    accessToken: String(credentials?.accessToken || credentials?.metaAccessToken || config.metaAccessToken || '').trim(),
-    adAccountId: String(credentials?.adAccountId || config.adAccountId || '').replace(/^act_/, '').trim(),
-    instagramUserId: String(credentials?.instagramUserId || config.instagramUserId || '').trim(),
+    systemAccount:system,
+    accessToken: String(credentials?.accessToken || credentials?.metaAccessToken || fallback.metaAccessToken || '').trim(),
+    adAccountId: String(credentials?.adAccountId || fallback.adAccountId || '').replace(/^act_/, '').trim(),
+    instagramUserId: String(credentials?.instagramUserId || fallback.instagramUserId || '').trim(),
     metaInstagramUserId: String(
       credentials?.metaInstagramUserId ||
       credentials?.instagramBusinessAccountId ||
-      config.metaInstagramUserId ||
+      fallback.metaInstagramUserId ||
       ''
     ).trim(),
-    pageId: String(credentials?.pageId || config.metaPageId || '').trim(),
-    instagramAccessToken: String(credentials?.instagramAccessToken || config.instagramAccessToken || '').trim(),
-    instagramUsername: String(credentials?.instagramUsername || config.instagramUsername || '').trim()
+    pageId: String(credentials?.pageId || fallback.metaPageId || '').trim(),
+    instagramAccessToken: String(credentials?.instagramAccessToken || fallback.instagramAccessToken || '').trim(),
+    instagramUsername: String(credentials?.instagramUsername || fallback.instagramUsername || '').trim(),
+    instagramApi: credentials?.instagramApi || 'INSTAGRAM'
   };
 }
 
@@ -59,6 +64,7 @@ async function request(path,{method='GET',query={},body={},credentials={},timeou
       ].filter(Boolean).join(' | ');
       throw new Error(`Meta API ${r.status}: ${detail||JSON.stringify(data)}`);
     }
+    if(data.paging)data.paging={cursors:data.paging.cursors||{},hasNext:Boolean(data.paging.next)};
     return data;
   } catch(e) {
     if(e.name==='AbortError') throw new Error('Meta API timeout.');
@@ -66,19 +72,56 @@ async function request(path,{method='GET',query={},body={},credentials={},timeou
   } finally { clearTimeout(timeout); }
 }
 
+async function collection(path,credentials,fields,limit) {
+  const rows=[];let after;
+  for(let page=0;page<20;page++) {
+    const result=await request(path,{credentials,query:{fields,limit,after}});
+    rows.push(...(result.data||[]));
+    if(!result.paging?.hasNext)return {data:rows};
+    const cursor=result.paging?.cursors?.after;
+    if(!cursor||cursor===after)throw new Error('Meta kayıtlarının tamamı doğrulanamadı. Yeniden deneyin.');
+    after=cursor;
+  }
+  throw new Error('Hesap kayıtları güvenli sorgu sınırını aşıyor. Destek ekibine başvurun.');
+}
+
 export async function getCampaigns(credentials={}) {
   const c=requireMeta(credentials);
-  return request(`act_${c.adAccountId}/campaigns`,{credentials:c,query:{fields:'id,name,status,effective_status,objective,daily_budget,lifetime_budget,start_time,stop_time',limit:200}});
+  return collection(`act_${c.adAccountId}/campaigns`,c,'id,name,status,effective_status,objective,daily_budget,lifetime_budget,start_time,stop_time',200);
 }
 
 export async function getAdSets(credentials={}) {
   const c=requireMeta(credentials);
-  return request(`act_${c.adAccountId}/adsets`,{credentials:c,query:{fields:'id,name,status,effective_status,campaign_id,daily_budget,lifetime_budget,optimization_goal,billing_event,targeting,start_time,end_time',limit:500}});
+  return collection(`act_${c.adAccountId}/adsets`,c,'id,name,status,effective_status,campaign_id,daily_budget,lifetime_budget,optimization_goal,billing_event,targeting,start_time,end_time',500);
 }
 
 export async function getAds(credentials={}) {
   const c=requireMeta(credentials);
-  return request(`act_${c.adAccountId}/ads`,{credentials:c,query:{fields:'id,name,status,effective_status,campaign_id,adset_id,created_time,creative{id,name,object_story_id,thumbnail_url,effective_instagram_media_id,source_instagram_media_id}',limit:500}});
+  return collection(`act_${c.adAccountId}/ads`,c,'id,name,status,effective_status,campaign_id,adset_id,created_time,creative{id,name,object_story_id,thumbnail_url,effective_instagram_media_id,source_instagram_media_id}',500);
+}
+
+export async function assertMetaOwnership(id,credentials={}) {
+  const c=requireMeta(credentials);
+  const clean=String(id||'').trim();
+  if (!/^(act_)?\d+$/.test(clean)) throw new Error('Geçerli bir Meta hesap veya reklam kimliği gerekli.');
+  if (clean===`act_${c.adAccountId}`) return {id:clean,account_id:c.adAccountId};
+  const object=await request(clean,{credentials:c,query:{fields:'id,account_id'}});
+  if (String(object.account_id||'').replace(/^act_/,'')!==c.adAccountId) {
+    throw new Error('Bu reklam seçili reklam hesabına ait değil.');
+  }
+  return object;
+}
+
+export async function getMetaAccount(credentials={}) {
+  const c=requireMeta(credentials);
+  return request(`act_${c.adAccountId}`,{credentials:c,query:{fields:'id,account_id,name,currency,account_status'}});
+}
+
+export async function accountInsights(credentials={}, {since,until,timeIncrement,level='account'}={}) {
+  const c=requireMeta(credentials);
+  const query={fields:'date_start,date_stop,campaign_id,campaign_name,spend,impressions,reach,clicks,ctr,cpc,cpm,actions,purchase_roas',time_range:JSON.stringify({since,until}),level,limit:500};
+  if (timeIncrement) query.time_increment=timeIncrement;
+  return request(`act_${c.adAccountId}/insights`,{credentials:c,query});
 }
 
 export async function insights(id,level='ad',days=7,credentials={}) {
@@ -88,19 +131,34 @@ export async function insights(id,level='ad',days=7,credentials={}) {
 }
 
 export async function insightsRange(id,level='ad',since,until=new Date(),credentials={}) {
+  await assertMetaOwnership(id,credentials);
   const f=d=>d.toISOString().slice(0,10);
   return request(`${id}/insights`,{credentials,query:{fields:'spend,impressions,reach,clicks,ctr,cpc,cpm,actions,cost_per_action_type,purchase_roas',time_range:JSON.stringify({since:f(since),until:f(until)}),level}});
 }
 
 export async function setStatus(id,status,credentials={}) {
   if(!['ACTIVE','PAUSED'].includes(status)) throw new Error('Status ACTIVE/PAUSED olmalı.');
+  await assertMetaOwnership(id,credentials);
   return request(id,{method:'POST',credentials,body:{status}});
 }
 
 export async function updateAdSetBudget(id,dailyBudget,credentials={}) {
   const n=Math.round(Number(dailyBudget) * 100);
   if(!Number.isFinite(n)||n<=0) throw new Error('Geçersiz daily budget.');
+  await assertMetaOwnership(id,credentials);
   return request(id,{method:'POST',credentials,body:{daily_budget:n}});
+}
+
+export async function updateAdSetTargeting(id,targeting,credentials={}) {
+  await assertMetaOwnership(id,credentials);
+  const value = targeting && typeof targeting === 'object' ? targeting : {};
+  const geo = value.geo_locations;
+  if (!geo || typeof geo !== 'object' || !(
+    (Array.isArray(geo.countries) && geo.countries.length) ||
+    (Array.isArray(geo.cities) && geo.cities.length) ||
+    (Array.isArray(geo.regions) && geo.regions.length)
+  )) throw new Error('Geçerli ve açıkça seçilmiş bir coğrafi hedef kitle gerekli.');
+  return request(id,{method:'POST',credentials,body:{targeting:value}});
 }
 
 export async function createCampaign({name,objective='OUTCOME_ENGAGEMENT',status='PAUSED',credentials={}}) {
@@ -116,6 +174,60 @@ export async function createAdSet({name,campaignId,dailyBudget,targeting,optimiz
   const body={name,campaign_id:campaignId,daily_budget:amountMinor,billing_event:billingEvent,optimization_goal:optimizationGoal,destination_type:destinationType,bid_strategy:'LOWEST_COST_WITHOUT_CAP',targeting:targeting||{geo_locations:{countries:['TR']}},status:'PAUSED'};
   if(pageId||c.pageId) body.promoted_object={page_id:pageId||c.pageId};
   return request(`act_${c.adAccountId}/adsets`,{method:'POST',credentials:c,body,timeoutMs:15000});
+}
+
+const adLocationKeyCache = new Map();
+
+export async function resolveAdGeoTargeting(mode='COUNTRY', locations=[], credentials={}) {
+  if (mode === 'COUNTRY') return {geo_locations:{countries:['TR']}, locationMode:'COUNTRY', locations:['Türkiye']};
+  const cityNames = provinceNamesForTargeting(mode, locations);
+  const c = requireMeta(credentials);
+  const missing = [];
+  const resolveCity = async name => {
+    const cacheKey = normalizeLocationName(name);
+    if (adLocationKeyCache.has(cacheKey)) return adLocationKeyCache.get(cacheKey);
+    try {
+      const result = await request('search', {
+        credentials: c,
+        query: {
+          type: 'adgeolocation',
+          location_types: JSON.stringify(['city']),
+          country_code: 'TR',
+          q: name,
+          limit: 20
+        }
+      });
+      const rows = Array.isArray(result?.data) ? result.data : [];
+      const exact = rows.find(row =>
+        String(row?.country_code || '').toUpperCase() === 'TR' &&
+        String(row?.type || '').toLowerCase() === 'city' &&
+        normalizeLocationName(row?.name) === cacheKey &&
+        String(row?.key || row?.id || '').trim()
+      );
+      const key = String(exact?.key || exact?.id || '').trim();
+      if (!key) {
+        missing.push(name);
+        return null;
+      }
+      adLocationKeyCache.set(cacheKey, key);
+      return key;
+    } catch (error) {
+      missing.push(name);
+      throw error;
+    }
+  };
+  const cities = [];
+  for (let index = 0; index < cityNames.length; index += 6) {
+    cities.push(...await Promise.all(cityNames.slice(index, index + 6).map(resolveCity)));
+  }
+  if (missing.length || cities.some(x => !x)) {
+    throw new Error(`Meta hedefleme konumu çözümlenemedi: ${[...new Set(missing)].join(', ')}. Hiçbir reklam oluşturulmadı.`);
+  }
+  return {
+    geo_locations:{cities:cities.map(key => ({key}))},
+    locationMode:mode,
+    locations:cityNames
+  };
 }
 
 export async function uploadAdImage(fileBuffer,fileName,credentials={}) {
@@ -148,11 +260,11 @@ export async function createAd({name,adsetId,creativeId,status='PAUSED',credenti
 
 const igBase='https://graph.instagram.com';
 
-async function instagramRequest(path,{method='GET',body={},accessToken}={}) {
+async function instagramRequest(path,{method='GET',body={},accessToken,api='INSTAGRAM'}={}) {
   if(!accessToken) throw new Error('Instagram access token bulunamadı.');
-  const url=new URL(`${igBase}/${String(path).replace(/^\/+/,'')}`);
+  const url=new URL(`${api==='FACEBOOK'?base:igBase}/${String(path).replace(/^\/+/,'')}`);
   const params=new URLSearchParams();
-  if(method==='GET') params.set('access_token',accessToken);
+  params.set('access_token',accessToken);
   for(const [k,v] of Object.entries(body||{})) if(v!==undefined&&v!==null) params.set(k,typeof v==='object'?JSON.stringify(v):String(v));
   if(method==='GET') url.search = params.toString();
   const controller=new AbortController();
@@ -168,10 +280,10 @@ async function instagramRequest(path,{method='GET',body={},accessToken}={}) {
   } finally { clearTimeout(timeout); }
 }
 
-async function waitForReel(containerId,accessToken) {
+async function waitForReel(containerId,accessToken,api) {
   const started=Date.now();
   while(Date.now()-started<120000) {
-    const state=await instagramRequest(containerId,{accessToken});
+    const state=await instagramRequest(containerId,{accessToken,api,body:{fields:'status_code,status'}});
     const code=String(state.status_code||state.status||'').toUpperCase();
     if(code==='FINISHED'||code==='PUBLISHED') return state;
     if(code==='ERROR'||code==='EXPIRED') throw new Error(`Instagram Reel hazırlama durumu: ${code}`);
@@ -186,6 +298,7 @@ export async function getInstagramMedia(credentials={}, limit=50) {
   const n=Math.max(1, Math.min(100, Number(limit)||50));
   return instagramRequest(`${c.instagramUserId}/media`, {
     accessToken:c.instagramAccessToken,
+    api:c.instagramApi,
     body:{
       fields:'id,caption,media_type,media_url,thumbnail_url,permalink,timestamp,username',
       limit:n
@@ -195,7 +308,7 @@ export async function getInstagramMedia(credentials={}, limit=50) {
 
 async function resolveMetaInstagramIdentity(c, explicitId='', explicitPageId='') {
   const direct=String(explicitId||c.instagramUserId||c.metaInstagramUserId||'').trim();
-  let pageId=String(explicitPageId||c.pageId||config.metaPageId||'').trim();
+  let pageId=String(explicitPageId||c.pageId||'').trim();
 
   // The connected Instagram account ID comes from the Instagram media connection.
   // Prefer it directly; if the page is missing, resolve a Facebook Page that exposes
@@ -242,45 +355,53 @@ export async function createAdCreativeFromInstagramMedia({name,instagramMediaId,
   return request(`act_${c.adAccountId}/adcreatives`,{method:'POST',credentials:c,body,timeoutMs:15000});
 }
 
-export async function instagramPublishMedia({mediaType='IMAGE',imageUrl,videoUrl,caption,carouselUrls=[],coverUrl='',thumbOffset,credentials={}}) {
+export async function instagramPublishMedia({mediaType='IMAGE',imageUrl,videoUrl,caption,carouselUrls=[],coverUrl='',thumbOffset,credentials={},containerId='',onContainer=async()=>{},onBeforePublish=async()=>{}}) {
   const c=resolveCredentials(credentials);
   if(!c.instagramUserId||!c.instagramAccessToken) throw new Error('Instagram bağlantısı için kullanıcı ID ve Instagram erişim tokenı gerekli.');
   const type=String(mediaType||'IMAGE').toUpperCase();
   const body={caption:caption||''};
-  let container;
-  if(type==='CAROUSEL') {
+  let container=containerId?{id:containerId}:null;
+  if(!container && type==='CAROUSEL') {
     const urls=[...(Array.isArray(carouselUrls)?carouselUrls:[])].filter(x=>/^https:\/\//i.test(String(x||''))).slice(0,10);
     if(urls.length<2) throw new Error('Carousel için en az 2 HTTPS görsel URL gerekli.');
     const children=[];
     for(const urlValue of urls) {
-      const child=await instagramRequest(`${c.instagramUserId}/media`,{method:'POST',accessToken:c.instagramAccessToken,body:{image_url:urlValue,is_carousel_item:'true'}});
+      const child=await instagramRequest(`${c.instagramUserId}/media`,{method:'POST',accessToken:c.instagramAccessToken,api:c.instagramApi,body:{image_url:urlValue,is_carousel_item:'true'}});
       if(!child.id) throw new Error('Carousel alt içerik container ID alınamadı.');
       children.push(child.id);
     }
-    container=await instagramRequest(`${c.instagramUserId}/media`,{method:'POST',accessToken:c.instagramAccessToken,body:{...body,media_type:'CAROUSEL',children}});
-  } else if(type==='REELS'||type==='VIDEO') {
+    container=await instagramRequest(`${c.instagramUserId}/media`,{method:'POST',accessToken:c.instagramAccessToken,api:c.instagramApi,body:{...body,media_type:'CAROUSEL',children}});
+  } else if(!container && (type==='REELS'||type==='VIDEO')) {
     if(!/^https:\/\//i.test(String(videoUrl||''))) throw new Error('Reel için HTTPS video URL gerekli.');
     const reelBody={...body,media_type:'REELS',video_url:videoUrl};
     const safeCover=String(coverUrl||'').trim();
     const offset=Number(thumbOffset);
     if(/^https:\/\//i.test(safeCover)) reelBody.cover_url=safeCover;
     else if(Number.isFinite(offset)&&offset>=0) reelBody.thumb_offset=Math.round(offset);
-    container=await instagramRequest(`${c.instagramUserId}/media`,{method:'POST',accessToken:c.instagramAccessToken,body:reelBody});
-    if(!container.id) return container;
-    await waitForReel(container.id,c.instagramAccessToken);
-  } else {
+    container=await instagramRequest(`${c.instagramUserId}/media`,{method:'POST',accessToken:c.instagramAccessToken,api:c.instagramApi,body:reelBody});
+  } else if(!container) {
     if(!/^https:\/\//i.test(String(imageUrl||''))) throw new Error('Instagram görsel paylaşımı için HTTPS görsel URL gerekli.');
-    container=await instagramRequest(`${c.instagramUserId}/media`,{method:'POST',accessToken:c.instagramAccessToken,body:{...body,image_url:imageUrl}});
+    container=await instagramRequest(`${c.instagramUserId}/media`,{method:'POST',accessToken:c.instagramAccessToken,api:c.instagramApi,body:{...body,image_url:imageUrl}});
   }
-  if(!container?.id) return container||{};
-  return instagramRequest(`${c.instagramUserId}/media_publish`,{method:'POST',accessToken:c.instagramAccessToken,body:{creation_id:container.id}});
+  if(!container?.id) throw new Error('Instagram içerik hazırlama kimliği alınamadı.');
+  await onContainer(container.id);
+  await waitForReel(container.id,c.instagramAccessToken,c.instagramApi);
+  await onBeforePublish();
+  const published=await instagramRequest(`${c.instagramUserId}/media_publish`,{method:'POST',accessToken:c.instagramAccessToken,api:c.instagramApi,body:{creation_id:container.id}});
+  if (!published?.id) throw new Error('Instagram yayın sonucu doğrulanamadı.');
+  return published;
+}
+
+export async function getInstagramContainerStatus(containerId,credentials={}) {
+  const c=resolveCredentials(credentials);
+  return instagramRequest(containerId,{accessToken:c.instagramAccessToken,api:c.instagramApi,body:{fields:'status_code,status'}});
 }
 
 export async function instagramHealth(credentials={}) {
   const c=resolveCredentials(credentials);
   if(!c.instagramUserId || !c.instagramAccessToken) return {connected:false,reason:'Instagram token veya kullanıcı ID eksik.'};
   try {
-    const me=await instagramRequest('me',{accessToken:c.instagramAccessToken,body:{fields:'id,username'}});
+    const me=await instagramRequest(c.instagramApi==='FACEBOOK'?c.instagramUserId:'me',{accessToken:c.instagramAccessToken,api:c.instagramApi,body:{fields:'id,username'}});
     return {connected:true,id:String(me.id||c.instagramUserId),username:String(me.username||''),checkedAt:new Date().toISOString()};
   } catch(e) { return {connected:false,reason:e.message,checkedAt:new Date().toISOString()}; }
 }
