@@ -94,6 +94,25 @@ test('equivalent messaging action types are not double counted',()=>{
   const metrics=product.metricsFor({spend:20,actions:[{action_type:'onsite_conversion.messaging_conversation_started_7d',value:4},{action_type:'messaging_conversation_started_7d',value:4}]});
   assert.equal(metrics.messages,4);assert.equal(metrics.cpa,5);
 });
+test('proactive recommendations rank real operational blockers before growth suggestions',()=>{
+  const rows=product.buildProductRecommendations({
+    metaConnected:false,
+    onboarding:{completed:false,step:2},
+    today:{available:true,metrics:{spend:100,messages:0,cpa:null,activeAds:0}},
+    posts:[{id:'p1',publishStatus:'ERROR'},{id:'p2',publishStatus:'PUBLISHED'}],
+    leads:[{id:'l1',status:'NEW'}],
+    memory:{outcomeCount:3,learningWins:1,bestHookTypes:[{value:'SORU'}],bestFormats:[{value:'REELS'}]},
+    settings:{earlyNoMessageSpendThreshold:75,earlyMessageCostLimit:2}
+  });
+  assert.deepEqual(rows.slice(0,4).map(row=>row.id),['connect-meta','complete-onboarding','repair-publishing','follow-up-leads']);
+  assert.ok(rows.every(row=>row.evidence&&typeof row.evidence==='object'));
+  assert.ok(rows.some(row=>row.action==='STUDIO')===false,'Top five should remain priority-limited when blockers exist');
+});
+test('proactive recommendations use measured memory when the queue is empty',()=>{
+  const rows=product.buildProductRecommendations({metaConnected:true,onboarding:{completed:true},today:{available:true,metrics:{spend:10,messages:5,cpa:2,activeAds:1}},posts:[],leads:[],memory:{outcomeCount:4,learningWins:2,bestHookTypes:[{value:'MERAK'}],bestFormats:[{value:'REELS'}]},settings:{earlyNoMessageSpendThreshold:75,earlyMessageCostLimit:8}});
+  const content=rows.find(row=>row.id==='prepare-next-content');assert.ok(content);assert.equal(content.action,'STUDIO');assert.match(content.body,/MERAK/);
+  assert.ok(rows.some(row=>row.id==='use-memory-winner'&&row.action==='MEMORY'));
+});
 test('disconnected tenant reporting has null metrics and no system calls',async()=>{
   reset();const report=await product.productReport('missing-tenant',{range:'today'});assert.equal(report.available,false);assert.equal(report.metrics.spend,null);assert.equal(state.calls.length,0);
 });
