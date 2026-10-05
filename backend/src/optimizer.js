@@ -3,12 +3,15 @@ import {getSettings,getPosts,getLogs,addLog,getTenant} from './store.js';
 import {config} from './config.js';
 import {earlyAdDecision} from './rules.js';
 import {learnFromOutcome} from './ai-memory.js';
+import {withTenantLock} from './persistence.js';
+import {tenantCredentials,metaReady,minorToMoney,budgetGuard} from './automation-safety.js';
 
 const n=v=>Number.isFinite(Number(v))?Number(v):0;
 function messageCount(row) {
-  let count=0;
-  for(const a of row?.actions||[]) if(config.messageActionTypes.includes(a.action_type)) count+=n(a.value);
-  return count;
+  const values=(row?.actions||[])
+    .filter(a=>config.messageActionTypes.includes(a.action_type))
+    .map(a=>Math.max(0,n(a.value)));
+  return values.length?Math.max(...values):0;
 }
 function metric(row) {
   const spend=n(row?.spend), messages=messageCount(row), ctr=n(row?.ctr);
@@ -21,15 +24,15 @@ function score(m,settings) {
   return costScore*settings.selection.messageCostWeight+ctrScore*settings.selection.ctrWeight+msgScore*settings.selection.messagesWeight+settings.selection.explorationWeight;
 }
 
-export async function optimizeAds(tenantId='system') {
+async function optimizeAdsLocked(tenantId='system') {
   const settings=await getSettings(tenantId);
   if(!settings.enabled) return {enabled:false,actions:[]};
   const tenant=await getTenant(tenantId);
-  const credentials=tenantId==='system'?{}:(tenant?.meta||{});
+  const credentials=tenantCredentials(tenantId,tenant);
 
   const metaToken=String(credentials?.accessToken || credentials?.metaAccessToken || config.metaAccessToken || '').trim();
   const adAccountId=String(credentials?.adAccountId || config.adAccountId || '').replace(/^act_/,'').trim();
-  if(!metaToken || !adAccountId) {
+  if(!metaReady(credentials)) {
     const posts=await getPosts(tenantId);
     return {
       enabled:true,
@@ -74,14 +77,21 @@ export async function optimizeAds(tenantId='system') {
       const row=(ir.data||[])[0];
       const m=metric(row);
       const decision=earlyAdDecision(m,settings);
+      if (decision.action==='WAIT') {
+        results.push({adId:ad.id,name:ad.name,action:'WAIT_MIN_SPEND',metrics:m,reason:decision.reason});
+        continue;
+      }
       if(decision.action==='REDUCE' && settings.autoPause !== false) {
         const set=setMap.get(ad.adset_id);
         let released=0;
         if(set) {
-          const current=n(set.daily_budget);
+          const current=minorToMoney(set.daily_budget);
           const keep=Math.min(current,Number(settings.minDailyBudget));
           released=Math.max(0,current-keep);
-          if(released>0) await updateAdSetBudget(set.id,keep,credentials);
+          if(released>0) {
+            await updateAdSetBudget(set.id,keep,credentials);
+            set.daily_budget=Math.round(keep*100);
+          }
         }
         await setStatus(ad.id,'PAUSED',credentials);
         results.push({adId:ad.id,name:ad.name,action:'PAUSED_12H',metrics:m,reason:decision.reason,releasedBudget:released});
@@ -101,11 +111,13 @@ export async function optimizeAds(tenantId='system') {
           if(best) {
             const bestSet=setMap.get(best.ad.adset_id);
             if(bestSet) {
-              const before=n(bestSet.daily_budget);
+              const before=minorToMoney(bestSet.daily_budget);
               const after=Math.min(Number(settings.maxDailyBudget),before+released);
               const actual=Math.max(0,after-before);
               if(actual>0) {
+                await budgetGuard(credentials,settings,{adSetId:bestSet.id,nextBudget:after});
                 await updateAdSetBudget(bestSet.id,after,credentials);
+                bestSet.daily_budget=Math.round(after*100);
                 results.push({adId:best.ad.id,name:best.ad.name,action:'BUDGET_TRANSFERRED',transferredBudget:actual,fromAdId:ad.id,newDailyBudget:after});
               }
             }
@@ -144,6 +156,8 @@ export async function optimizeAds(tenantId='system') {
   const result={enabled:true,ranAt:new Date().toISOString(),actions:results,postsConsidered:posts.length,rule:'12h_message_cost'};
   await addLog(tenantId,result); return result;
 }
+
+export async function optimizeAds(tenantId='system') { return withTenantLock(tenantId,()=>optimizeAdsLocked(tenantId)); }
 
 export function selectBestPost(posts,performanceByPost={}) {
   if(!posts.length) return null;

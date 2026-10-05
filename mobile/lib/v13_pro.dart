@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import 'api.dart';
+import 'app_error.dart';
 import 'v14_ai.dart';
 
 void _proHome(BuildContext context) => Navigator.of(context).popUntil((route) => route.isFirst);
@@ -133,10 +134,10 @@ class _ProStatusBar extends StatelessWidget {
 class _ProStatusItem extends StatelessWidget { final IconData icon; final String text; const _ProStatusItem({required this.icon,required this.text}); @override Widget build(BuildContext context)=>Row(mainAxisSize:MainAxisSize.min,children:[Icon(icon,size:17),const SizedBox(width:5),Text(text,style:const TextStyle(fontWeight:FontWeight.w700,fontSize:12))]); }
 
 class AiAdvisorPage extends StatefulWidget { const AiAdvisorPage({super.key}); @override State<AiAdvisorPage> createState()=>_AiAdvisorPageState(); }
-class _AiAdvisorPageState extends State<AiAdvisorPage>{Map<String,dynamic>? data;bool loading=true;@override void initState(){super.initState();_load();}Future<void> _load() async{try{final x=await Api.proAi();if(mounted)setState(()=>data=x);}catch(e){if(mounted)ScaffoldMessenger.of(context).showSnackBar(SnackBar(content:Text(e.toString())));}finally{if(mounted)setState(()=>loading=false);}}@override Widget build(BuildContext context){final d=data??{};final list=List<dynamic>.from(d['summary']??const[]);return _ProFrame(title:'Advise AI',loading:loading,onRefresh:_load,children:[_ProHero(title:'Bugünün reklam danışmanı',subtitle:'Kararları açıklar, önce neye bakman gerektiğini söyler.',badge:'AI ADVISOR',icon:Icons.auto_awesome),const SizedBox(height:14),_ProCard(child:Padding(padding:const EdgeInsets.all(16),child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[Row(children:[const Icon(Icons.insights_rounded),const SizedBox(width:8),const Text('Hesap sağlık skoru',style:TextStyle(fontWeight:FontWeight.w800)),const Spacer(),Text('${d['score']??'-'}/100',style:const TextStyle(fontSize:24,fontWeight:FontWeight.w900))]),const SizedBox(height:14),LinearProgressIndicator(value:((d['score']??0) as num).toDouble()/100,minHeight:9),const SizedBox(height:12),for(final x in list)_Bullet(text:x.toString())]))),const SizedBox(height:12),const _ProInfo(text:'Bu sürümde AI açıklamaları güvenli ve kural tabanlıdır; tek bir anomaliyi kesin sonuç gibi sunmaz.'),const SizedBox(height:14),const _ProPoweredBy()] );}}
+class _AiAdvisorPageState extends State<AiAdvisorPage>{Map<String,dynamic>? data;bool loading=true;@override void initState(){super.initState();_load();}Future<void> _load() async{try{final x=await Api.proAi();if(mounted)setState(()=>data=x);}catch(e){if(mounted)ScaffoldMessenger.of(context).showSnackBar(SnackBar(content:Text(AppError.message(e))));}finally{if(mounted)setState(()=>loading=false);}}@override Widget build(BuildContext context){final d=data??{};final list=List<dynamic>.from(d['summary']??const[]);return _ProFrame(title:'Advise AI',loading:loading,onRefresh:_load,children:[_ProHero(title:'Bugünün reklam danışmanı',subtitle:'Kararları açıklar, önce neye bakman gerektiğini söyler.',badge:'AI ADVISOR',icon:Icons.auto_awesome),const SizedBox(height:14),_ProCard(child:Padding(padding:const EdgeInsets.all(16),child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[Row(children:[const Icon(Icons.insights_rounded),const SizedBox(width:8),const Text('Hesap sağlık skoru',style:TextStyle(fontWeight:FontWeight.w800)),const Spacer(),Text('${d['score']??'-'}/100',style:const TextStyle(fontSize:24,fontWeight:FontWeight.w900))]),const SizedBox(height:14),LinearProgressIndicator(value:((d['score']??0) as num).toDouble()/100,minHeight:9),const SizedBox(height:12),for(final x in list)_Bullet(text:x.toString())]))),const SizedBox(height:12),const _ProInfo(text:'Bu sürümde AI açıklamaları güvenli ve kural tabanlıdır; tek bir anomaliyi kesin sonuç gibi sunmaz.'),const SizedBox(height:14),const _ProPoweredBy()] );}}
 
 class ProPerformancePage extends StatefulWidget { const ProPerformancePage({super.key}); @override State<ProPerformancePage> createState()=>_ProPerformancePageState(); }
-class _ProPerformancePageState extends State<ProPerformancePage>{Map<String,dynamic>? data;bool loading=true;@override void initState(){super.initState();_load();}Future<void> _load()async{try{final x=await Api.proPerformance();if(mounted)setState(()=>data=x);}catch(e){if(mounted)ScaffoldMessenger.of(context).showSnackBar(SnackBar(content:Text(e.toString())));}finally{if(mounted)setState(()=>loading=false);}}@override Widget build(BuildContext context){final d=data??{};return _ProFrame(title:'Performans',loading:loading,onRefresh:_load,children:[const _ProHero(title:'Reklam sağlığı',subtitle:'Kayıtlı operasyon verilerinin hızlı özeti.',badge:'PERFORMANCE',icon:Icons.insights_rounded),const SizedBox(height:14),GridView.count(crossAxisCount:2,shrinkWrap:true,physics:const NeverScrollableScrollPhysics(),crossAxisSpacing:10,mainAxisSpacing:10,childAspectRatio:1.4,children:[_Kpi('İçerik','${d['posts']??0}',Icons.photo_library_outlined),_Kpi('İşlem','${d['logCount']??0}',Icons.receipt_long_outlined),_Kpi('Durdurulan','${d['paused']??0}',Icons.pause_circle_outline),_Kpi('Bütçe değişimi','${d['budgetChanges']??0}',Icons.account_balance_wallet_outlined)]),const SizedBox(height:14),_ProInfo(text:'Gerçek Meta KPI kartları için hesap bağlandığında mevcut Insights akışı bu merkeze eklenebilir.'),const SizedBox(height:14),const _ProPoweredBy()] );}}
+class _ProPerformancePageState extends State<ProPerformancePage>{Map<String,dynamic>? data;bool loading=true;@override void initState(){super.initState();_load();}Future<void> _load()async{try{final x=await Api.proPerformance();if(mounted)setState(()=>data=x);}catch(e){if(mounted)ScaffoldMessenger.of(context).showSnackBar(SnackBar(content:Text(AppError.message(e))));}finally{if(mounted)setState(()=>loading=false);}}@override Widget build(BuildContext context){final d=data??{};return _ProFrame(title:'Performans',loading:loading,onRefresh:_load,children:[const _ProHero(title:'Reklam sağlığı',subtitle:'Kayıtlı operasyon verilerinin hızlı özeti.',badge:'PERFORMANCE',icon:Icons.insights_rounded),const SizedBox(height:14),GridView.count(crossAxisCount:2,shrinkWrap:true,physics:const NeverScrollableScrollPhysics(),crossAxisSpacing:10,mainAxisSpacing:10,childAspectRatio:1.4,children:[_Kpi('İçerik','${d['posts']??0}',Icons.photo_library_outlined),_Kpi('İşlem','${d['logCount']??0}',Icons.receipt_long_outlined),_Kpi('Durdurulan','${d['paused']??0}',Icons.pause_circle_outline),_Kpi('Bütçe değişimi','${d['budgetChanges']??0}',Icons.account_balance_wallet_outlined)]),const SizedBox(height:14),_ProInfo(text:'Gerçek Meta KPI kartları için hesap bağlandığında mevcut Insights akışı bu merkeze eklenebilir.'),const SizedBox(height:14),const _ProPoweredBy()] );}}
 class _Kpi extends StatelessWidget{final String title,value;final IconData icon;const _Kpi(this.title,this.value,this.icon);@override Widget build(BuildContext context)=>_ProCard(child:Padding(padding:const EdgeInsets.all(14),child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[Icon(icon,size:22,color:Theme.of(context).colorScheme.primary),const Spacer(),Text(value,style:const TextStyle(fontSize:26,fontWeight:FontWeight.w900)),Text(title,style:TextStyle(color:Colors.grey.shade700,fontWeight:FontWeight.w700))])));}
 
 class BudgetSimulatorPage extends StatefulWidget {
@@ -190,7 +191,7 @@ class _BudgetSimulatorPageState extends State<BudgetSimulatorPage> {
       );
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.toString())));
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(AppError.message(e))));
       }
     } finally {
       if (mounted) setState(() => loading = false);
@@ -367,7 +368,7 @@ class _LeadCrmPageState extends State<LeadCrmPage> {
       if (mounted) setState(() => leads = x);
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.toString())));
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(AppError.message(e))));
       }
     } finally {
       if (mounted) setState(() => loading = false);
@@ -427,7 +428,7 @@ class _LeadCrmPageState extends State<LeadCrmPage> {
                   if (ctx.mounted) Navigator.pop(ctx, true);
                 } catch (e) {
                   if (ctx.mounted) {
-                    ScaffoldMessenger.of(ctx).showSnackBar(SnackBar(content: Text(e.toString())));
+                    ScaffoldMessenger.of(ctx).showSnackBar(SnackBar(content: Text(AppError.message(e))));
                   }
                 }
               },
@@ -509,7 +510,7 @@ class _LeadCard extends StatelessWidget {
       await onRefresh();
     } catch (e) {
       if (context.mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.toString())));
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(AppError.message(e))));
       }
     }
   }
@@ -523,7 +524,7 @@ class _LeadCard extends StatelessWidget {
       await onRefresh();
     } catch (e) {
       if (context.mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.toString())));
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(AppError.message(e))));
       }
     }
   }
@@ -577,7 +578,7 @@ class _AlertsPageState extends State<AlertsPage> {
       if (mounted) setState(() => alerts = x);
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.toString())));
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(AppError.message(e))));
       }
     } finally {
       if (mounted) setState(() => loading = false);
@@ -590,7 +591,7 @@ class _AlertsPageState extends State<AlertsPage> {
       await _load();
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.toString())));
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(AppError.message(e))));
       }
     }
   }
@@ -688,7 +689,7 @@ class _CreativeLabPageState extends State<CreativeLabPage> {
       if (mounted) setState(() => creatives = x);
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.toString())));
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(AppError.message(e))));
       }
     } finally {
       if (mounted) setState(() => loading = false);
@@ -703,7 +704,7 @@ class _CreativeLabPageState extends State<CreativeLabPage> {
       await _load();
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.toString())));
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(AppError.message(e))));
       }
     }
   }
@@ -828,7 +829,7 @@ class _ABTestPageState extends State<ABTestPage> {
       if (mounted) setState(() => experiments = x);
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.toString())));
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(AppError.message(e))));
       }
     } finally {
       if (mounted) setState(() => loading = false);
@@ -866,7 +867,7 @@ class _ABTestPageState extends State<ABTestPage> {
                 if (ctx.mounted) Navigator.pop(ctx, true);
               } catch (e) {
                 if (ctx.mounted) {
-                  ScaffoldMessenger.of(ctx).showSnackBar(SnackBar(content: Text(e.toString())));
+                  ScaffoldMessenger.of(ctx).showSnackBar(SnackBar(content: Text(AppError.message(e))));
                 }
               }
             },
@@ -926,7 +927,7 @@ class _ExperimentTile extends StatelessWidget {
                 await onRefresh();
               } catch (e) {
                 if (context.mounted) {
-                  ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.toString())));
+                  ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(AppError.message(e))));
                 }
               }
             },
@@ -982,7 +983,7 @@ class _UtmBuilderPageState extends State<UtmBuilderPage> {
       }
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.toString())));
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(AppError.message(e))));
       }
     }
   }
@@ -1062,7 +1063,7 @@ class _ReportCenterPageState extends State<ReportCenterPage> {
       if (mounted) setState(() => data = x);
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.toString())));
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(AppError.message(e))));
       }
     } finally {
       if (mounted) setState(() => loading = false);
@@ -1214,7 +1215,7 @@ class _SecurityQuickPageState extends State<SecurityQuickPage> {
       if (mounted) setState(() => data = x);
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.toString())));
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(AppError.message(e))));
       }
     } finally {
       if (mounted) setState(() => loading = false);

@@ -2,8 +2,9 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import crypto from 'node:crypto';
 import {fileURLToPath} from 'node:url';
+import {dataRoot, readJsonFile, writeJsonFile, withDataLock} from './persistence.js';
 
-const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../data');
+const root = dataRoot;
 const settingsFile = path.join(root, 'settings.json');
 const usersFile = path.join(root, 'users.json');
 const tenantsFile = path.join(root, 'tenants.json');
@@ -64,9 +65,13 @@ const defaults = {
   autoPublish: true,
   enabled: false,
   autoBestTime: true,
+  geminiAdsAuto: false,
+  geminiAdsDailyCap: 0,
   aiEnabled: true,
   aiTone: 'samimi ve güven veren',
   aiGoal: 'mesaj',
+  adTargetingMode: 'COUNTRY',
+  adTargetingLocations: [],
   aiLanguage: 'Türkçe',
   autoMediaType: true,
   preventDuplicateContent: true,
@@ -95,18 +100,11 @@ async function ensureFile(file, initial) {
 }
 
 async function readJson(file, fallback) {
-  await ensureFile(file, fallback);
-  try {
-    return JSON.parse(await fs.readFile(file, 'utf8'));
-  } catch {
-    await fs.writeFile(file, JSON.stringify(fallback, null, 2));
-    return clone(fallback);
-  }
+  return readJsonFile(file, fallback);
 }
 
 async function writeJson(file, value) {
-  await ensureFile(file, value);
-  await fs.writeFile(file, JSON.stringify(value, null, 2));
+  return writeJsonFile(file,value);
 }
 
 export function planDefinition(plan) {
@@ -125,9 +123,15 @@ function normalizeTenant(tenant) {
     subscriptionEnd: tenant.subscriptionEnd || null,
     createdAt: tenant.createdAt || new Date().toISOString(),
     archivedAt: tenant.archivedAt || null,
+    onboarding:tenant.onboarding && typeof tenant.onboarding==='object' ? {...tenant.onboarding} : {},
     meta: {
       connected: Boolean(tenant.meta?.connected),
       source: tenant.meta?.source || null,
+      instagramApi: tenant.meta?.instagramApi || 'INSTAGRAM',
+      oauthNonce: tenant.meta?.oauthNonce || '',
+      oauthUserId: tenant.meta?.oauthUserId || '',
+      oauthStartedAt: tenant.meta?.oauthStartedAt || null,
+      oauthAssets: tenant.meta?.oauthAssets || null,
       accessToken: tenant.meta?.accessToken || '',
       metaAccessToken: tenant.meta?.metaAccessToken || tenant.meta?.accessToken || '',
       instagramAccessToken: tenant.meta?.instagramAccessToken || '',
@@ -159,7 +163,7 @@ function normalizeTenant(tenant) {
   };
 }
 
-export async function getTenants() {
+async function _getTenants() {
   const raw = await readJson(tenantsFile, []);
   const tenants = raw.map(normalizeTenant);
   if (!tenants.some(t => t.id === SYSTEM_TENANT_ID)) {
@@ -174,7 +178,7 @@ export async function getTenants() {
   return tenants;
 }
 
-export async function saveTenants(tenants) {
+async function _saveTenants(tenants) {
   await writeJson(tenantsFile, tenants.map(normalizeTenant));
 }
 
@@ -183,7 +187,7 @@ export async function getTenant(id) {
   return tenants.find(t => t.id === id) || null;
 }
 
-export async function createTenant({companyName, plan = 'BASIC', days = 30}) {
+async function _createTenant({companyName, plan = 'BASIC', days = 30}) {
   const tenants = await getTenants();
   const p = String(plan).toUpperCase();
   if (!PLAN_DEFINITIONS[p]) throw new Error('Geçersiz paket. BASIC, PRO, AGENCY veya ENTERPRISE seç.');
@@ -210,7 +214,7 @@ export async function createTenant({companyName, plan = 'BASIC', days = 30}) {
   return tenant;
 }
 
-export async function updateTenant(id, patch) {
+async function _updateTenant(id, patch) {
   const tenants = await getTenants();
   const index = tenants.findIndex(t => t.id === id);
   if (index < 0) throw new Error('Müşteri bulunamadı.');
@@ -235,7 +239,7 @@ export async function getUsers() {
   return readJson(usersFile, []);
 }
 
-export async function saveUsers(users) {
+async function _saveUsers(users) {
   await writeJson(usersFile, users);
 }
 
@@ -255,7 +259,7 @@ export async function getUsersForTenant(tenantId) {
   return users.filter(u => (u.tenantId || SYSTEM_TENANT_ID) === tenantId).map(publicUser);
 }
 
-export async function saveUser(user) {
+async function _saveUser(user) {
   const users = await getUsers();
   const index = users.findIndex(u => u.id === user.id);
   if (index >= 0) users[index] = user;
@@ -309,12 +313,13 @@ export function publicTenant(tenant) {
     const hasMetaToken = Boolean(safe.meta.accessToken || safe.meta.metaAccessToken);
     const hasInstagramToken = Boolean(safe.meta.instagramAccessToken);
     delete safe.meta.accessToken; delete safe.meta.metaAccessToken; delete safe.meta.instagramAccessToken;
+    delete safe.meta.oauthAssets; delete safe.meta.oauthNonce; delete safe.meta.oauthUserId;
     safe.meta.hasAccessToken = hasMetaToken; safe.meta.hasInstagramAccessToken = hasInstagramToken;
   }
   return safe;
 }
 
-export async function deleteTenantCascade(tenantId) {
+async function _deleteTenantCascade(tenantId) {
   if (!tenantId || tenantId === SYSTEM_TENANT_ID) throw new Error('Sistem hesabı silinemez.');
   const tenants = await getTenants();
   const tenant = tenants.find(t => t.id === tenantId);
@@ -344,7 +349,7 @@ export async function deleteTenantCascade(tenantId) {
   return {tenant, removedPostsCount: removedPosts.length, removedUserCount: users.filter(u => u.tenantId === tenantId).length};
 }
 
-export async function getSettings(tenantId = SYSTEM_TENANT_ID) {
+async function _getSettings(tenantId = SYSTEM_TENANT_ID) {
   const raw = await readJson(settingsFile, {});
   let map;
   if (raw && typeof raw === 'object' && !Array.isArray(raw) && ('weeklyBudget' in raw || 'messageCostLimit' in raw)) {
@@ -353,11 +358,25 @@ export async function getSettings(tenantId = SYSTEM_TENANT_ID) {
   } else {
     map = raw || {};
   }
+  const hasSavedTargeting = Boolean(map[tenantId] && (
+    Object.prototype.hasOwnProperty.call(map[tenantId], 'adTargetingMode') ||
+    Object.prototype.hasOwnProperty.call(map[tenantId], 'adTargetingLocations')
+  ));
   if (!map[tenantId]) {
     map[tenantId] = clone(defaults);
     await writeJson(settingsFile, map);
   }
   const resolved = {...defaults, ...map[tenantId], selection: {...defaults.selection, ...(map[tenantId].selection || {})}};
+  if (!Array.isArray(resolved.adTargetingLocations)) resolved.adTargetingLocations = [];
+  resolved.adTargetingMode = ['CITY', 'REGION', 'COUNTRY'].includes(String(resolved.adTargetingMode).toUpperCase())
+    ? String(resolved.adTargetingMode).toUpperCase()
+    : (tenantId === SYSTEM_TENANT_ID ? 'CITY' : 'COUNTRY');
+  // Keep the currently connected system account's requested cities as its initial
+  // audience. New customer tenants remain on country-wide targeting until configured.
+  if (tenantId === SYSTEM_TENANT_ID && !hasSavedTargeting) {
+    resolved.adTargetingMode = 'CITY';
+    resolved.adTargetingLocations = ['Bolu', 'Düzce', 'Ankara', 'İstanbul', 'Karabük', 'Kocaeli', 'Zonguldak', 'Bartın', 'Bilecik', 'Eskişehir', 'Konya', 'Yalova'];
+  }
   // Keep the first-release default aligned with the product rule. Existing installations
   // that still carry the old 8 TL default are migrated to 2 TL automatically.
   if (Number(resolved.messageCostLimit) === 8) resolved.messageCostLimit = 2;
@@ -365,7 +384,7 @@ export async function getSettings(tenantId = SYSTEM_TENANT_ID) {
   return clone(resolved);
 }
 
-export async function saveSettings(tenantId, input) {
+async function _saveSettings(tenantId, input) {
   if (typeof tenantId === 'object') {
     input = tenantId;
     tenantId = SYSTEM_TENANT_ID;
@@ -389,6 +408,8 @@ export async function saveSettings(tenantId, input) {
   next.earlyBudgetReductionPercent = Math.max(5, Math.min(90, Number(next.earlyBudgetReductionPercent)));
   next.autoPublish = Boolean(next.autoPublish);
   next.enabled = Boolean(next.enabled);
+  next.geminiAdsAuto = Boolean(next.geminiAdsAuto);
+  next.geminiAdsDailyCap = Math.max(0, Math.min(100000, Number(next.geminiAdsDailyCap) || 0));
   next.aiEnabled = next.aiEnabled !== false;
   next.autoMediaType = next.autoMediaType !== false;
   next.preventDuplicateContent = next.preventDuplicateContent !== false;
@@ -397,6 +418,12 @@ export async function saveSettings(tenantId, input) {
   next.aiTone = String(next.aiTone || 'samimi ve güven veren').slice(0,80);
   next.aiGoal = String(next.aiGoal || 'mesaj').slice(0,80);
   next.aiLanguage = String(next.aiLanguage || 'Türkçe').slice(0,30);
+  next.adTargetingMode = ['CITY', 'REGION', 'COUNTRY'].includes(String(next.adTargetingMode || '').toUpperCase())
+    ? String(next.adTargetingMode).toUpperCase()
+    : 'COUNTRY';
+  next.adTargetingLocations = Array.isArray(next.adTargetingLocations)
+    ? [...new Set(next.adTargetingLocations.map(x => String(x || '').trim()).filter(Boolean))].slice(0, 81)
+    : [];
   const map = (raw && typeof raw === 'object' && !Array.isArray(raw) && !('weeklyBudget' in raw)) ? raw : {[SYSTEM_TENANT_ID]: old};
   map[tenantId] = next;
   await writeJson(settingsFile, map);
@@ -413,7 +440,7 @@ export async function getLogs(tenantId = SYSTEM_TENANT_ID, limit = 200) {
   return filtered.slice(0, Math.max(1, Math.min(1000, Number(limit))));
 }
 
-export async function addLog(tenantId, entry) {
+async function _addLog(tenantId, entry) {
   if (typeof tenantId === 'object') {
     entry = tenantId;
     tenantId = SYSTEM_TENANT_ID;
@@ -430,7 +457,7 @@ export async function getPosts(tenantId = SYSTEM_TENANT_ID) {
   return x.filter(item => (item.tenantId || SYSTEM_TENANT_ID) === tenantId);
 }
 
-export async function savePosts(tenantId, posts) {
+async function _savePosts(tenantId, posts) {
   if (Array.isArray(tenantId)) {
     posts = tenantId;
     tenantId = SYSTEM_TENANT_ID;
@@ -441,7 +468,7 @@ export async function savePosts(tenantId, posts) {
   await writeJson(postsFile, [...prepared, ...others]);
 }
 
-export async function createLicense({plan = 'BASIC', days = 30, tenantId = null}) {
+async function _createLicense({plan = 'BASIC', days = 30, tenantId = null}) {
   const p = String(plan).toUpperCase();
   if (!PLAN_DEFINITIONS[p]) throw new Error('Geçersiz paket.');
   const licenses = await readJson(licensesFile, []);
@@ -468,7 +495,7 @@ export async function getLicenses() {
   return readJson(licensesFile, []);
 }
 
-export async function assignLicense(licenseId, tenantId) {
+async function _assignLicense(licenseId, tenantId) {
   const licenses = await getLicenses();
   const license = licenses.find(x => x.id === licenseId);
   if (!license) throw new Error('Lisans bulunamadı.');
@@ -501,3 +528,29 @@ export async function adminStats() {
     unusedLicenses: licenses.filter(l => l.status === 'UNUSED').length
   };
 }
+
+export async function getSettings(...args) { return withDataLock(()=>_getSettings(...args)); }
+
+export async function getTenants(...args) { return withDataLock(()=>_getTenants(...args)); }
+
+export async function saveSettings(...args) { return withDataLock(()=>_saveSettings(...args)); }
+
+export async function addLog(...args) { return withDataLock(()=>_addLog(...args)); }
+
+export async function savePosts(...args) { return withDataLock(()=>_savePosts(...args)); }
+
+export async function saveUser(...args) { return withDataLock(()=>_saveUser(...args)); }
+
+export async function createTenant(...args) { return withDataLock(()=>_createTenant(...args)); }
+
+export async function updateTenant(...args) { return withDataLock(()=>_updateTenant(...args)); }
+
+export async function saveUsers(...args) { return withDataLock(()=>_saveUsers(...args)); }
+
+export async function saveTenants(...args) { return withDataLock(()=>_saveTenants(...args)); }
+
+export async function deleteTenantCascade(...args) { return withDataLock(()=>_deleteTenantCascade(...args)); }
+
+export async function createLicense(...args) { return withDataLock(()=>_createLicense(...args)); }
+
+export async function assignLicense(...args) { return withDataLock(()=>_assignLicense(...args)); }
