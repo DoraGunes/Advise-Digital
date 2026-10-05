@@ -1,6 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:image_picker/image_picker.dart';
-
 import 'api.dart';
 import 'media_access.dart';
 import 'product_ui.dart';
