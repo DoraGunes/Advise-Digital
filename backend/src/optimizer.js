@@ -3,7 +3,7 @@ import {getSettings,getPosts,getLogs,addLog,getTenant} from './store.js';
 import {config} from './config.js';
 import {earlyAdDecision} from './rules.js';
 import {learnFromOutcome} from './ai-memory.js';
-import {withDataLock} from './persistence.js';
+import {withTenantLock} from './persistence.js';
 import {tenantCredentials,metaReady,minorToMoney,budgetGuard} from './automation-safety.js';
 
 const n=v=>Number.isFinite(Number(v))?Number(v):0;
@@ -157,7 +157,7 @@ async function optimizeAdsLocked(tenantId='system') {
   await addLog(tenantId,result); return result;
 }
 
-export async function optimizeAds(tenantId='system') { return withDataLock(()=>optimizeAdsLocked(tenantId)); }
+export async function optimizeAds(tenantId='system') { return withTenantLock(tenantId,()=>optimizeAdsLocked(tenantId)); }
 
 export function selectBestPost(posts,performanceByPost={}) {
   if(!posts.length) return null;
