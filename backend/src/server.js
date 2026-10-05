@@ -22,7 +22,7 @@ import {aiAdvisor, performanceSummary, getAlerts, createAlert, markAlert, getLea
 import {generateContentPack, generateCaption, generateCaptionVariants, scoreCreative, aiStatus} from './ai.js';
 import {learnFromGeneration, linkGenerationToPost, getMemorySummary} from './ai-memory.js';
 import {runGeminiAdReview, applyGeminiAdDecision} from './gemini-ads.js';
-import {withDataLock} from './persistence.js';
+import {withTenantLock} from './persistence.js';
 import {tenantCredentials,metaReady,budgetGuard,activationGuard} from './automation-safety.js';
 import {metaOAuthCallback,startMetaOAuth,metaAssets,selectMetaAssets} from './meta-oauth.js';
 import {productOverview,productReport,onboardingStatus,saveOnboarding} from './product.js';
@@ -171,7 +171,7 @@ app.use('/api', (req,res,next)=>{
   if(['GET','HEAD','OPTIONS'].includes(req.method))return next();
   const personal=req.path==='/profile/password'||/^\/pro\/alerts\/[^/]+\/read$/.test(req.path);
   if(!personal&&!['ADMIN','CUSTOMER_ADMIN','MANAGER','OPERATOR'].includes(req.user.role))return res.status(403).json({error:'Bu işlem için yetkiniz bulunmuyor.'});
-  withDataLock(()=>new Promise(resolve=>{res.once('finish',resolve);res.once('close',resolve);next();})).catch(error=>{if(!res.headersSent)res.status(409).json({error:error.message});});
+  withTenantLock(req.user.tenantId,()=>new Promise(resolve=>{res.once('finish',resolve);res.once('close',resolve);next();})).catch(error=>{if(!res.headersSent)res.status(409).json({error:error.message});});
 });
 
 app.get('/api/system/health', async (_req, res) => {
