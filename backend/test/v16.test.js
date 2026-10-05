@@ -68,6 +68,15 @@ test('reentrant cross-operation lock serializes tasks',async()=>{
   const sequence=[];await Promise.all([persistence.withDataLock(async()=>{sequence.push(1);await persistence.withDataLock(async()=>sequence.push(2));await new Promise(r=>setTimeout(r,20));sequence.push(3);}),persistence.withDataLock(async()=>sequence.push(4))]);
   assert.deepEqual(sequence,[1,2,3,4]);
 });
+test('tenant operation lock serializes one tenant without blocking another tenant',async()=>{
+  const sequence=[];let releaseFirst;let markStarted;const hold=new Promise(resolve=>{releaseFirst=resolve;});const started=new Promise(resolve=>{markStarted=resolve;});
+  const first=persistence.withTenantLock('tenant-lock-a',async()=>{sequence.push('a-start');markStarted();await hold;sequence.push('a-end');});
+  await started;
+  const same=persistence.withTenantLock('tenant-lock-a',async()=>sequence.push('a-second'));
+  const other=persistence.withTenantLock('tenant-lock-b',async()=>sequence.push('b-run'));
+  await other;assert.deepEqual(sequence,['a-start','b-run']);
+  releaseFirst();await Promise.all([first,same]);assert.deepEqual(sequence,['a-start','b-run','a-end','a-second']);
+});
 test('parallel post/log mutations keep both tenants',async()=>{
   await Promise.all([store.savePosts('a',[{id:'a1'}]),store.savePosts('b',[{id:'b1'}])]);
   assert.equal((await store.getPosts('a'))[0].id,'a1');assert.equal((await store.getPosts('b'))[0].id,'b1');
