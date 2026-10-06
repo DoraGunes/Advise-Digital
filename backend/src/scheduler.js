@@ -8,7 +8,7 @@ import {runGeminiAdReview} from './gemini-ads.js';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import {withTenantLock} from './persistence.js';
-import {tenantCredentials,metaReady,budgetGuard} from './automation-safety.js';
+import {tenantCredentials,metaReady,budgetGuard,withAdAccountLock} from './automation-safety.js';
 
 function localParts(date=new Date()) {
   const parts=new Intl.DateTimeFormat('en-GB',{timeZone:config.timezone,weekday:'short',hour:'2-digit',minute:'2-digit',hour12:false}).formatToParts(date);
@@ -308,7 +308,7 @@ async function weeklySchedulerTickLocked(tenantId='system') {
   }
 }
 
-export async function weeklySchedulerTick(tenantId='system') { return withTenantLock(tenantId,()=>weeklySchedulerTickLocked(tenantId)); }
+export async function weeklySchedulerTick(tenantId='system') { return withTenantLock(tenantId,()=>withAdAccountLock(tenantId,()=>weeklySchedulerTickLocked(tenantId))); }
 
 export function startScheduler() {
   if(!config.cronEnabled) return;

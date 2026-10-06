@@ -68,6 +68,7 @@ class _ContentQueuePageState extends State<ContentQueuePage> {
   }
 
   Future<void> _setAutoPublish(bool value) async {
+    if (!_canConfigure || _loading) return;
     setState(() => _loading = true);
     try {
       await Api.saveSettings({'autoPublish': value});
@@ -80,6 +81,7 @@ class _ContentQueuePageState extends State<ContentQueuePage> {
   }
 
   Future<void> _pick() async {
+    if (!_canEdit || _loading) return;
     final picked = await MediaAccess.pickMany(limit: 8);
     if (!mounted || picked.isEmpty) return;
     setState(() => _selected = List<XFile>.from(picked));
@@ -93,6 +95,7 @@ class _ContentQueuePageState extends State<ContentQueuePage> {
   }
 
   Future<void> _upload() async {
+    if (!_canEdit || _loading) return;
     if (_selected.isEmpty) {
       _snack('Önce 1-8 adet fotoğraf/video seç.');
       return;
@@ -143,12 +146,13 @@ class _ContentQueuePageState extends State<ContentQueuePage> {
     } catch (e) {
       if (mounted) {
         setState(() => _loading = false);
-        _snack(e.toString());
+        _snack(AppError.message(e));
       }
     }
   }
 
   Future<void> _setCover(Map<String, dynamic> post) async {
+    if (!_editable(post) || _loading) return;
     final picked = await MediaAccess.pickOne(mediaType: 'IMAGE');
     if (picked == null || !mounted) return;
 
@@ -159,13 +163,14 @@ class _ContentQueuePageState extends State<ContentQueuePage> {
       await _loadQueue();
       if (mounted) _snack('Reels kapağı güncellendi.');
     } catch (e) {
-      if (mounted) _snack(e.toString());
+      if (mounted) _snack(AppError.message(e));
     } finally {
       if (mounted) setState(() => _loading = false);
     }
   }
 
   Future<void> _editPost(Map<String, dynamic> post) async {
+    if (!_editable(post) || _loading) return;
     final title = TextEditingController(text: post['title']?.toString() ?? '');
     final caption =
         TextEditingController(text: post['caption']?.toString() ?? '');
@@ -215,7 +220,7 @@ class _ContentQueuePageState extends State<ContentQueuePage> {
         await _loadQueue();
         if (mounted) _snack('İçerik güncellendi.');
       } catch (e) {
-        if (mounted) _snack(e.toString());
+        if (mounted) _snack(AppError.message(e));
       }
     }
     title.dispose();
@@ -317,6 +322,7 @@ class _ContentQueuePageState extends State<ContentQueuePage> {
   }
 
   Future<void> _queuePost(Map<String, dynamic> post) async {
+    if (!_editable(post) || _loading) return;
     final selectedTime = await _pickPublishTime(post);
     if (selectedTime == null || !mounted) return;
     try {
@@ -330,13 +336,14 @@ class _ContentQueuePageState extends State<ContentQueuePage> {
       if (mounted)
         _snack(updated['publishStatus'] == 'READY'
             ? 'İçerik yayına hazır. Otomatik yayın kapalı olduğu için onayını bekliyor.'
-            : 'Kuyruğa alındı • ${_date(planned.toIso8601String())} ${planned.hour.toString().padLeft(2, '0')}:${planned.minute.toString().padLeft(2, '0')}’de paylaşılacak.');
+            : 'Kuyruğa alındı • ${_date(planned.toIso8601String())}’de paylaşılacak.');
     } catch (e) {
-      if (mounted) _snack(e.toString());
+      if (mounted) _snack(AppError.message(e));
     }
   }
 
   Future<void> _publishPost(Map<String, dynamic> post) async {
+    if (!_editable(post) || _loading) return;
     final accepted = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
@@ -356,17 +363,21 @@ class _ContentQueuePageState extends State<ContentQueuePage> {
     if (accepted != true) return;
     setState(() => _loading = true);
     try {
-      await Api.publishPost(post['id'].toString());
+      final result = await Api.publishPost(post['id'].toString());
       await _loadQueue();
-      if (mounted) _snack('Instagram paylaşımı tamamlandı.');
+      if (mounted)
+        _snack(result['publishStatus'] == 'PUBLISHED'
+            ? 'Instagram paylaşımı tamamlandı.'
+            : 'Instagram yayın sonucu doğrulanıyor. İçerik yeniden gönderilmeyecek.');
     } catch (e) {
-      if (mounted) _snack(e.toString());
+      if (mounted) _snack(AppError.message(e));
     } finally {
       if (mounted) setState(() => _loading = false);
     }
   }
 
   Future<void> _moveQueued(Map<String, dynamic> post, int delta) async {
+    if (!_editable(post) || _loading) return;
     final pending = _queued
         .where((item) =>
             item is Map && ['QUEUED', 'RETRY'].contains(item['publishStatus']))
@@ -389,13 +400,14 @@ class _ContentQueuePageState extends State<ContentQueuePage> {
           pending.map((x) => x['id'].toString()).toList());
       await _loadQueue();
     } catch (e) {
-      if (mounted) _snack(e.toString());
+      if (mounted) _snack(AppError.message(e));
     } finally {
       if (mounted) setState(() => _loading = false);
     }
   }
 
   Future<void> _deletePost(Map<String, dynamic> post) async {
+    if (!_editable(post) || _loading) return;
     final accepted = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
@@ -417,7 +429,7 @@ class _ContentQueuePageState extends State<ContentQueuePage> {
       await Api.deletePost(post['id'].toString());
       await _loadQueue();
     } catch (e) {
-      if (mounted) _snack(e.toString());
+      if (mounted) _snack(AppError.message(e));
     }
   }
 
@@ -442,6 +454,7 @@ class _ContentQueuePageState extends State<ContentQueuePage> {
       case 'PUBLISHING':
         return 'YAYINLANIYOR';
       case 'PUBLISH_UNKNOWN':
+      case 'RECONCILE':
         return 'DOĞRULAMA BEKLİYOR';
       case 'RETRY':
         return 'TEKRAR DENENECEK';
@@ -485,9 +498,7 @@ class _ContentQueuePageState extends State<ContentQueuePage> {
     final isQueued = ['QUEUED', 'RETRY'].contains(status);
     final isReady = status == 'READY';
     final isPublished = status == 'PUBLISHED';
-    final canEdit = _canEdit &&
-        !['PUBLISHING', 'PUBLISH_UNKNOWN'].contains(status) &&
-        post['publishAmbiguous'] != true;
+    final canEdit = _editable(post);
     final isReel = _type(post) == 'REELS';
     final cover =
         (post['coverPublicUrl'] ?? post['publicUrl'])?.toString() ?? '';
@@ -499,6 +510,7 @@ class _ContentQueuePageState extends State<ContentQueuePage> {
     final queuedIndex = queuedPosts
         .indexWhere((item) => item['id']?.toString() == post['id']?.toString());
     return Card(
+      key: ValueKey('content-post-${post['id']}'),
       margin: const EdgeInsets.only(bottom: 10),
       clipBehavior: Clip.antiAlias,
       child: Padding(
@@ -528,13 +540,12 @@ class _ContentQueuePageState extends State<ContentQueuePage> {
                 child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                  Row(children: [
-                    Flexible(
-                        child: Text(post['title']?.toString() ?? 'Yeni içerik',
-                            maxLines: 2,
-                            overflow: TextOverflow.ellipsis,
-                            style: const TextStyle(
-                                fontSize: 16, fontWeight: FontWeight.w800))),
+                  Wrap(spacing: 6, runSpacing: 6, children: [
+                    Text(post['title']?.toString() ?? 'Yeni içerik',
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                            fontSize: 16, fontWeight: FontWeight.w800)),
                     const SizedBox(width: 5),
                     _statusChip(_statusLabel(post),
                         isQueued: isQueued, isPublished: isPublished),
@@ -601,12 +612,21 @@ class _ContentQueuePageState extends State<ContentQueuePage> {
                   tooltip: 'İçeriği sil',
                   icon: const Icon(Icons.delete_outline_rounded)),
           ]),
-          if (!isPublished && !canPublish)
+          if (['PUBLISHING', 'RECONCILE', 'PUBLISH_UNKNOWN'].contains(status) ||
+              post['publishAmbiguous'] == true)
             const Padding(
+                padding: EdgeInsets.only(top: 12),
+                child: Text(
+                    'Instagram sonucu kontrol ediliyor. Aynı içeriğin iki kez yayınlanmasını önlemek için işlemler bekletiliyor.')),
+          if (!isPublished && !canPublish)
+            Padding(
                 padding: EdgeInsets.only(top: 3),
                 child: Text(
                     'Doğrudan Instagram yayını için HTTPS medya adresi gerekir.',
-                    style: TextStyle(fontSize: 11, color: Colors.black54))),
+                    style: TextStyle(
+                        fontSize: 11,
+                        color:
+                            Theme.of(context).colorScheme.onSurfaceVariant))),
           if (isReel && !isPublished && canEdit) ...[
             const Divider(height: 18),
             SizedBox(
@@ -622,6 +642,12 @@ class _ContentQueuePageState extends State<ContentQueuePage> {
       ),
     );
   }
+
+  bool _editable(Map<String, dynamic> post) =>
+      _canEdit &&
+      !['PUBLISHED', 'PUBLISHING', 'RECONCILE', 'PUBLISH_UNKNOWN']
+          .contains(post['publishStatus']?.toString().toUpperCase()) &&
+      post['publishAmbiguous'] != true;
 
   @override
   Widget build(BuildContext context) {
@@ -646,9 +672,13 @@ class _ContentQueuePageState extends State<ContentQueuePage> {
       ),
       body: ProductContent(
           child: _initialLoading
-              ? const ProductLoadingSkeleton()
+              ? const SingleChildScrollView(
+                  padding: EdgeInsets.all(20), child: ProductLoadingSkeleton())
               : _error != null
-                  ? ProductErrorState(message: _error!, onRetry: _loadQueue)
+                  ? SingleChildScrollView(
+                      padding: const EdgeInsets.all(20),
+                      child: ProductErrorState(
+                          message: _error!, onRetry: _loadQueue))
                   : RefreshIndicator(
                       onRefresh: _loadQueue,
                       child: ListView(
@@ -733,11 +763,12 @@ class _ContentQueuePageState extends State<ContentQueuePage> {
                                         'Fotoğraf veya Reels ekle. Metni gözden geçir, sonra taslakta tut ya da planlı kuyruğa al.',
                                         style: TextStyle(
                                             height: 1.4,
-                                            color: Colors.grey.shade700)),
+                                            color: Theme.of(context)
+                                                .colorScheme
+                                                .onSurfaceVariant)),
                                     const SizedBox(height: 14),
                                     SizedBox(
                                       width: double.infinity,
-                                      height: 52,
                                       child: OutlinedButton.icon(
                                         onPressed: _loading ? null : _pick,
                                         icon: const Icon(
@@ -830,7 +861,6 @@ class _ContentQueuePageState extends State<ContentQueuePage> {
                                     const SizedBox(height: 6),
                                     SizedBox(
                                       width: double.infinity,
-                                      height: 54,
                                       child: FilledButton.icon(
                                         onPressed: _loading ? null : _upload,
                                         icon: _loading
@@ -845,8 +875,10 @@ class _ContentQueuePageState extends State<ContentQueuePage> {
                                                 Icons.schedule_send_rounded),
                                         label: Text(
                                           _loading
-                                              ? 'İŞLENİYOR...'
-                                              : 'AI ANALİZ ET VE KUYRUĞA AL',
+                                              ? 'İçerikler hazırlanıyor…'
+                                              : _useAI
+                                                  ? 'AI ile hazırla ve planla'
+                                                  : 'İçerikleri planla',
                                         ),
                                       ),
                                     ),
@@ -869,7 +901,10 @@ class _ContentQueuePageState extends State<ContentQueuePage> {
                           ]),
                           Text(
                               'Saati seç, sırayı değiştir, metni düzenle ve yayın planını önizle.',
-                              style: TextStyle(color: Colors.grey.shade700)),
+                              style: TextStyle(
+                                  color: Theme.of(context)
+                                      .colorScheme
+                                      .onSurfaceVariant)),
                           const SizedBox(height: 10),
                           Wrap(spacing: 8, runSpacing: 8, children: [
                             for (final e in {

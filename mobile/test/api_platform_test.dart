@@ -44,6 +44,32 @@ void main() {
     expect(await Api.token(), isEmpty);
   });
 
+  test('changing API origin clears JWT before any request to the new host',
+      () async {
+    await Api.setBaseUrl('https://api.example.test');
+    await Api.setToken('fixture-session');
+    await Api.setBaseUrl('https://api.example.test/v16');
+    expect(await Api.token(), 'fixture-session');
+    await Api.setBaseUrl('https://api.example.test:443');
+    expect(await Api.token(), 'fixture-session');
+    await expectLater(Api.setBaseUrl('https://user:password@api.example.test'),
+        throwsA(isA<ApiException>()));
+    expect(await Api.token(), 'fixture-session');
+    await Api.setBaseUrl('https://other.example.test');
+    expect(await Api.token(), isEmpty);
+    expect(
+        (await SharedPreferences.getInstance()).getString('authToken'), isNull);
+    Api.setHttpClientForTesting(MockClient((request) async {
+      expect(request.url.host, 'other.example.test');
+      expect(request.headers.containsKey('Authorization'), isFalse);
+      return http.Response('{}', 200);
+    }));
+    await Api.me();
+    await Api.setToken('new-fixture-session');
+    await Api.setBaseUrl('https://other.example.test:8443');
+    expect(await Api.token(), isEmpty);
+  });
+
   test('transient GET retries once but mutations never retry', () async {
     var getCalls = 0;
     var mutationCalls = 0;
@@ -68,6 +94,10 @@ void main() {
     await expectLater(
         Api.deleteLead('fixture-lead'), throwsA(isA<ApiException>()));
     expect(mutationCalls, 3);
+    await expectLater(
+        Api.updatePost('fixture-post', title: 'Fixture', caption: 'Caption'),
+        throwsA(isA<ApiException>()));
+    expect(mutationCalls, 4);
   });
 
   test('authenticated 401 triggers session expiry', () async {
@@ -147,5 +177,87 @@ void main() {
     }));
     await Api.productReport(
         range: 'custom', since: '2026-10-01', until: '2026-10-05');
+  });
+
+  test('older backend blocks precise scheduling and Gemini before any mutation',
+      () async {
+    var mutations = 0;
+    var healthRequests = 0;
+    Api.setHttpClientForTesting(MockClient((request) async {
+      if (request.url.path == '/health') {
+        healthRequests++;
+        return http.Response('{"ok":true,"version":"14.0.0"}', 200);
+      }
+      mutations++;
+      return http.Response('{}', 200);
+    }));
+    await expectLater(
+        Api.queuePost('fixture', scheduleAt: '2026-10-06T16:30:00Z'),
+        throwsA(isA<ApiException>()));
+    await expectLater(
+        Api.uploadPost('', 'Title', 'Caption', '',
+            scheduleAt: '2026-10-06T16:30:00Z'),
+        throwsA(isA<ApiException>()));
+    await expectLater(Api.geminiAdReview(), throwsA(isA<ApiException>()));
+    await expectLater(
+        Api.applyGeminiAdDecision(adSetId: 'fixture', action: 'PAUSE'),
+        throwsA(isA<ApiException>()));
+    expect(mutations, 0);
+    expect(healthRequests, 1);
+  });
+
+  test(
+      'supported capabilities allow scheduling and exact metadata is preserved',
+      () async {
+    var healthRequests = 0;
+    var mutations = 0;
+    Api.setHttpClientForTesting(MockClient((request) async {
+      if (request.url.path == '/health') {
+        healthRequests++;
+        return http.Response(
+            jsonEncode({
+              'ok': true,
+              'version': '16.0.0',
+              'capabilities': {
+                'productExperience': true,
+                'scheduledPublishing': true,
+                'geminiAdReview': true,
+                'safeAutomationV16': true,
+                'campaignStrategy': true
+              }
+            }),
+            200);
+      }
+      mutations++;
+      if (request.url.path.endsWith('/queue')) {
+        expect(jsonDecode(request.body)['scheduleAt'], '2026-10-06T16:30:00Z');
+      }
+      if (request.url.path == '/api/product/strategy') {
+        expect(jsonDecode(request.body)['dailyBudget'], 100);
+      }
+      return http.Response('{}', 200);
+    }));
+    await Api.queuePost('fixture', scheduleAt: '2026-10-06T16:30:00Z');
+    await Api.geminiAdReview();
+    await Api.applyGeminiAdDecision(adSetId: 'fixture', action: 'PAUSE');
+    await Api.productStrategy({'dailyBudget': 100});
+    expect(mutations, 4);
+    expect(healthRequests, 1);
+    await Api.setBaseUrl('https://other.example.test');
+    await Api.queuePost('fixture', scheduleAt: '2026-10-06T16:30:00Z');
+    expect(healthRequests, 2);
+    await Api.logout();
+    await Api.geminiAdReview();
+    expect(healthRequests, 3);
+  });
+
+  test('post caption edits use PATCH without retry', () async {
+    Api.setHttpClientForTesting(MockClient((request) async {
+      expect(request.method, 'PATCH');
+      expect(request.url.path, '/api/posts/fixture');
+      expect(jsonDecode(request.body)['caption'], 'Updated caption');
+      return http.Response('{}', 200);
+    }));
+    await Api.updatePost('fixture', title: 'Title', caption: 'Updated caption');
   });
 }

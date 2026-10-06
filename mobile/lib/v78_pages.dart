@@ -1140,12 +1140,13 @@ class MetaConnectionPage extends StatefulWidget {
   State<MetaConnectionPage> createState() => _MetaConnectionPageState();
 }
 
-class _MetaConnectionPageState extends State<MetaConnectionPage> with WidgetsBindingObserver {
+class _MetaConnectionPageState extends State<MetaConnectionPage>
+    with WidgetsBindingObserver {
   Map<String, dynamic> data = {};
   bool loading = true;
   bool busy = false;
   String? error;
-  Map<String,dynamic> assets = {};
+  Map<String, dynamic> assets = {};
   String? selectedPage, selectedAccount;
   bool canManage = false;
 
@@ -1156,8 +1157,16 @@ class _MetaConnectionPageState extends State<MetaConnectionPage> with WidgetsBin
     _load();
   }
 
-  @override void dispose() { WidgetsBinding.instance.removeObserver(this); super.dispose(); }
-  @override void didChangeAppLifecycleState(AppLifecycleState state) { if(state == AppLifecycleState.resumed && !loading && !busy) _load(); }
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed && !loading && !busy) _load();
+  }
 
   Future<void> _load() async {
     if (mounted)
@@ -1168,10 +1177,23 @@ class _MetaConnectionPageState extends State<MetaConnectionPage> with WidgetsBin
     try {
       data = await Api.metaStatus();
       final me = await Api.me();
-      canManage = ['ADMIN','CUSTOMER_ADMIN'].contains((me['user'] as Map?)?['role']);
-      if(canManage && data['connected'] != true) {
-        try { assets = await Api.metaAssets(); } catch (_) { assets = {}; }
+      canManage =
+          ['ADMIN', 'CUSTOMER_ADMIN'].contains((me['user'] as Map?)?['role']);
+      if (canManage && data['connected'] != true) {
+        try {
+          assets = await Api.metaAssets();
+        } catch (_) {
+          assets = {};
+        }
+      } else {
+        assets = {};
       }
+      final pages = (assets['pages'] as List? ?? []).whereType<Map>();
+      final accounts = (assets['adAccounts'] as List? ?? []).whereType<Map>();
+      if (!pages.any((row) => row['id']?.toString() == selectedPage))
+        selectedPage = null;
+      if (!accounts.any((row) => row['id']?.toString() == selectedAccount))
+        selectedAccount = null;
     } catch (e) {
       error = AppError.message(e);
     } finally {
@@ -1212,8 +1234,21 @@ class _MetaConnectionPageState extends State<MetaConnectionPage> with WidgetsBin
   }
 
   Future<void> _disconnect() async {
-    final accepted = await showDialog<bool>(context: context, builder: (ctx) => AlertDialog(title: const Text('Meta bağlantısını kaldır?'), content: const Text('Reklam kontrolleri ve planlı Instagram yayınları bağlantı yeniden kurulana kadar çalışamaz.'), actions: [TextButton(onPressed: () => Navigator.pop(ctx,false),child: const Text('Vazgeç')),FilledButton(onPressed: () => Navigator.pop(ctx,true),child: const Text('Bağlantıyı kaldır'))]));
-    if(accepted != true || !mounted) return;
+    final accepted = await showDialog<bool>(
+        context: context,
+        builder: (ctx) => AlertDialog(
+                title: const Text('Meta bağlantısını kaldır?'),
+                content: const Text(
+                    'Reklam kontrolleri ve planlı Instagram yayınları bağlantı yeniden kurulana kadar çalışamaz.'),
+                actions: [
+                  TextButton(
+                      onPressed: () => Navigator.pop(ctx, false),
+                      child: const Text('Vazgeç')),
+                  FilledButton(
+                      onPressed: () => Navigator.pop(ctx, true),
+                      child: const Text('Bağlantıyı kaldır'))
+                ]));
+    if (accepted != true || !mounted) return;
     setState(() => busy = true);
     try {
       await Api.metaDisconnect();
@@ -1227,14 +1262,21 @@ class _MetaConnectionPageState extends State<MetaConnectionPage> with WidgetsBin
   }
 
   void _snack(String text) =>
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(AppError.message(text))));
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(text)));
 
   Future<void> _selectAssets() async {
-    if(selectedPage == null || selectedAccount == null) return;
+    if (selectedPage == null || selectedAccount == null) return;
     setState(() => busy = true);
-    try { await Api.selectMetaAssets(pageId: selectedPage!,adAccountId: selectedAccount!); assets = {}; await _load(); if(mounted) _snack('Sayfa, Instagram ve reklam hesabın bağlandı.'); }
-    catch(e) { if(mounted) _snack(AppError.message(e)); }
-    if(mounted) setState(() => busy = false);
+    try {
+      await Api.selectMetaAssets(
+          pageId: selectedPage!, adAccountId: selectedAccount!);
+      assets = {};
+      await _load();
+      if (mounted) _snack('Sayfa, Instagram ve reklam hesabın bağlandı.');
+    } catch (e) {
+      if (mounted) _snack(AppError.message(e));
+    }
+    if (mounted) setState(() => busy = false);
   }
 
   @override
@@ -1306,16 +1348,62 @@ class _MetaConnectionPageState extends State<MetaConnectionPage> with WidgetsBin
             ),
           ),
         ),
-        if(assets['available'] == true) ...[
+        if (assets['available'] == true) ...[
           const SizedBox(height: 16),
-          ProductSurface(child: Column(crossAxisAlignment: CrossAxisAlignment.start,children: [
-            Text('Hangi hesapla devam edeceksin?', style: Theme.of(context).textTheme.titleLarge),
-            const SizedBox(height: 8), const Text('Instagram hesabı Sayfana bağlı olmalı. Bağlanacak hesapları açıkça seç.'), const SizedBox(height: 16),
-            DropdownButtonFormField<String>(initialValue: selectedPage, isExpanded: true, decoration: const InputDecoration(labelText: 'Facebook Sayfası / Instagram'), items: (assets['pages'] is List ? assets['pages'] as List : []).whereType<Map>().map((p) => DropdownMenuItem(value: p['id'].toString(),child: Text('${p['name'] ?? 'Sayfa'}${p['instagramUserId'] == null ? ' · Instagram bağlantısı yok' : ''}', overflow: TextOverflow.ellipsis))).toList(), onChanged: busy ? null : (v) => setState(() => selectedPage = v)),
-            const SizedBox(height: 16),
-            DropdownButtonFormField<String>(initialValue: selectedAccount, isExpanded: true, decoration: const InputDecoration(labelText: 'Reklam hesabı'),items: (assets['adAccounts'] is List ? assets['adAccounts'] as List : []).whereType<Map>().map((a) => DropdownMenuItem(value: a['id'].toString(), child: Text('${a['name'] ?? 'Reklam hesabı'}', overflow: TextOverflow.ellipsis))).toList(), onChanged: busy ? null : (v) => setState(() => selectedAccount = v)),
-            const SizedBox(height: 16), FilledButton.icon(onPressed: busy || selectedPage == null || selectedAccount == null ? null : _selectAssets,icon: const Icon(Icons.link),label: const Text('Seçili hesapları bağla')),
-          ])),
+          ProductSurface(
+              child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                Text('Hangi hesapla devam edeceksin?',
+                    style: Theme.of(context).textTheme.titleLarge),
+                const SizedBox(height: 8),
+                const Text(
+                    'Instagram hesabı Sayfana bağlı olmalı. Bağlanacak hesapları açıkça seç.'),
+                const SizedBox(height: 16),
+                DropdownButtonFormField<String>(
+                    initialValue: selectedPage,
+                    isExpanded: true,
+                    decoration: const InputDecoration(
+                        labelText: 'Facebook Sayfası / Instagram'),
+                    items: (assets['pages'] is List
+                            ? assets['pages'] as List
+                            : [])
+                        .whereType<Map>()
+                        .map((p) => DropdownMenuItem(
+                            value: p['id'].toString(),
+                            child: Text(
+                                '${p['name'] ?? 'Sayfa'}${(p['instagramUserId']?.toString() ?? '').isEmpty ? ' · Instagram bağlantısı yok' : ''}',
+                                overflow: TextOverflow.ellipsis)))
+                        .toList(),
+                    onChanged:
+                        busy ? null : (v) => setState(() => selectedPage = v)),
+                const SizedBox(height: 16),
+                DropdownButtonFormField<String>(
+                    initialValue: selectedAccount,
+                    isExpanded: true,
+                    decoration:
+                        const InputDecoration(labelText: 'Reklam hesabı'),
+                    items: (assets['adAccounts'] is List
+                            ? assets['adAccounts'] as List
+                            : [])
+                        .whereType<Map>()
+                        .map((a) => DropdownMenuItem(
+                            value: a['id'].toString(),
+                            child: Text('${a['name'] ?? 'Reklam hesabı'}',
+                                overflow: TextOverflow.ellipsis)))
+                        .toList(),
+                    onChanged: busy
+                        ? null
+                        : (v) => setState(() => selectedAccount = v)),
+                const SizedBox(height: 16),
+                FilledButton.icon(
+                    onPressed:
+                        busy || selectedPage == null || selectedAccount == null
+                            ? null
+                            : _selectAssets,
+                    icon: const Icon(Icons.link),
+                    label: const Text('Seçili hesapları bağla')),
+              ])),
         ],
         const SizedBox(height: 12),
         const _InfoCard(
@@ -1366,7 +1454,7 @@ class _AdminCustomersPageState extends State<AdminCustomersPage> {
     final company = TextEditingController();
     final fullName = TextEditingController();
     final username = TextEditingController();
-    final password = TextEditingController(text: 'Advise123!');
+    final password = TextEditingController();
     final days = TextEditingController(text: '30');
     String plan = 'PRO';
 
@@ -1573,7 +1661,7 @@ class _AdminCustomersPageState extends State<AdminCustomersPage> {
   }
 
   Future<void> _resetCustomer(dynamic customer) async {
-    final password = TextEditingController(text: 'Advise123!');
+    final password = TextEditingController();
     final ok = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
@@ -2113,8 +2201,7 @@ class _DecisionHubPageState extends State<DecisionHubPage> {
   Future<void> _apply(Map<String, dynamic> row) async {
     final action = _text(row['action'], 'KEEP');
     if (action == 'KEEP' || busy) return;
-    if (!await _confirm(
-            '${_label(action)}?',
+    if (!await _confirm('${_label(action)}?',
             "${_text(row['reason'])}\n\nBu aksiyon bağlı Meta hesabına uygulanacak.") ||
         !mounted) return;
     setState(() => busy = true);
@@ -2185,8 +2272,7 @@ class _DecisionHubPageState extends State<DecisionHubPage> {
                 ]));
     c.dispose();
     if (value == null || !mounted) return;
-    if (!await _confirm(
-            'Bütçe değişikliğini onayla',
+    if (!await _confirm('Bütçe değişikliğini onayla',
             '${before.toStringAsFixed(2)} TL → ${value.toStringAsFixed(2)} TL / gün') ||
         !mounted) return;
     setState(() => busy = true);
@@ -2317,7 +2403,8 @@ class _DecisionHubPageState extends State<DecisionHubPage> {
                                   style:
                                       Theme.of(context).textTheme.titleMedium),
                               const SizedBox(height: 6),
-                              Text("${_label(_text(raw['action'], 'KEEP'))} · Güven: ${_text(raw['confidence'], '—')}%"),
+                              Text(
+                                  "${_label(_text(raw['action'], 'KEEP'))} · Güven: ${_text(raw['confidence'], '—')}%"),
                               const SizedBox(height: 8),
                               Text(_text(raw['reason'])),
                               if (_text(raw['action'], 'KEEP') != 'KEEP' &&
@@ -2481,15 +2568,16 @@ class _PageFrame extends StatelessWidget {
               icon: const Icon(Icons.refresh_rounded))
         ],
       ),
-      body: loading
-          ? const Center(child: CircularProgressIndicator())
-          : RefreshIndicator(
-              onRefresh: onRefresh,
-              child: ListView(
-                padding: const EdgeInsets.fromLTRB(14, 10, 14, 40),
-                children: content,
-              ),
-            ),
+      body: ProductContent(
+          child: loading
+              ? const ProductLoadingSkeleton()
+              : RefreshIndicator(
+                  onRefresh: onRefresh,
+                  child: ListView(
+                    padding: const EdgeInsets.fromLTRB(14, 10, 14, 40),
+                    children: content,
+                  ),
+                )),
     );
   }
 }

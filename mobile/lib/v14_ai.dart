@@ -6,10 +6,13 @@ import 'content_queue_page.dart';
 import 'media_access.dart';
 import 'app_error.dart';
 import 'product_ui.dart';
+import 'product_shell.dart';
 import 'social_ads_page.dart';
 
 class AiContentStudioPage extends StatefulWidget {
-  const AiContentStudioPage({super.key});
+  final Future<XFile?> Function()? mediaPicker;
+  final Future<DateTime?> Function()? schedulePicker;
+  const AiContentStudioPage({super.key, this.mediaPicker, this.schedulePicker});
 
   @override
   State<AiContentStudioPage> createState() => _AiContentStudioPageState();
@@ -28,6 +31,10 @@ class _AiContentStudioPageState extends State<AiContentStudioPage> {
   bool variantsLoading = false;
   bool scoreLoading = false;
   bool draftSaving = false;
+  bool _publishPending = false;
+  bool _canOperate = false, _accessLoaded = false, _accessStarted = false;
+  bool _statusLoading = true, _memoryLoading = true;
+  String? _statusError, _memoryError;
   String? savedPostId;
   DateTime? selectedScheduleTime;
 
@@ -46,6 +53,33 @@ class _AiContentStudioPageState extends State<AiContentStudioPage> {
   }
 
   @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final navigation = ProductNavigation.maybeOf(context);
+    if (navigation != null) {
+      _canOperate = navigation.canOperate;
+      _accessLoaded = true;
+    } else if (!_accessStarted) {
+      _accessStarted = true;
+      _loadAccess();
+    }
+  }
+
+  Future<void> _loadAccess() async {
+    try {
+      final me = await Api.me();
+      if (mounted)
+        setState(() {
+          _canOperate = ['ADMIN', 'CUSTOMER_ADMIN', 'MANAGER', 'OPERATOR']
+              .contains((me['user'] as Map?)?['role']);
+          _accessLoaded = true;
+        });
+    } catch (_) {
+      if (mounted) setState(() => _accessLoaded = true);
+    }
+  }
+
+  @override
   void dispose() {
     title.dispose();
     contextText.dispose();
@@ -54,21 +88,35 @@ class _AiContentStudioPageState extends State<AiContentStudioPage> {
   }
 
   Future<void> _loadAiStatus() async {
+    if (mounted)
+      setState(() {
+        _statusLoading = true;
+        _statusError = null;
+      });
     try {
       final data = await Api.aiStatus();
       if (mounted) setState(() => aiStatus = data);
-    } catch (_) {}
+    } catch (e) {
+      if (mounted) setState(() => _statusError = AppError.message(e));
+    } finally {
+      if (mounted) setState(() => _statusLoading = false);
+    }
   }
 
   Future<void> _loadMemory() async {
     try {
       final data = await Api.aiMemory();
       if (mounted) setState(() => memory = data);
-    } catch (_) {}
+    } catch (e) {
+      if (mounted) setState(() => _memoryError = AppError.message(e));
+    } finally {
+      if (mounted) setState(() => _memoryLoading = false);
+    }
   }
 
   Future<void> _pickMedia() async {
-    final picked = await MediaAccess.pickOne();
+    if (!_canOperate || loading || draftSaving) return;
+    final picked = await (widget.mediaPicker ?? MediaAccess.pickOne)();
     if (picked == null || !mounted) return;
 
     setState(() {
@@ -77,6 +125,7 @@ class _AiContentStudioPageState extends State<AiContentStudioPage> {
       variants = [];
       score = {};
       savedPostId = null;
+      _publishPending = false;
     });
   }
 
@@ -99,6 +148,7 @@ class _AiContentStudioPageState extends State<AiContentStudioPage> {
   }
 
   Future<void> _generate() async {
+    if (!_canOperate || loading || draftSaving || _publishPending) return;
     if (image == null && title.text.trim().isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
@@ -142,16 +192,18 @@ class _AiContentStudioPageState extends State<AiContentStudioPage> {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(
-            image != null
-                ? 'Görsel analiz edildi ve içerik paketi hazırlandı.'
-                : 'İçerik paketi hazırlandı.',
+            data['source'] != 'GEMINI'
+                ? 'Yerel içerik önerisi hazırlandı. Medya analizi doğrulanamadı.'
+                : image != null
+                    ? 'Medya analizi ve içerik paketi hazırlandı.'
+                    : 'İçerik paketi hazırlandı.',
           ),
         ),
       );
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(e.toString())),
+          SnackBar(content: Text(AppError.message(e))),
         );
       }
     } finally {
@@ -160,6 +212,7 @@ class _AiContentStudioPageState extends State<AiContentStudioPage> {
   }
 
   Future<void> _generateVariants() async {
+    if (!_canOperate || variantsLoading || draftSaving) return;
     if (title.text.trim().isEmpty && result == null) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Önce bir içerik üret.')),
@@ -192,7 +245,7 @@ class _AiContentStudioPageState extends State<AiContentStudioPage> {
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(e.toString())),
+          SnackBar(content: Text(AppError.message(e))),
         );
       }
     } finally {
@@ -273,6 +326,7 @@ class _AiContentStudioPageState extends State<AiContentStudioPage> {
   }
 
   Future<void> _scoreCreative() async {
+    if (!_canOperate || scoreLoading || draftSaving) return;
     if (result == null) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Önce AI içeriği üret.')),
@@ -298,7 +352,7 @@ class _AiContentStudioPageState extends State<AiContentStudioPage> {
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(e.toString())),
+          SnackBar(content: Text(AppError.message(e))),
         );
       }
     } finally {
@@ -333,6 +387,7 @@ class _AiContentStudioPageState extends State<AiContentStudioPage> {
   }
 
   Future<void> _saveAsDraft() async {
+    if (!_canOperate || draftSaving || _publishPending) return;
     if (image == null || result == null) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
@@ -392,6 +447,7 @@ class _AiContentStudioPageState extends State<AiContentStudioPage> {
   }
 
   Future<void> _publishNow({bool openAd = false}) async {
+    if (!_canOperate || draftSaving || _publishPending) return;
     if (image == null || result == null) return;
     final accepted = await showDialog<bool>(
         context: context,
@@ -415,8 +471,15 @@ class _AiContentStudioPageState extends State<AiContentStudioPage> {
     setState(() => draftSaving = true);
     try {
       await _storeDraft();
+      if (mounted) setState(() => _publishPending = true);
       final published = await Api.publishPost(savedPostId!);
       if (!mounted) return;
+      if (published['publishStatus'] != 'PUBLISHED') {
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+            content: Text(
+                'Instagram sonucu kontrol ediliyor. İçeriğin yeniden gönderilmesi bekletiliyor.')));
+        return;
+      }
       final mediaId = (published['instagramMediaId'] ??
               published['instagramPostId'] ??
               published['publishedMediaId'])
@@ -480,12 +543,13 @@ class _AiContentStudioPageState extends State<AiContentStudioPage> {
   }
 
   Future<void> _queueForPublish() async {
+    if (!_canOperate || draftSaving || _publishPending) return;
     if (image == null || result == null) {
       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
           content: Text('Kuyruğa eklemek için önce medya seçip içerik üret.')));
       return;
     }
-    final scheduleAt = await _pickPublishTime();
+    final scheduleAt = await (widget.schedulePicker ?? _pickPublishTime)();
     if (scheduleAt == null || !mounted) return;
     setState(() => draftSaving = true);
     try {
@@ -514,7 +578,7 @@ class _AiContentStudioPageState extends State<AiContentStudioPage> {
     } catch (e) {
       if (mounted)
         ScaffoldMessenger.of(context)
-            .showSnackBar(SnackBar(content: Text(e.toString())));
+            .showSnackBar(SnackBar(content: Text(AppError.message(e))));
     } finally {
       if (mounted) setState(() => draftSaving = false);
     }
@@ -534,6 +598,7 @@ class _AiContentStudioPageState extends State<AiContentStudioPage> {
       contextText.clear();
       captionDraft.clear();
       savedPostId = null;
+      _publishPending = false;
     });
   }
 
@@ -579,8 +644,9 @@ class _AiContentStudioPageState extends State<AiContentStudioPage> {
         children: [
           Row(
             children: [
-              Text(label, style: const TextStyle(fontWeight: FontWeight.w900)),
-              const Spacer(),
+              Expanded(
+                  child: Text(label,
+                      style: const TextStyle(fontWeight: FontWeight.w900))),
               if (value.trim().isNotEmpty)
                 IconButton(
                   tooltip: 'Kopyala',
@@ -670,7 +736,7 @@ class _AiContentStudioPageState extends State<AiContentStudioPage> {
                     child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                      Text(configured ? 'GEMINI STÜDYOSU' : 'YEREL ÜRETİM MODU',
+                      Text('ADVISE AI STUDIO',
                           style: const TextStyle(
                               color: Color(0xFFB8F5DE),
                               fontSize: 10,
@@ -678,14 +744,22 @@ class _AiContentStudioPageState extends State<AiContentStudioPage> {
                               fontWeight: FontWeight.w900)),
                       const SizedBox(height: 4),
                       Text(
-                          'Hafıza Sarayı • ${memory['generationCount'] ?? 0} üretim',
+                          _memoryLoading
+                              ? 'Öğrenme verisi yükleniyor…'
+                              : _memoryError != null
+                                  ? 'Öğrenme verisi alınamadı'
+                                  : 'AdVise öğreniyor • ${memory['generationCount'] ?? 0} üretim',
                           style: const TextStyle(
                               color: Colors.white,
                               fontWeight: FontWeight.w800)),
                       Text(
-                          configured
-                              ? 'Medyanı anlar, deneyiminden öğrenir.'
-                              : 'AI bağlantısını kontrol etmek için yeniden dene.',
+                          _statusLoading
+                              ? 'AI durumu kontrol ediliyor…'
+                              : _statusError != null
+                                  ? 'AI bağlantısı doğrulanamadı. Yeniden kontrol et.'
+                                  : configured
+                                      ? 'AI bağlantısı tanımlı. Analiz sonucu ayrıca doğrulanır.'
+                                      : 'AI bağlantısı kapalı. Yerel metin önerisi hazırlanabilir.',
                           style: TextStyle(
                               color: Colors.white.withValues(alpha: .76),
                               fontSize: 12)),
@@ -699,6 +773,25 @@ class _AiContentStudioPageState extends State<AiContentStudioPage> {
             ),
           ),
           const SizedBox(height: 12),
+          if (_accessLoaded && !_canOperate) ...[
+            const ProductInsightCard(
+                title: 'Görüntüleme yetkisi',
+                body:
+                    'AI üretimi, taslak kaydı ve yayınlama için işletme yöneticinden işlem yetkisi iste.',
+                icon: Icons.lock_outline),
+            const SizedBox(height: 12)
+          ],
+          if (_publishPending) ...[
+            ProductInsightCard(
+                title: 'Yayın sonucu doğrulanıyor',
+                body:
+                    'Aynı içerik iki kez paylaşılmasın diye taslak işlemleri bekletiliyor. Son durumu içerik planından kontrol edebilirsin.',
+                icon: Icons.hourglass_empty_rounded,
+                action: OutlinedButton(
+                    onPressed: _openQueue,
+                    child: const Text('İçerik planını aç'))),
+            const SizedBox(height: 12)
+          ],
           Wrap(spacing: 8, runSpacing: 8, children: [
             ProductStatusChip(
                 label: '1 · Medya seç',
@@ -716,9 +809,10 @@ class _AiContentStudioPageState extends State<AiContentStudioPage> {
               children: [
                 SizedBox(
                   width: double.infinity,
-                  height: 52,
                   child: OutlinedButton.icon(
-                    onPressed: loading ? null : _pickMedia,
+                    onPressed: loading || draftSaving || !_canOperate
+                        ? null
+                        : _pickMedia,
                     icon: const Icon(Icons.perm_media_outlined),
                     label: Text(
                       image == null ? 'MEDYA SEÇ' : 'MEDYAYI DEĞİŞTİR',
@@ -774,6 +868,7 @@ class _AiContentStudioPageState extends State<AiContentStudioPage> {
                 const SizedBox(height: 10),
                 TextField(
                   controller: title,
+                  readOnly: !_canOperate,
                   decoration: const InputDecoration(
                       labelText: 'Ürün veya gönderi başlığı (isteğe bağlı)',
                       prefixIcon: Icon(Icons.title_rounded)),
@@ -812,6 +907,7 @@ class _AiContentStudioPageState extends State<AiContentStudioPage> {
                 const SizedBox(height: 12),
                 TextField(
                   controller: contextText,
+                  readOnly: !_canOperate,
                   maxLines: 3,
                   decoration: const InputDecoration(
                     labelText: 'İsteğe bağlı not',
@@ -822,9 +918,13 @@ class _AiContentStudioPageState extends State<AiContentStudioPage> {
                 const SizedBox(height: 12),
                 SizedBox(
                   width: double.infinity,
-                  height: 54,
                   child: FilledButton.icon(
-                    onPressed: loading ? null : _generate,
+                    onPressed: loading ||
+                            !_canOperate ||
+                            draftSaving ||
+                            _publishPending
+                        ? null
+                        : _generate,
                     icon: loading
                         ? const SizedBox(
                             width: 19,
@@ -834,10 +934,10 @@ class _AiContentStudioPageState extends State<AiContentStudioPage> {
                         : const Icon(Icons.auto_awesome),
                     label: Text(
                       loading
-                          ? 'AI GÖRSELİ VE İÇERİĞİ ANALİZ EDİYOR...'
+                          ? 'İçeriğin hazırlanıyor…'
                           : image != null
-                              ? 'AI İLE ANALİZ ET VE İÇERİK OLUŞTUR'
-                              : 'AI İLE İÇERİK OLUŞTUR',
+                              ? 'AI ile medyayı analiz et'
+                              : 'AI ile içerik üret',
                     ),
                   ),
                 ),
@@ -855,11 +955,11 @@ class _AiContentStudioPageState extends State<AiContentStudioPage> {
                     children: [
                       const Icon(Icons.movie_filter_outlined),
                       const SizedBox(width: 8),
-                      const Text(
+                      const Expanded(
+                          child: Text(
                         'Önerilen format',
                         style: TextStyle(fontWeight: FontWeight.w900),
-                      ),
-                      const Spacer(),
+                      )),
                       Chip(
                         label: Text(
                           result!['recommendedFormat']?.toString() ?? '-',
@@ -872,7 +972,7 @@ class _AiContentStudioPageState extends State<AiContentStudioPage> {
                     ProductStatusChip(
                         label: source == 'GEMINI'
                             ? 'AI analizi tamamlandı'
-                            : 'AI bağlantısı kontrol gerekiyor',
+                            : 'Yerel öneri • medya analizi doğrulanmadı',
                         tone: source == 'GEMINI' ? 'success' : 'warning'),
                   if ((result?['error']?.toString() ?? '').trim().isNotEmpty)
                     _resultBox(
@@ -884,6 +984,7 @@ class _AiContentStudioPageState extends State<AiContentStudioPage> {
                     padding: const EdgeInsets.only(bottom: 9),
                     child: TextField(
                       controller: captionDraft,
+                      readOnly: !_canOperate || _publishPending,
                       minLines: 5,
                       maxLines: 12,
                       maxLength: 2200,
@@ -915,8 +1016,7 @@ class _AiContentStudioPageState extends State<AiContentStudioPage> {
                       const Icon(Icons.chat_outlined, size: 19),
                       const SizedBox(width: 8),
                       Expanded(
-                          child: Text(
-                              'Dönüş kanalı: ${result!['contactChannel'] ?? 'WHATSAPP'}',
+                          child: Text('Dönüş kanalı: WhatsApp',
                               style:
                                   const TextStyle(fontWeight: FontWeight.w700)))
                     ]),
@@ -965,7 +1065,10 @@ class _AiContentStudioPageState extends State<AiContentStudioPage> {
                     children: [
                       Expanded(
                         child: OutlinedButton.icon(
-                          onPressed: variantsLoading ? null : _generateVariants,
+                          onPressed:
+                              variantsLoading || !_canOperate || _publishPending
+                                  ? null
+                                  : _generateVariants,
                           icon: variantsLoading
                               ? const SizedBox(
                                   width: 16,
@@ -981,7 +1084,10 @@ class _AiContentStudioPageState extends State<AiContentStudioPage> {
                       const SizedBox(width: 8),
                       Expanded(
                         child: OutlinedButton.icon(
-                          onPressed: scoreLoading ? null : _scoreCreative,
+                          onPressed:
+                              scoreLoading || !_canOperate || _publishPending
+                                  ? null
+                                  : _scoreCreative,
                           icon: scoreLoading
                               ? const SizedBox(
                                   width: 16,
@@ -1006,15 +1112,17 @@ class _AiContentStudioPageState extends State<AiContentStudioPage> {
                       label: const Text('İçerik paketini kopyala'),
                     ),
                   ),
-                  if (image != null) ...[
+                  if (image != null && _canOperate) ...[
                     const SizedBox(height: 12),
                     Wrap(spacing: 8, runSpacing: 8, children: [
                       OutlinedButton.icon(
-                          onPressed: draftSaving ? null : () => _publishNow(),
+                          onPressed: draftSaving || _publishPending
+                              ? null
+                              : () => _publishNow(),
                           icon: const Icon(Icons.send_outlined),
                           label: const Text('Şimdi yayınla')),
                       OutlinedButton.icon(
-                          onPressed: draftSaving
+                          onPressed: draftSaving || _publishPending
                               ? null
                               : () => _publishNow(openAd: true),
                           icon: const Icon(Icons.campaign_outlined),
@@ -1024,7 +1132,9 @@ class _AiContentStudioPageState extends State<AiContentStudioPage> {
                     SizedBox(
                       width: double.infinity,
                       child: FilledButton.icon(
-                        onPressed: draftSaving ? null : _queueForPublish,
+                        onPressed: draftSaving || _publishPending
+                            ? null
+                            : _queueForPublish,
                         icon: draftSaving
                             ? const SizedBox(
                                 width: 18,
@@ -1041,7 +1151,9 @@ class _AiContentStudioPageState extends State<AiContentStudioPage> {
                     SizedBox(
                       width: double.infinity,
                       child: OutlinedButton.icon(
-                        onPressed: draftSaving ? null : _saveAsDraft,
+                        onPressed: draftSaving || _publishPending
+                            ? null
+                            : _saveAsDraft,
                         icon: const Icon(Icons.bookmark_add_outlined),
                         label: const Text('Taslak kaydet • Hafızaya bağla'),
                       ),
@@ -1078,13 +1190,14 @@ class _AiContentStudioPageState extends State<AiContentStudioPage> {
                       children: [
                         Row(
                           children: [
-                            Text(
+                            Expanded(
+                                child: Text(
                               '$variantId • $variantStyle',
                               style:
                                   const TextStyle(fontWeight: FontWeight.w900),
-                            ),
-                            const Spacer(),
+                            )),
                             IconButton(
+                              tooltip: 'Varyantı kopyala',
                               onPressed: () =>
                                   _copy('Varyant $variantId', variantCaption),
                               icon: const Icon(Icons.copy_outlined, size: 19),

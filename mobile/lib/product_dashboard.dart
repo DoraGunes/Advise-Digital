@@ -59,7 +59,9 @@ class _ProductDashboardPageState extends State<ProductDashboardPage> {
     final legacy = await Api.dashboard();
     final ads = _list(legacy['ads']);
     final posts = _list(legacy['posts']);
-    final scheduled = posts.where((p) => p['status'] == 'SCHEDULED').length;
+    final scheduled = posts
+        .where((p) => const ['QUEUED', 'RETRY'].contains(p['publishStatus']))
+        .length;
     return {
       'metaConnected': legacy['metaAvailable'] == true,
       'metrics': {
@@ -102,7 +104,8 @@ class _ProductDashboardPageState extends State<ProductDashboardPage> {
     final formatted = number == number.roundToDouble()
         ? number.toStringAsFixed(0)
         : number.toStringAsFixed(2);
-    return '${formatted.replaceAll('.', ',')}${money ? ' TL' : percent ? '%' : ''}';
+    final currency = data['currency']?.toString() ?? 'TRY';
+    return '${formatted.replaceAll('.', ',')}${money ? ' ${currency == 'TRY' ? 'TL' : currency}' : percent ? '%' : ''}';
   }
 
   String _date(dynamic value) {
@@ -118,11 +121,11 @@ class _ProductDashboardPageState extends State<ProductDashboardPage> {
     final metrics = _map(data['metrics']);
     final posts = _list(data['posts']);
     final queued = posts
-        .where((p) => const ['SCHEDULED', 'PUBLISHING', 'RECONCILE']
-            .contains(p['status']))
+        .where((p) => const ['QUEUED', 'RETRY', 'PUBLISHING', 'RECONCILE']
+            .contains(p['publishStatus']))
         .toList()
-      ..sort((a, b) => (a['scheduledAt']?.toString() ?? '')
-          .compareTo(b['scheduledAt']?.toString() ?? ''));
+      ..sort((a, b) => (a['nextPublishAt']?.toString() ?? '')
+          .compareTo(b['nextPublishAt']?.toString() ?? ''));
     final campaigns = _list(data['campaigns']);
     final brief = _map(data['dailyBrief'])['summary'];
     final briefLines =
@@ -382,10 +385,8 @@ class _ProductDashboardPageState extends State<ProductDashboardPage> {
     }
   }
 
-  Widget _recommendations(
-          BuildContext context,
-          List<Map<String, dynamic>> items,
-          ProductNavigation? navigation) =>
+  Widget _recommendations(BuildContext context,
+          List<Map<String, dynamic>> items, ProductNavigation? navigation) =>
       _section(
           context,
           'Sonraki hamleler',
@@ -422,7 +423,9 @@ class _ProductDashboardPageState extends State<ProductDashboardPage> {
                     decoration: BoxDecoration(
                       borderRadius: BorderRadius.circular(14),
                       border: Border.all(
-                          color: Theme.of(context).dividerColor.withValues(alpha: .7)),
+                          color: Theme.of(context)
+                              .dividerColor
+                              .withValues(alpha: .7)),
                     ),
                     child: Row(
                       crossAxisAlignment: CrossAxisAlignment.start,
@@ -553,9 +556,10 @@ class _ProductDashboardPageState extends State<ProductDashboardPage> {
                                         .colorScheme
                                         .primaryContainer,
                                     borderRadius: BorderRadius.circular(10)),
-                                child: Icon(p['mediaType'] == 'VIDEO'
-                                    ? Icons.videocam_outlined
-                                    : Icons.photo_outlined)),
+                                child: Icon(
+                                    ['VIDEO', 'REELS'].contains(p['mediaType'])
+                                        ? Icons.videocam_outlined
+                                        : Icons.photo_outlined)),
                             const SizedBox(width: 12),
                             Expanded(
                                 child: Column(
@@ -571,7 +575,7 @@ class _ProductDashboardPageState extends State<ProductDashboardPage> {
                                       style: const TextStyle(
                                           fontWeight: FontWeight.w600)),
                                   const SizedBox(height: 4),
-                                  Text(_date(p['scheduledAt']),
+                                  Text(_date(p['nextPublishAt']),
                                       style:
                                           Theme.of(context).textTheme.bodySmall)
                                 ]))

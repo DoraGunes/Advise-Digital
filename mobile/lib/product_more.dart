@@ -61,8 +61,6 @@ class ProductMorePage extends StatelessWidget {
                 'Yayınlama ve çalışma tercihleri',
                 Icons.settings_outlined,
                 SettingsPage(admin: navigation.isAdmin)),
-          _MoreItem('Bildirim tercihleri', 'Hangi uyarıları görmek istersin?',
-              Icons.notifications_active_outlined, const NotificationsPage()),
           _MoreItem('Bütçe planlama', 'Bir test bütçesini hesapla',
               Icons.calculate_outlined, const BudgetSimulatorPage()),
           _MoreItem('Bağlantı takibi', 'UTM içeren paylaşım bağlantıları',

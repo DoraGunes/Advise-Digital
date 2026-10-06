@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
+import {fixtureVideoFromJpeg} from './fixture-video.mjs';
 const fixture=await fs.mkdtemp(path.join(os.tmpdir(),'advise-v16-test-'));
 Object.assign(process.env,{DOTENV_CONFIG_PATH:path.join(fixture,'missing.env'),ADVISE_DATA_DIR:path.join(fixture,'data'),ADVISE_UPLOAD_DIR:path.join(fixture,'uploads'),JWT_SECRET:'test-only-session-secret',ADMIN_USERNAME:'fixture-admin',ADMIN_PASSWORD:'fixture-password',CRON_ENABLED:'false',ADVISE_NO_LISTEN:'true',NODE_ENV:'test',META_ACCESS_TOKEN:'fixture-system-token',META_AD_ACCOUNT_ID:'999',INSTAGRAM_ACCESS_TOKEN:'fixture-instagram-token',INSTAGRAM_USER_ID:'888',GEMINI_API_KEY:'',GOOGLE_API_KEY:'',META_APP_ID:'',META_APP_SECRET:'',META_REDIRECT_URI:''});
 const persistence=await import('../src/persistence.js');
@@ -16,6 +17,7 @@ const scheduler=await import('../src/scheduler.js');
 const optimizer=await import('../src/optimizer.js');
 const gemini=await import('../src/gemini-ads.js');
 const auth=await import('../src/auth.js');
+const ai=await import('../src/ai.js');
 const nativeFetch=global.fetch;
 const creds={accessToken:'fixture-tenant-token',adAccountId:'123',instagramUserId:'456',instagramAccessToken:'fixture-ig-token',pageId:'789'};
 let state={sets:[],ads:[],campaigns:[],calls:[],containerStatus:'FINISHED',failPublish:false,insights:{spend:'10',impressions:'100',reach:'90',clicks:'3',ctr:'3',actions:[{action_type:'messaging_conversation_started_7d',value:'2'}]}};
@@ -25,15 +27,24 @@ global.fetch=async(input,options={})=>{
   const url=new URL(String(input));if(!['graph.facebook.com','graph.instagram.com'].includes(url.host))return nativeFetch(input,options);
   const endpoint=url.pathname.replace(/^\/v\d+\.\d+\//,'').replace(/^\//,'');const body=new URLSearchParams(options.body||'');
   state.calls.push({endpoint,method:options.method||'GET',budget:body.get('daily_budget')});
-  if(endpoint.endsWith('/media_publish')){if(state.failPublish)throw new Error('Fixture network lost');state.containerStatus='PUBLISHED';return response({id:'9002'});}
+  if(endpoint.endsWith('/media_publish')){if(state.failPublish)throw new Error('Fixture network lost');if(state.beforePublish)await state.beforePublish();state.containerStatus='PUBLISHED';return response({id:'9002'});}
   if(endpoint.endsWith('/media')&&(options.method||'GET')==='POST'){assert.ok(body.get('access_token'));return response({id:'9001'});}
   if(endpoint==='9001')return response({status_code:state.containerStatus});
-  if(endpoint.endsWith('/adsets'))return response({data:state.sets});
+  if(endpoint.endsWith('/adsets')) {
+    const snapshot=structuredClone(state.sets);
+    if(state.accountReadBarrier) {
+      const call=state.accountReadCount||0;state.accountReadCount=call+1;
+      if(call%2===0)await new Promise(resolve=>{state.releaseAccountRead=resolve;setTimeout(resolve,2000);});
+      else state.releaseAccountRead();
+    }
+    return response({data:snapshot});
+  }
   if(endpoint.endsWith('/campaigns'))return response({data:state.campaigns});
   if(endpoint.endsWith('/ads'))return response({data:state.ads});
   if(endpoint.endsWith('/insights'))return response({data:[{date_start:'2026-10-05',...state.insights}]});
   if(endpoint.startsWith('act_'))return response({id:endpoint,account_id:endpoint.slice(4),currency:'TRY',name:'Fixture account'});
   if((options.method||'GET')==='POST') {
+    if(body.get('daily_budget')&&state.beforeBudgetWrite)await state.beforeBudgetWrite(endpoint);
     const set=state.sets.find(row=>row.id===endpoint);
     if(set&&body.get('daily_budget'))set.daily_budget=body.get('daily_budget');
     if(set&&body.get('status')){set.status=body.get('status');set.effective_status=body.get('status');}
@@ -42,6 +53,89 @@ global.fetch=async(input,options={})=>{
   return response({id:endpoint,account_id:endpoint==='555'?'other-account':'123'});
 };
 after(async()=>{global.fetch=nativeFetch;if(!path.resolve(fixture).startsWith(path.resolve(os.tmpdir())+path.sep))throw new Error('Fixture path outside temp');await fs.rm(fixture,{recursive:true,force:true});});
+
+const strategyAnswer={goal:'WhatsApp mesajı',audienceDescription:'Seçilen bölgede işletmenin ürününe ilgi duyan kitle',dailyBudget:200,creativeTitle:'Fixture creative',creativeFormat:'POST',creativeAngle:'Ürünün gerçek faydasını göster',hook:'Ürünü yakından keşfedin',recommendedTime:'19:30',scheduleReason:'Ölçülmüş saat kazananı olmadığı için başlangıç test hipotezi',testDurationDays:7,reasons:['İşletme hedefi WhatsApp mesajı'],warnings:[]};
+
+test('synthetic logo video is a consistent two-second indexed AVI container',async()=>{
+  const jpeg=await fs.readFile(new URL('../../mobile/assets/advise_logo.jpg',import.meta.url));const {video,metadata}=fixtureVideoFromJpeg(jpeg);
+  assert.equal(video.toString('ascii',0,4),'RIFF');assert.equal(video.readUInt32LE(4),video.length-8);assert.equal(video.toString('ascii',8,12),'AVI ');
+  assert.equal(metadata.durationSeconds,2);assert.equal(metadata.frameCount,20);assert.equal(metadata.fps,10);assert.ok(metadata.width>0&&metadata.height>0);
+  const movi=video.indexOf(Buffer.from('movi')),idx=video.indexOf(Buffer.from('idx1'));assert.ok(movi>0&&idx>movi);assert.equal(video.readUInt32LE(idx+4),20*16);
+  for(let i=0;i<20;i++) {
+    const at=idx+8+i*16,frame=movi+video.readUInt32LE(at+8);assert.equal(video.toString('ascii',frame,frame+4),'00dc');assert.equal(video.readUInt32LE(frame+4),jpeg.length);assert.deepEqual(video.subarray(frame+8,frame+8+jpeg.length),jpeg);
+  }
+});
+
+test('Gemini media maps browser video MIME aliases in inline and uploaded inputs',async()=>{
+  assert.equal(ai.normalizeGeminiMediaMime('video/quicktime'),'video/mov');assert.equal(ai.normalizeGeminiMediaMime('video/x-msvideo'),'video/avi');assert.equal(ai.normalizeGeminiMediaMime('video/x-m4v'),'video/mp4');
+  assert.equal(ai.normalizeGeminiMediaMime('VIDEO/QUICKTIME; codecs=avc1'),'video/mov');assert.equal(ai.normalizeGeminiMediaMime('video/webm'),'video/webm');assert.equal(ai.normalizeGeminiMediaMime('video/unsupported'),'video/unsupported');
+  const small=path.join(fixture,'small.avi');const jpeg=await fs.readFile(new URL('../../mobile/assets/advise_logo.jpg',import.meta.url));await fs.writeFile(small,fixtureVideoFromJpeg(jpeg).video);
+  const inline=await ai.fileToGeminiInputPart({},small,'video/x-msvideo','REELS');assert.equal(inline.type,'video');assert.equal(inline.mime_type,'video/avi');assert.ok(inline.data);
+  const large=path.join(fixture,'large-fixture.avi');const handle=await fs.open(large,'w');try {await handle.truncate(20*1024*1024+1);} finally {await handle.close();}
+  const uploaded=await ai.fileToGeminiInputPart({files:{upload:async options=>{assert.equal(options.config.mimeType,'video/avi');return {state:'ACTIVE',uri:'https://fixture.invalid/provider-file',mimeType:'video/x-msvideo'};}}},large,'video/x-msvideo','REELS');
+  assert.equal(uploaded.type,'video');assert.equal(uploaded.mime_type,'video/avi');assert.equal(uploaded.uri,'https://fixture.invalid/provider-file');assert.equal(uploaded.data,undefined);
+});
+
+test('campaign strategy is bounded, explicit and never an applied action',async()=>{
+  reset();let requested;
+  const result=await ai.generateCampaignStrategy({budgetLimit:150,accountDailyCap:300,locationMode:'CITY',locations:['Bolu'],reportAvailable:false,memoryOutcomeCount:0,profile:{businessName:'Fixture'},memoryContext:'tenant-owned context'},{request:async options=>{requested=options;return {model:'fixture-gemini',parsed:{...strategyAnswer,dailyBudget:9999}};}});
+  assert.equal(result.available,true);assert.equal(result.source,'GEMINI');assert.equal(result.model,'fixture-gemini');assert.equal(result.published,false);assert.equal(result.created,false);assert.equal(result.requiresApproval,true);
+  assert.equal(result.strategy.budget.dailyBudget,150);assert.deepEqual(result.strategy.audience.locations,['Bolu']);assert.ok(result.strategy.warnings.length>=3);
+  assert.ok(requested.schema.required.includes('dailyBudget'));assert.equal(state.calls.length,0);
+});
+
+test('invalid campaign strategy output cannot turn into a fake recommendation',async()=>{
+  const result=await ai.generateCampaignStrategy({budgetLimit:150},{request:async()=>({model:'fixture-gemini',parsed:{...strategyAnswer,recommendedTime:'25:99'}})});
+  assert.equal(result.available,false);assert.equal(result.strategy,null);assert.equal(result.source,'UNAVAILABLE');
+});
+
+test('unconfigured Gemini strategy has no fallback creative or remote calls',async()=>{
+  reset();const result=await ai.generateCampaignStrategy({budgetLimit:150});
+  assert.equal(result.available,false);assert.equal(result.strategy,null);assert.equal(result.model,null);assert.equal(state.calls.length,0);
+});
+
+test('Gemini logs and failure DTOs never expose secret-bearing provider exceptions',async()=>{
+  const secret='FIXTURE_PROVIDER_SECRET_ONLY',error=new Error(`Unauthorized https://fixture.invalid/?key=${secret} Authorization: Bearer ${secret} provider-body=${secret}`);error.status=401;error.code=secret;
+  const captured=[],originals={log:console.log,warn:console.warn,error:console.error};console.log=(...args)=>captured.push(args);console.warn=(...args)=>captured.push(args);console.error=(...args)=>captured.push(args);
+  try {
+    await assert.rejects(ai.callGemini({prompt:'Synthetic private prompt',mediaParts:[]},{client:{interactions:{create:async()=>{throw error;}}}}));
+    const pack=await ai.generateContentPack({title:'Fixture product'},{request:async()=>{throw error;}});
+    const strategy=await ai.generateCampaignStrategy({budgetLimit:150},{request:async()=>{throw error;}});
+    assert.equal(pack.errorCategory,'AUTHENTICATION_ERROR');assert.equal(strategy.available,false);assert.equal(strategy.errorCategory,'AUTHENTICATION_ERROR');
+    const serialized=JSON.stringify({captured,pack,strategy,safe:ai.safeGeminiError(error)});assert.ok(!serialized.includes(secret));assert.ok(!serialized.includes('fixture.invalid'));assert.ok(!serialized.includes('Synthetic private prompt'));
+    assert.ok(captured.some(row=>row[0]==='[AI GEMINI INTERACTIONS ERROR]'&&row[1].status===401));
+  } finally {Object.assign(console,originals);}
+});
+
+test('campaign strategy uses only tenant-owned media memory and real report context',async()=>{
+  reset();const tenant=await store.createTenant({companyName:'Strategy fixture',plan:'AGENCY'});
+  await store.updateTenant(tenant.id,{meta:{connected:true,...creds},onboarding:{businessName:'Own business',industry:'Retail',dailyBudget:250}});
+  await store.saveSettings(tenant.id,{geminiAdsDailyCap:300});await store.savePosts(tenant.id,[{id:'own-media',title:'Owned creative',caption:'Owned caption',mediaType:'POST'}]);
+  await memory.learnFromGeneration('other-strategy-tenant',{source:'GEMINI',productName:'FOREIGN_TENANT_ONLY_SECRET',hook:'Foreign hook'});
+  let prompt='';const result=await product.productStrategy(tenant.id,{postId:'own-media'},{actorId:'fixture-operator',request:async options=>{prompt=options.prompt;return {model:'fixture-gemini',parsed:strategyAnswer};}});
+  assert.equal(result.evidence.selectedPostId,'own-media');assert.equal(result.evidence.reportAvailable,true);assert.ok(prompt.includes('Owned creative'));assert.ok(prompt.includes('"spend":10'));
+  assert.ok(!prompt.includes('FOREIGN_TENANT_ONLY_SECRET'));assert.ok(!prompt.includes(creds.accessToken));assert.ok(!state.calls.some(row=>row.method==='POST'));
+  assert.equal((await store.getLogs(tenant.id)).find(row=>row.type==='AI_CAMPAIGN_STRATEGY_GENERATED').actorId,'fixture-operator');
+  await assert.rejects(product.productStrategy(tenant.id,{postId:'foreign-media'}),/bu hesaba ait değil/);
+});
+
+test('Gemini ad metrics deduplicate aliases and missing data blocks automation',()=>{
+  const metrics=gemini.actionMetrics({spend:40,actions:[{action_type:'onsite_conversion.messaging_conversation_started_7d',value:4},{action_type:'messaging_conversation_started_7d',value:4}]});
+  assert.equal(metrics.messages7d,4);assert.equal(metrics.messageCost7d,10);
+  assert.equal(gemini.canAutomateAdDecision({confidence:99,adSet:{metricsAvailable:false,spend7d:null}},{earlyMinSpendBeforeDecision:50}),false);
+  assert.equal(gemini.canAutomateAdDecision({confidence:99,adSet:{metricsAvailable:true,spend7d:40}},{earlyMinSpendBeforeDecision:50}),false);
+  assert.equal(gemini.canAutomateAdDecision({confidence:99,adSet:{metricsAvailable:true,spend7d:50}},{earlyMinSpendBeforeDecision:50}),true);
+});
+
+test('shared Meta account cap serializes mutations from different tenants',async()=>{
+  reset();const a=await store.createTenant({companyName:'Shared account A',plan:'AGENCY'}),b=await store.createTenant({companyName:'Shared account B',plan:'AGENCY'});
+  for(const tenant of [a,b]){await store.updateTenant(tenant.id,{meta:{connected:true,...creds}});await store.saveSettings(tenant.id,{geminiAdsDailyCap:220});}
+  state.sets=[{id:'222',daily_budget:'10000',status:'ACTIVE',effective_status:'ACTIVE',targeting:{geo_locations:{countries:['TR']}}},{id:'223',daily_budget:'10000',status:'ACTIVE',effective_status:'ACTIVE',targeting:{geo_locations:{countries:['TR']}}}];
+  state.accountReadBarrier=true;
+  await Promise.allSettled([gemini.applyGeminiAdDecision(a.id,{adSetId:'222',action:'INCREASE_BUDGET'}),gemini.applyGeminiAdDecision(b.id,{adSetId:'223',action:'INCREASE_BUDGET'})]);
+  const total=state.sets.reduce((sum,row)=>sum+Number(row.daily_budget)/100,0);
+  assert.ok(total<=220,`Shared daily cap exceeded: ${total}`);
+});
 
 test('tenant credentials never use system environment as fallback',()=>{
   assert.equal(meta.resolveCredentials({}).accessToken,'');assert.equal(meta.resolveCredentials({connected:false}).adAccountId,'');
@@ -214,4 +308,80 @@ test('HTTP capability, auth, viewer enforcement and callback reachability',async
     const agency=await nativeFetch(`${base}/api/pro/agency`,{headers:{authorization:`Bearer ${session.token}`}});assert.equal(agency.status,403);
     const overview=await nativeFetch(`${base}/api/product/overview`,{headers:{authorization:`Bearer ${session.token}`}});assert.equal(overview.status,200);const data=await overview.json();assert.equal(data.metrics.spend,null);assert.equal(data.me.tenant.meta.accessToken,undefined);
   } finally {await new Promise(resolve=>listener.close(resolve));}
+});
+
+test('HTTP post edit queue cover and delete preserve pending or completed publication',async()=>{
+  reset();const tenant=await store.createTenant({companyName:'Publication guard fixture',plan:'AGENCY'});
+  await auth.createTenantUser({tenantId:tenant.id,username:'publication-manager',password:'manager-password',role:'MANAGER'});
+  const session=await auth.login('publication-manager','manager-password');
+  const source=path.join(process.env.ADVISE_UPLOAD_DIR,'protected-fixture.mp4');await fs.writeFile(source,'fixture media');
+  const posts=[{id:'publishing',publishStatus:'PUBLISHING'},{id:'reconcile',publishStatus:'RECONCILE'},{id:'published',publishStatus:'PUBLISHED'},{id:'ambiguous',publishStatus:'READY',publishAmbiguous:true},{id:'submitting',publishStatus:'RETRY',publishPhase:'SUBMITTING'}].map(row=>({...row,mediaType:'REELS',filePath:source,caption:'Original caption'}));
+  await store.savePosts(tenant.id,posts);const savedBefore=await store.getPosts(tenant.id),filesBefore=await fs.readdir(process.env.ADVISE_UPLOAD_DIR);
+  const {app}=await import('../src/server.js');const listener=app.listen(0,'127.0.0.1');await new Promise(resolve=>listener.once('listening',resolve));const base=`http://127.0.0.1:${listener.address().port}`;
+  const headers={authorization:`Bearer ${session.token}`};
+  try {
+    for(const post of posts) {
+      const url=`${base}/api/posts/${post.id}`;
+      assert.equal((await nativeFetch(url,{method:'PATCH',headers:{...headers,'content-type':'application/json'},body:JSON.stringify({caption:'Must not change'})})).status,409);
+      assert.equal((await nativeFetch(`${url}/queue`,{method:'POST',headers:{...headers,'content-type':'application/json'},body:JSON.stringify({scheduleAt:new Date(Date.now()+3600000).toISOString()})})).status,409);
+      const form=new FormData();form.append('cover',new Blob(['fixture jpeg'],{type:'image/jpeg'}),'cover.jpg');
+      assert.equal((await nativeFetch(`${url}/cover`,{method:'POST',headers,body:form})).status,409);
+      assert.equal((await nativeFetch(url,{method:'DELETE',headers})).status,409);
+    }
+    assert.deepEqual(await store.getPosts(tenant.id),savedBefore);assert.equal(await fs.readFile(source,'utf8'),'fixture media');
+    assert.deepEqual(await fs.readdir(process.env.ADVISE_UPLOAD_DIR),filesBefore);assert.equal(state.calls.length,0);
+    await store.savePosts(tenant.id,[...posts,{id:'draft-delete',publishStatus:'READY'}]);
+    assert.equal((await nativeFetch(`${base}/api/posts/draft-delete`,{method:'DELETE',headers})).status,200);
+  } finally {await new Promise(resolve=>listener.close(resolve));}
+});
+
+test('HTTP publish-due works only on the authenticated tenant queue',async()=>{
+  reset();const tenant=await store.createTenant({companyName:'Tenant publish due fixture',plan:'AGENCY'});await store.updateTenant(tenant.id,{meta:{connected:true,...creds}});
+  await auth.createTenantUser({tenantId:tenant.id,username:'publish-due-manager',password:'manager-password',role:'MANAGER'});const session=await auth.login('publish-due-manager','manager-password');
+  const pending=id=>({id,publicUrl:'https://fixture.invalid/image.jpg',publishStatus:'QUEUED',nextPublishAt:new Date(Date.now()-10000).toISOString(),autoPublish:true});
+  await store.saveSettings(tenant.id,{autoPublish:true});await store.saveSettings('system',{autoPublish:true});
+  await store.savePosts('system',[pending('system-only')]);await store.savePosts(tenant.id,[pending('tenant-only')]);
+  const {app}=await import('../src/server.js');const listener=app.listen(0,'127.0.0.1');await new Promise(resolve=>listener.once('listening',resolve));const base=`http://127.0.0.1:${listener.address().port}`;
+  try {
+    const result=await nativeFetch(`${base}/api/automation/publish-due`,{method:'POST',headers:{authorization:`Bearer ${session.token}`}});assert.equal(result.status,200);assert.equal((await result.json()).published,1);
+    assert.equal((await store.getPosts('system'))[0].publishStatus,'QUEUED');assert.equal((await store.getPosts(tenant.id))[0].publishStatus,'PUBLISHED');
+    assert.ok(state.calls.filter(row=>row.endpoint.endsWith('/media_publish')).every(row=>row.endpoint.startsWith('456/')));
+  } finally {await store.savePosts('system',[]);await new Promise(resolve=>listener.close(resolve));}
+});
+
+test('HTTP disconnected budget mutation retains the account lock until its handler settles',async()=>{
+  reset();const tenant=await store.createTenant({companyName:'Disconnected budget fixture',plan:'AGENCY'});await store.updateTenant(tenant.id,{meta:{connected:true,...creds}});await store.saveSettings(tenant.id,{geminiAdsDailyCap:220,maxDailyBudget:220});
+  state.sets=[{id:'22401',daily_budget:'10000',status:'ACTIVE'},{id:'22402',daily_budget:'10000',status:'ACTIVE'}];
+  await auth.createTenantUser({tenantId:tenant.id,username:'disconnect-manager',password:'manager-password',role:'MANAGER'});const session=await auth.login('disconnect-manager','manager-password');
+  let releaseWrite,writeStarted,writeFinished;const heldWrite=new Promise(resolve=>{releaseWrite=resolve;}),started=new Promise(resolve=>{writeStarted=resolve;}),finished=new Promise(resolve=>{writeFinished=resolve;});
+  state.beforeBudgetWrite=async id=>{if(id==='22401'){writeStarted();await heldWrite;queueMicrotask(writeFinished);}};
+  const {app}=await import('../src/server.js');const listener=app.listen(0,'127.0.0.1');await new Promise(resolve=>listener.once('listening',resolve));const base=`http://127.0.0.1:${listener.address().port}`;
+  const headers={authorization:`Bearer ${session.token}`,'content-type':'application/json'},controller=new AbortController();
+  try {
+    const first=nativeFetch(`${base}/api/budget/22401`,{method:'POST',headers,body:JSON.stringify({dailyBudget:115}),signal:controller.signal}).catch(error=>error);
+    await Promise.race([started,first.then(result=>{throw new Error(`Fixture budget did not reach write: ${result.status||result.name}`);})]);controller.abort();await first;
+    await new Promise(resolve=>setTimeout(resolve,100));
+    const second=nativeFetch(`${base}/api/budget/22402`,{method:'POST',headers,body:JSON.stringify({dailyBudget:115})});
+    await Promise.race([second,new Promise(resolve=>setTimeout(resolve,1000))]);releaseWrite();await finished;await second;
+    await persistence.withTenantLock(tenant.id,async()=>{});
+    const total=state.sets.reduce((sum,row)=>sum+Number(row.daily_budget)/100,0);assert.ok(total<=220,`Disconnected mutation exceeded cap: ${total}`);
+    assert.equal((await nativeFetch(`${base}/api/posts/not-found`,{method:'DELETE',headers})).status,404,'Completed/error handlers must release the tenant lock');
+  } finally {releaseWrite();await new Promise(resolve=>listener.close(resolve));}
+});
+
+test('HTTP post writes wait for the scheduler publication lock and re-read its final status',async()=>{
+  reset();const tenant=await store.createTenant({companyName:'Concurrent publication fixture',plan:'AGENCY'});await store.updateTenant(tenant.id,{meta:{connected:true,...creds}});
+  await auth.createTenantUser({tenantId:tenant.id,username:'concurrent-post-manager',password:'manager-password',role:'MANAGER'});const session=await auth.login('concurrent-post-manager','manager-password');
+  const source=path.join(process.env.ADVISE_UPLOAD_DIR,'concurrent-post-fixture.mp4');await fs.writeFile(source,'fixture video');
+  await store.savePosts(tenant.id,[{id:'held-publication',mediaType:'REELS',caption:'Original',filePath:source,publicUrl:'https://fixture.invalid/video.mp4',publishStatus:'READY'}]);
+  const filesBefore=await fs.readdir(process.env.ADVISE_UPLOAD_DIR);let releasePublish,markStarted;const hold=new Promise(resolve=>{releasePublish=resolve;}),started=new Promise(resolve=>{markStarted=resolve;});state.beforePublish=async()=>{markStarted();await hold;};
+  const {app}=await import('../src/server.js');const listener=app.listen(0,'127.0.0.1');await new Promise(resolve=>listener.once('listening',resolve));const base=`http://127.0.0.1:${listener.address().port}`,headers={authorization:`Bearer ${session.token}`};
+  const publishing=scheduler.publishPost(tenant.id,'held-publication');await started;assert.equal((await store.getPosts(tenant.id))[0].publishStatus,'PUBLISHING');
+  try {
+    let settled=0;const url=`${base}/api/posts/held-publication`,form=new FormData();form.append('cover',new Blob(['fixture jpeg'],{type:'image/jpeg'}),'cover.jpg');
+    const requests=[nativeFetch(url,{method:'PATCH',headers:{...headers,'content-type':'application/json'},body:JSON.stringify({caption:'Must not change'})}),nativeFetch(`${url}/queue`,{method:'POST',headers:{...headers,'content-type':'application/json'},body:'{}'}),nativeFetch(`${url}/cover`,{method:'POST',headers,body:form}),nativeFetch(url,{method:'DELETE',headers})].map(p=>p.then(result=>{settled++;return result;}));
+    await new Promise(resolve=>setTimeout(resolve,100));assert.equal(settled,0,'Post writes must wait for the active publisher');
+    releasePublish();await publishing;const responses=await Promise.all(requests);assert.ok(responses.every(row=>row.status===409));
+    const saved=(await store.getPosts(tenant.id))[0];assert.equal(saved.publishStatus,'PUBLISHED');assert.equal(saved.caption,'Original');assert.equal(await fs.readFile(source,'utf8'),'fixture video');assert.deepEqual(await fs.readdir(process.env.ADVISE_UPLOAD_DIR),filesBefore);
+  } finally {releasePublish();await publishing;await new Promise(resolve=>listener.close(resolve));}
 });

@@ -21,6 +21,9 @@ class _ProductOnboardingPageState extends State<ProductOnboardingPage> {
   List<String> cities = [], regions = [];
   Map<String, dynamic> connection = {};
   bool loading = true, saving = false, completed = false;
+  bool analyzing = false;
+  Map<String, dynamic>? initialStrategy;
+  String? analysisError;
   int step = 0;
   String? error;
   static const _steps = ['İşletmen', 'Hedefin', 'Bölgen', 'Bütçen', 'Bağlantı'];
@@ -135,7 +138,11 @@ class _ProductOnboardingPageState extends State<ProductOnboardingPage> {
         });
       }
     } catch (e) {
-      if (mounted) setState(() { step = previousStep; error = productFriendlyError(e); });
+      if (mounted)
+        setState(() {
+          step = previousStep;
+          error = productFriendlyError(e);
+        });
     } finally {
       if (mounted) setState(() => saving = false);
     }
@@ -157,6 +164,32 @@ class _ProductOnboardingPageState extends State<ProductOnboardingPage> {
             Map<String, dynamic>.from(profile['connection'] ?? {}));
     } catch (e) {
       if (mounted) setState(() => error = productFriendlyError(e));
+    }
+  }
+
+  Future<void> _analyzeBusiness() async {
+    if (saving || analyzing) return;
+    setState(() {
+      analyzing = true;
+      analysisError = null;
+    });
+    try {
+      final result = await Api.productStrategy(_values());
+      if (!mounted) return;
+      setState(() {
+        initialStrategy =
+            result['available'] == true && result['strategy'] is Map
+                ? Map<String, dynamic>.from(result['strategy'])
+                : null;
+        if (initialStrategy == null) {
+          analysisError = productFriendlyError(
+              result['error'] ?? 'AI başlangıç önerisi hazırlanamadı.');
+        }
+      });
+    } catch (e) {
+      if (mounted) setState(() => analysisError = productFriendlyError(e));
+    } finally {
+      if (mounted) setState(() => analyzing = false);
     }
   }
 
@@ -313,37 +346,73 @@ class _ProductOnboardingPageState extends State<ProductOnboardingPage> {
                           const ProductInsightCard(
                               title: 'İlk içerik için hazırsın',
                               body:
-                                  'AI Studio’ya bir fotoğraf veya video ekle. AdVise ürününü analiz edip WhatsApp odaklı bir içerik hazırlasın.')
+                                  'AI Studio’ya bir fotoğraf veya video ekle. AdVise ürününü analiz edip WhatsApp odaklı bir içerik hazırlasın.'),
+                          const SizedBox(height: 16),
+                          OutlinedButton.icon(
+                              onPressed:
+                                  saving || analyzing ? null : _analyzeBusiness,
+                              icon: const Icon(Icons.auto_awesome_outlined),
+                              label: Text(analyzing
+                                  ? 'İşletme önerisi hazırlanıyor…'
+                                  : 'AI başlangıç önerisi al')),
+                          const SizedBox(height: 8),
+                          const Text(
+                              'Bu öneri işletme profilini ve mevcut performansı kullanır. Reklam açmaz veya bütçe değiştirmez.'),
+                          if (analysisError != null)
+                            ProductErrorState(message: analysisError!),
+                          if (initialStrategy != null) ...[
+                            const SizedBox(height: 12),
+                            ProductInsightCard(
+                                title: 'Gemini başlangıç önerisi',
+                                body: [
+                                  initialStrategy!['hook'],
+                                  if (initialStrategy!['creative'] is Map)
+                                    initialStrategy!['creative']['angle'],
+                                  if (initialStrategy!['audience'] is Map)
+                                    initialStrategy!['audience']['description'],
+                                  if (initialStrategy!['reasons'] is List)
+                                    ...(initialStrategy!['reasons'] as List),
+                                ]
+                                    .where((value) =>
+                                        value != null &&
+                                        value.toString().trim().isNotEmpty)
+                                    .join('\n')),
+                          ],
                         ]
                       ]),
               }),
               const SizedBox(height: 24),
-              Row(children: [
-                if (step > 0)
-                  OutlinedButton(
-                      onPressed: saving
-                          ? null
-                          : () => setState(() {
-                                step--;
-                                error = null;
-                              }),
-                      child: const Text('Geri')),
-                const Spacer(),
-                FilledButton.icon(
-                    onPressed: saving || (step == 4 && !ready)
-                        ? null
-                        : () => _save(finish: step == 4),
-                    icon: saving
-                        ? const SizedBox(
-                            width: 18,
-                            height: 18,
-                            child: CircularProgressIndicator(strokeWidth: 2))
-                        : Icon(step == 4
-                            ? Icons.check_rounded
-                            : Icons.arrow_forward_rounded),
-                    label: Text(
-                        step == 4 ? 'Kurulumu tamamla' : 'Kaydet ve devam et')),
-              ]),
+              Wrap(
+                  spacing: 12,
+                  runSpacing: 12,
+                  alignment: WrapAlignment.end,
+                  children: [
+                    if (step > 0)
+                      OutlinedButton(
+                          onPressed: saving
+                              ? null
+                              : () => setState(() {
+                                    step--;
+                                    error = null;
+                                  }),
+                          child: const Text('Geri')),
+                    FilledButton.icon(
+                        onPressed: saving || (step == 4 && !ready)
+                            ? null
+                            : () => _save(finish: step == 4),
+                        icon: saving
+                            ? const SizedBox(
+                                width: 18,
+                                height: 18,
+                                child:
+                                    CircularProgressIndicator(strokeWidth: 2))
+                            : Icon(step == 4
+                                ? Icons.check_rounded
+                                : Icons.arrow_forward_rounded),
+                        label: Text(step == 4
+                            ? 'Kurulumu tamamla'
+                            : 'Kaydet ve devam et')),
+                  ]),
             ],
           ])),
     );

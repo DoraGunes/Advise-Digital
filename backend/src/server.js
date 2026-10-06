@@ -23,9 +23,9 @@ import {generateContentPack, generateCaption, generateCaptionVariants, scoreCrea
 import {learnFromGeneration, linkGenerationToPost, getMemorySummary} from './ai-memory.js';
 import {runGeminiAdReview, applyGeminiAdDecision} from './gemini-ads.js';
 import {withTenantLock} from './persistence.js';
-import {tenantCredentials,metaReady,budgetGuard,activationGuard} from './automation-safety.js';
+import {tenantCredentials,metaReady,budgetGuard,activationGuard,withAdAccountLock} from './automation-safety.js';
 import {metaOAuthCallback,startMetaOAuth,metaAssets,selectMetaAssets} from './meta-oauth.js';
-import {productOverview,productReport,onboardingStatus,saveOnboarding} from './product.js';
+import {productOverview,productReport,onboardingStatus,saveOnboarding,productStrategy} from './product.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const uploadDir = path.resolve(process.env.ADVISE_UPLOAD_DIR || path.resolve(__dirname, '../uploads'));
@@ -110,9 +110,37 @@ function hasInstagramCredentials(credentials = {}) {
   const c=resolveCredentials(credentials);
   return Boolean(c.instagramUserId&&c.instagramAccessToken);
 }
+function postPublicationProtected(post) {
+  return ['PUBLISHED','PUBLISHING','RECONCILE'].includes(post.publishStatus) || Boolean(post.publishAmbiguous) || ['SUBMITTING','RECONCILE'].includes(post.publishPhase);
+}
 await ensureAdmin();
 
 export const app = express();
+const requestMutations = new WeakMap();
+function trackedMutationHandler(handler) {
+  if(Array.isArray(handler))return handler.map(trackedMutationHandler);
+  if(typeof handler!=='function'||handler.length===4)return handler;
+  return (req,res,next)=>{
+    const operation=requestMutations.get(req);
+    let resolveTask;const task=new Promise(resolve=>{resolveTask=resolve;});
+    operation?.pending.add(task);
+    const settled=()=>{operation?.pending.delete(task);resolveTask();};
+    try {
+      // A deferred upload middleware may finish after the client disconnects.
+      // Do not start its subsequent data/Meta mutation; remove newly uploaded files.
+      const result=(req.aborted||res.destroyed)
+        ? Promise.all([req.file,...(Array.isArray(req.files)?req.files:Object.values(req.files||{}).flat())].filter(Boolean).map(file=>fs.rm(file.path,{force:true}).catch(()=>{})))
+        : handler(req,res,next);
+      if(result&&typeof result.then==='function')Promise.resolve(result).catch(next).finally(settled);
+      else settled();
+    } catch(error) {settled();next(error);}
+  };
+}
+// Keep each asynchronous write handler observable without changing its Express contract.
+for(const method of ['post','put','patch','delete']) {
+  const register=app[method].bind(app);
+  app[method]=(route,...handlers)=>register(route,...handlers.map(trackedMutationHandler));
+}
 app.set('trust proxy', true);
 app.use(cors());
 app.use(express.json({limit: '2mb'}));
@@ -124,7 +152,7 @@ app.get('/health', (_req, res) => res.json({
   version: config.appVersion,
   apiVersion:16,
   minClientVersion:'14.0.0',
-  capabilities:{productExperience:true,productOverview:true,productReporting:true,onboarding:true,scheduledPublishing:true,geminiAdReview:true,safeAutomationV16:true},
+  capabilities:{productExperience:true,productOverview:true,productReporting:true,onboarding:true,scheduledPublishing:true,geminiAdReview:true,safeAutomationV16:true,campaignStrategy:true},
   buildMarker: 'ADVISE_PRODUCT_V16_2026_10_05',
   uploadMode: 'EXTENSION_AWARE',
   aiImageMode: 'GEMINI_INTERACTIONS_MULTIMODAL'
@@ -166,12 +194,26 @@ app.use('/api', (req,res,next)=>{
     return value;
   };
   res.json=body=>originalJson(safe(body));
-  const feature=req.path.startsWith('/ai/')?'aiContent':req.path.startsWith('/automation/')||req.path.includes('/gemini-')?'automation':req.path.startsWith('/product/report')?'analytics':null;
+  const feature=req.path.startsWith('/ai/')||req.path==='/product/strategy'?'aiContent':req.path.startsWith('/automation/')||req.path.includes('/gemini-')?'automation':req.path.startsWith('/product/report')?'analytics':null;
   if(feature && req.user.role!=='ADMIN' && req.tenant.features?.[feature]!==true)return res.status(403).json({error:'Bu özellik mevcut paketinizde etkin değil.'});
   if(['GET','HEAD','OPTIONS'].includes(req.method))return next();
   const personal=req.path==='/profile/password'||/^\/pro\/alerts\/[^/]+\/read$/.test(req.path);
   if(!personal&&!['ADMIN','CUSTOMER_ADMIN','MANAGER','OPERATOR'].includes(req.user.role))return res.status(403).json({error:'Bu işlem için yetkiniz bulunmuyor.'});
-  withTenantLock(req.user.tenantId,()=>new Promise(resolve=>{res.once('finish',resolve);res.once('close',resolve);next();})).catch(error=>{if(!res.headersSent)res.status(409).json({error:error.message});});
+  const operation={pending:new Set()};requestMutations.set(req,operation);
+  const finish=()=>new Promise(resolve=>{
+    let finishing=false;
+    const completed=async()=>{
+      if(finishing)return;finishing=true;
+      // Socket close is not completion of an outstanding Graph/file write.
+      while(operation.pending.size)await Promise.allSettled([...operation.pending]);
+      res.off('finish',completed);res.off('close',completed);resolve();
+    };
+    if(req.aborted||res.destroyed){void completed();return;}
+    res.once('finish',completed);res.once('close',completed);next();
+    if(res.writableEnded||res.destroyed)void completed();
+  });
+  const financial=/^\/(ads\/create|ads\/gemini-apply|status\/|budget\/|automation\/run)/.test(req.path);
+  withTenantLock(req.user.tenantId,()=>financial?withAdAccountLock(req.user.tenantId,finish):finish()).catch(error=>{if(!res.headersSent)res.status(409).json({error:error.message});});
 });
 
 app.get('/api/system/health', async (_req, res) => {
@@ -185,6 +227,7 @@ app.get('/api/me', async (req, res) => {
 
 app.get('/api/product/overview',async(req,res)=>{try{res.json(await productOverview(req.user.tenantId,req.user));}catch{res.status(503).json({error:'Ana sayfa verileri alınamadı. Yeniden deneyin.'});}});
 app.get('/api/product/report',async(req,res)=>{try{res.json(await productReport(req.user.tenantId,req.query));}catch(error){res.status(400).json({error:error.message});}});
+app.post('/api/product/strategy',allowRoles('ADMIN','CUSTOMER_ADMIN','MANAGER','OPERATOR'),async(req,res)=>{try{res.json(await productStrategy(req.user.tenantId,req.body||{},{actorId:req.user.id}));}catch(error){res.status(400).json({error:error.message});}});
 app.get('/api/product/onboarding',async(req,res)=>{try{res.json(await onboardingStatus(req.user.tenantId));}catch(error){res.status(503).json({error:'Kurulum bilgileri alınamadı.'});}});
 app.put('/api/product/onboarding',allowRoles('ADMIN','CUSTOMER_ADMIN'),async(req,res)=>{try{
   const result=await saveOnboarding(req.user.tenantId,req.body);
@@ -961,7 +1004,7 @@ app.patch('/api/posts/:id', async (req, res) => {
     const posts = await getPosts(tenantId);
     const post = posts.find(x => x.id === req.params.id);
     if (!post) return res.status(404).json({error:'İçerik bulunamadı.'});
-    if (['PUBLISHED','PUBLISHING','RECONCILE'].includes(post.publishStatus)) return res.status(409).json({error:'Yayınlanmış içerik bu ekrandan düzenlenemez.'});
+    if (postPublicationProtected(post)) return res.status(409).json({error:'Yayınlanmış veya yayın sonucu beklenen içerik düzenlenemez.'});
     if (Object.prototype.hasOwnProperty.call(req.body || {}, 'title')) post.title = String(req.body.title || '').trim().slice(0,180);
     if (Object.prototype.hasOwnProperty.call(req.body || {}, 'caption')) post.caption = String(req.body.caption || '').trim().slice(0,2200);
     if (Object.prototype.hasOwnProperty.call(req.body || {}, 'linkUrl')) post.linkUrl = String(req.body.linkUrl || '').trim().slice(0,1200);
@@ -980,7 +1023,7 @@ app.post('/api/posts/:id/queue', async (req, res) => {
     const posts = await getPosts(tenantId);
     const post = posts.find(x => x.id === req.params.id);
     if (!post) return res.status(404).json({error:'İçerik bulunamadı.'});
-    if (post.publishStatus === 'PUBLISHED') return res.status(409).json({error:'Yayınlanmış içerik tekrar kuyruğa alınamaz.'});
+    if (postPublicationProtected(post)) return res.status(409).json({error:'Yayınlanmış veya yayın sonucu beklenen içerik tekrar kuyruğa alınamaz.'});
     const requestedTime = String(req.body?.scheduleAt || '').trim();
     await scheduleUploadedPost(post, tenantId, requestedTime);
     post.autoPublish = settings.autoPublish !== false;
@@ -1035,8 +1078,8 @@ app.post('/api/posts/:id/publish', async (req,res)=>{
   catch(error){res.status(409).json({error:error.message});}
 });
 
-app.post('/api/automation/publish-due', async (_req, res) => {
-  try { res.json(await publishDuePosts()); } catch (e) { res.status(502).json({error: e.message}); }
+app.post('/api/automation/publish-due', async (req, res) => {
+  try { res.json(await publishDuePosts(req.user.tenantId)); } catch (e) { res.status(502).json({error: e.message}); }
 });
 
 app.post('/api/posts/:id/cover', upload.single('cover'), async (req,res) => {
@@ -1045,8 +1088,12 @@ app.post('/api/posts/:id/cover', upload.single('cover'), async (req,res) => {
     const tenantId=req.user.tenantId;
     const postList=await getPosts(tenantId);
     const post=postList.find(x=>x.id===postId);
-    if(!post) return res.status(404).json({error:'İçerik bulunamadı.'});
-    if(post.mediaType!=='REELS') return res.status(400).json({error:'Özel kapak yalnızca Reels için kullanılabilir.'});
+    if(!post || postPublicationProtected(post) || post.mediaType!=='REELS') {
+      if(req.file?.path) await fs.rm(req.file.path,{force:true}).catch(()=>{});
+      if(!post) return res.status(404).json({error:'İçerik bulunamadı.'});
+      if(postPublicationProtected(post)) return res.status(409).json({error:'Yayınlanmış veya yayın sonucu beklenen içeriğin kapağı değiştirilemez.'});
+      return res.status(400).json({error:'Özel kapak yalnızca Reels için kullanılabilir.'});
+    }
     if(!req.file) return res.status(400).json({error:'Kapak görseli gerekli.'});
     if(!String(req.file.mimetype||'').startsWith('image/')) {
       await fs.rm(req.file.path,{force:true});
@@ -1067,15 +1114,18 @@ app.post('/api/posts/:id/cover', upload.single('cover'), async (req,res) => {
 });
 
 app.delete('/api/posts/:id', async (req, res) => {
+  try {
   const tenantId = req.user.tenantId;
   const posts = await getPosts(tenantId);
   const post = posts.find(x => x.id === req.params.id);
   if (!post) return res.status(404).json({error: 'Post bulunamadı.'});
-  await fs.rm(post.filePath, {force: true});
+  if (postPublicationProtected(post)) return res.status(409).json({error:'Yayınlanmış veya yayın sonucu beklenen içerik silinemez. Yayın ve uzlaştırma kaydı korunmalıdır.'});
+  if(post.filePath) await fs.rm(post.filePath, {force: true});
   if(post.coverPath) await fs.rm(post.coverPath, {force: true});
   await savePosts(tenantId, posts.filter(x => x.id !== req.params.id));
   await addLog(tenantId, {type: 'POST_DELETED', postId: post.id});
   res.json({ok: true});
+  } catch(e) {res.status(400).json({error:e.message});}
 });
 
 // Super Admin / SaaS management

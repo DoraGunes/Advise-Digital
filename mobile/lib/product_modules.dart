@@ -5,6 +5,7 @@ import 'api.dart';
 import 'app_error.dart';
 import 'content_queue_page.dart';
 import 'product_ui.dart';
+import 'product_shell.dart';
 import 'social_ads_page.dart';
 import 'v78_pages.dart';
 
@@ -14,8 +15,9 @@ List<Map<String, dynamic>> _rows(dynamic value) => value is List
     ? value.whereType<Map>().map((x) => Map<String, dynamic>.from(x)).toList()
     : [];
 double _num(dynamic value) => double.tryParse('$value') ?? 0;
-String _money(dynamic value) =>
-    value == null ? '—' : '₺${_num(value).toStringAsFixed(2)}';
+String _money(dynamic value, {String? currency}) => value == null
+    ? '—'
+    : '${_num(value).toStringAsFixed(2)}${currency == null || currency.isEmpty ? '' : currency == 'TRY' ? ' TL' : ' $currency'}';
 String _date(dynamic value) {
   final d = DateTime.tryParse('$value')?.toLocal();
   if (d == null) return 'Henüz planlanmadı';
@@ -32,6 +34,17 @@ void _open(BuildContext context, Widget page) =>
 void _snack(BuildContext context, Object error) => ScaffoldMessenger.of(context)
     .showSnackBar(SnackBar(content: Text(AppError.message(error))));
 
+String _notificationText(dynamic value) {
+  final text = value?.toString().trim() ?? '';
+  if (text.isEmpty) return 'Yeni bir işlem kaydedildi.';
+  if (text.length > 500 ||
+      RegExp(r'[{}<>]|stack trace|SocketException|bearer|access.?token|api.?key|secret|\.env|https?://',
+              caseSensitive: false)
+          .hasMatch(text))
+    return 'İşlemin ayrıntılarını ilgili bölümden kontrol edebilirsin.';
+  return text;
+}
+
 class _ModuleFrame extends StatelessWidget {
   const _ModuleFrame(
       {required this.title, required this.child, this.actions = const []});
@@ -41,7 +54,11 @@ class _ModuleFrame extends StatelessWidget {
   @override
   Widget build(BuildContext context) => Scaffold(
       appBar: AppBar(title: Text(title), actions: actions),
-      body: ProductContent(child: child));
+      body: ProductContent(
+          child: child is ProductLoadingSkeleton || child is ProductErrorState
+              ? SingleChildScrollView(
+                  padding: const EdgeInsets.all(20), child: child)
+              : child));
 }
 
 /// One entry point for live Meta resources and explicit AI decisions.
@@ -104,6 +121,10 @@ class _AdsCenterPageState extends State<AdsCenterPage> {
             '${x['name'] ?? ''}'.toLowerCase().contains(search.toLowerCase()))
         .toList();
     final metrics = _map(overview['metrics']);
+    final currency = overview['currency']?.toString();
+    final hasAdData = overview['metaConnected'] == true ||
+        overview['available'] == true ||
+        ads.isNotEmpty;
     return _ModuleFrame(
         title: 'Reklam Merkezi',
         actions: [
@@ -163,15 +184,17 @@ class _AdsCenterPageState extends State<AdsCenterPage> {
                               width: 225,
                               child: ProductMetricCard(
                                   label: 'Bugünkü harcama',
-                                  value: _money(metrics['spend']),
+                                  value: _money(metrics['spend'],
+                                      currency: currency),
                                   detail: 'Meta · bugün',
                                   icon: Icons.account_balance_wallet_outlined)),
                           SizedBox(
                               width: 225,
                               child: ProductMetricCard(
                                   label: 'Aktif reklam',
-                                  value:
-                                      '${ads.where((x) => x['effective_status'] == 'ACTIVE' || x['status'] == 'ACTIVE').length}',
+                                  value: hasAdData
+                                      ? '${metrics['activeAds'] ?? ads.where((x) => x['effective_status'] == 'ACTIVE' || x['status'] == 'ACTIVE').length}'
+                                      : '—',
                                   detail: 'Bağlı hesaptaki durum',
                                   icon: Icons.campaign_outlined)),
                           SizedBox(
@@ -179,7 +202,8 @@ class _AdsCenterPageState extends State<AdsCenterPage> {
                               child: ProductMetricCard(
                                   label: 'Mesaj maliyeti',
                                   value: _money(
-                                      metrics['messageCost'] ?? metrics['cpa']),
+                                      metrics['messageCost'] ?? metrics['cpa'],
+                                      currency: currency),
                                   detail: 'Sonuç varsa hesaplanır',
                                   icon: Icons.chat_outlined)),
                         ]),
@@ -240,7 +264,8 @@ class _AdsCenterPageState extends State<AdsCenterPage> {
                                                   ? '—'
                                                   : _money(
                                                       _num(x['daily_budget']) /
-                                                          100))),
+                                                          100,
+                                                      currency: currency))),
                                               DataCell(IconButton(
                                                   tooltip:
                                                       'Performans ve AI kararları',
@@ -265,7 +290,7 @@ class _AdsCenterPageState extends State<AdsCenterPage> {
                                                           'daily_budget'] ==
                                                       null
                                                   ? 'Bütçe reklam grubunda yönetilir'
-                                                  : '${_money(_num(x['daily_budget']) / 100)} / gün'),
+                                                  : '${_money(_num(x['daily_budget']) / 100, currency: currency)} / gün'),
                                               trailing: _adStatus(x),
                                               onTap: () => _open(context,
                                                   const DecisionHubPage())))))
@@ -346,6 +371,7 @@ class _ProductReportsPageState extends State<ProductReportsPage> {
   @override
   Widget build(BuildContext context) {
     final metrics = _map(data['metrics']);
+    final currency = data['currency']?.toString();
     final trend = _rows(data['trend']);
     final rows = _rows(data['campaigns']);
     return _ModuleFrame(
@@ -403,14 +429,15 @@ class _ProductReportsPageState extends State<ProductReportsPage> {
             else ...[
               Wrap(spacing: 12, runSpacing: 12, children: [
                 for (final metric in [
-                  ['Harcama', _money(metrics['spend'])],
+                  ['Harcama', _money(metrics['spend'], currency: currency)],
                   [
                     'Mesaj / sonuç',
                     '${metrics['messages'] ?? metrics['results'] ?? '—'}'
                   ],
                   [
                     'Mesaj maliyeti',
-                    _money(metrics['messageCost'] ?? metrics['cpa'])
+                    _money(metrics['messageCost'] ?? metrics['cpa'],
+                        currency: currency)
                   ],
                   [
                     'CTR',
@@ -451,7 +478,7 @@ class _ProductReportsPageState extends State<ProductReportsPage> {
                                       .outlineVariant))),
                       const SizedBox(height: 8),
                       Text(
-                          'Y: harcama (TL) · X: tarih · ${trend.first['date'] ?? trend.first['date_start']} – ${trend.last['date'] ?? trend.last['date_start']}',
+                          'Harcama${currency == null ? '' : ' ($currency)'} · ${trend.first['date'] ?? trend.first['date_start']} – ${trend.last['date'] ?? trend.last['date_start']}',
                           style: Theme.of(context).textTheme.bodySmall)
                     ]))
               ],
@@ -474,10 +501,12 @@ class _ProductReportsPageState extends State<ProductReportsPage> {
                             .map((x) => DataRow(cells: [
                                   DataCell(Text(
                                       '${x['name'] ?? x['campaign_name'] ?? 'Kampanya'}')),
-                                  DataCell(Text(_money(x['spend']))),
-                                  DataCell(Text('${x['messages'] ?? '—'}')),
                                   DataCell(Text(
-                                      _money(x['messageCost'] ?? x['cpa']))),
+                                      _money(x['spend'], currency: currency))),
+                                  DataCell(Text('${x['messages'] ?? '—'}')),
+                                  DataCell(Text(_money(
+                                      x['messageCost'] ?? x['cpa'],
+                                      currency: currency))),
                                   DataCell(Text(x['ctr'] == null
                                       ? '—'
                                       : '%${_num(x['ctr']).toStringAsFixed(2)}'))
@@ -1094,6 +1123,17 @@ class _MemoryInsightsPageState extends State<MemoryInsightsPage> {
   @override
   Widget build(BuildContext context) {
     final measured = _num(data['outcomeCount']);
+    const signalLabels = {
+      'bestHooks': 'İşe yarayan açılışlar',
+      'bestHookTypes': 'Açılış türleri',
+      'bestAngles': 'İçerik açıları',
+      'bestTimes': 'Paylaşım saatleri',
+      'bestFormats': 'Formatlar',
+      'bestAudiences': 'Hedef kitleler'
+    };
+    final hasSignals = measured > 0 &&
+        signalLabels.keys.any(
+            (key) => _rows(data[key]).any((row) => _num(row['score']) > 0));
     return _ModuleFrame(
         title: 'Hafıza Sarayı',
         actions: [
@@ -1136,20 +1176,14 @@ class _MemoryInsightsPageState extends State<MemoryInsightsPage> {
                               icon: Icons.trending_up))
                     ]),
                     const SizedBox(height: 24),
-                    if (measured < 3)
+                    if (!hasSignals)
                       const ProductEmptyState(
                           title: 'Henüz yeterli performans verisi yok',
                           body:
                               'İçerik üret, yayınla ve reklam sonucunu ölç. Kazanan hook, format ve saatler yeterli veriyle burada görünür.',
                           icon: Icons.psychology_outlined)
                     else
-                      for (final e in {
-                        'bestHooks': 'İşe yarayan hooklar',
-                        'bestAngles': 'İçerik açıları',
-                        'bestTimes': 'Paylaşım saatleri',
-                        'bestFormats': 'Formatlar',
-                        'bestAudiences': 'Hedef kitleler'
-                      }.entries)
+                      for (final e in signalLabels.entries)
                         if (_rows(data[e.key])
                             .where((x) => _num(x['score']) > 0)
                             .isNotEmpty)
@@ -1173,8 +1207,8 @@ class _MemoryInsightsPageState extends State<MemoryInsightsPage> {
                                           leading: const Icon(
                                               Icons.lightbulb_outline),
                                           title: Text('${x['value']}'),
-                                          subtitle: const Text(
-                                              'Ölçülmüş sonuçlardan olumlu sinyal'))
+                                          subtitle: Text(
+                                              'Ölçülen sonuçlardan erken sinyal · ${measured.toInt()} sonuç. Yeni ölçümlerle değişebilir.'))
                                   ]))),
                     const SizedBox(height: 20),
                     Text('Son içerik deneyimleri',
@@ -1218,9 +1252,13 @@ class _MediaLibraryPageState extends State<MediaLibraryPage> {
   }
 
   Future<void> _load() async {
+    if (mounted)
+      setState(() {
+        loading = true;
+        error = null;
+      });
     try {
       posts = _rows(await Api.posts());
-      error = null;
     } catch (e) {
       error = AppError.message(e);
     }
@@ -1229,6 +1267,7 @@ class _MediaLibraryPageState extends State<MediaLibraryPage> {
 
   @override
   Widget build(BuildContext context) {
+    final canOperate = ProductNavigation.maybeOf(context)?.canOperate == true;
     final visible = posts
         .where((x) =>
             (filter == 'Recent' ||
@@ -1246,8 +1285,8 @@ class _MediaLibraryPageState extends State<MediaLibraryPage> {
         actions: [
           IconButton(
               tooltip: 'Yenile',
-              onPressed: _load,
-              icon: const Icon(Icons.refresh))
+              onPressed: loading ? null : _load,
+              icon: const Icon(Icons.refresh)),
         ],
         child: loading
             ? const ProductLoadingSkeleton()
@@ -1257,9 +1296,9 @@ class _MediaLibraryPageState extends State<MediaLibraryPage> {
                     const ProductPageHeader(
                         title: 'İçeriklerin elinin altında',
                         subtitle:
-                            'Kaydedilen medyayı yeniden yüklemeden önizle, düzenle ve planla.'),
+                            'Kaydedilen medyayı yeniden yüklemeden önizle ve içerik planını aç.'),
                     const SizedBox(height: 18),
-                    Wrap(spacing: 8, children: [
+                    Wrap(spacing: 8, runSpacing: 8, children: [
                       for (final e in {
                         'Recent': 'Son eklenenler',
                         'Used': 'Yayınlananlar',
@@ -1268,14 +1307,14 @@ class _MediaLibraryPageState extends State<MediaLibraryPage> {
                         ChoiceChip(
                             label: Text(e.value),
                             selected: filter == e.key,
-                            onSelected: (_) => setState(() => filter = e.key))
+                            onSelected: (_) => setState(() => filter = e.key)),
                     ]),
                     const SizedBox(height: 16),
                     TextField(
                         decoration: const InputDecoration(
                             prefixIcon: Icon(Icons.search),
                             hintText: 'İçerik ara'),
-                        onChanged: (x) => setState(() => search = x)),
+                        onChanged: (value) => setState(() => search = value)),
                     const SizedBox(height: 18),
                     if (visible.isEmpty)
                       ProductEmptyState(
@@ -1286,95 +1325,101 @@ class _MediaLibraryPageState extends State<MediaLibraryPage> {
                           action: OutlinedButton(
                               onPressed: () =>
                                   _open(context, const ContentQueuePage()),
-                              child: const Text('İçerik ekle')))
+                              child: Text(canOperate
+                                  ? 'İçerik ekle'
+                                  : 'İçerik planını görüntüle')))
                     else
-                      LayoutBuilder(builder: (ctx, c) {
-                        final count = c.maxWidth >= 1000
+                      LayoutBuilder(builder: (context, bounds) {
+                        final count = bounds.maxWidth >= 1000
                             ? 4
-                            : c.maxWidth >= 650
+                            : bounds.maxWidth >= 650
                                 ? 3
-                                : c.maxWidth >= 420
+                                : bounds.maxWidth >= 450
                                     ? 2
                                     : 1;
-                        return GridView.builder(
-                            shrinkWrap: true,
-                            physics: const NeverScrollableScrollPhysics(),
-                            gridDelegate:
-                                SliverGridDelegateWithFixedCrossAxisCount(
-                                    crossAxisCount: count,
-                                    crossAxisSpacing: 14,
-                                    mainAxisSpacing: 14,
-                                    mainAxisExtent: 310),
-                            itemCount: visible.length,
-                            itemBuilder: (_, i) {
-                              final x = visible[i];
-                              final video =
-                                  ['VIDEO', 'REELS'].contains(x['mediaType']);
+                        final width =
+                            (bounds.maxWidth - (count - 1) * 14) / count;
+                        return Wrap(
+                            spacing: 14,
+                            runSpacing: 14,
+                            children: visible.map((post) {
+                              final video = ['VIDEO', 'REELS']
+                                  .contains(post['mediaType']);
                               final url =
-                                  '${x['coverPublicUrl'] ?? x['publicUrl'] ?? ''}';
-                              return Card(
-                                  clipBehavior: Clip.antiAlias,
-                                  child: Column(
-                                      crossAxisAlignment:
-                                          CrossAxisAlignment.start,
-                                      children: [
-                                        if (!video &&
-                                            url.startsWith('https://'))
-                                          Image.network(url,
-                                              height: 160,
-                                              width: double.infinity,
-                                              fit: BoxFit.cover,
-                                              cacheWidth: 600,
-                                              errorBuilder: (_, __, ___) =>
-                                                  const SizedBox(
-                                                      height: 160,
-                                                      child: Center(
-                                                          child: Icon(
-                                                              Icons
-                                                                  .broken_image_outlined,
-                                                              size: 36))))
-                                        else
-                                          SizedBox(
-                                              height: 160,
-                                              child: Center(
-                                                  child: Icon(
-                                                      video
-                                                          ? Icons
-                                                              .video_library_outlined
-                                                          : Icons
-                                                              .image_outlined,
-                                                      size: 44))),
-                                        Padding(
-                                            padding: const EdgeInsets.all(12),
-                                            child: Column(
-                                                crossAxisAlignment:
-                                                    CrossAxisAlignment.start,
-                                                children: [
-                                                  Text(
-                                                      '${x['title'] ?? 'İçerik'}',
-                                                      maxLines: 1,
-                                                      overflow:
-                                                          TextOverflow.ellipsis,
-                                                      style: Theme.of(context)
-                                                          .textTheme
-                                                          .titleMedium),
-                                                  Text('${x['caption'] ?? ''}',
-                                                      maxLines: 2,
-                                                      overflow: TextOverflow
-                                                          .ellipsis),
-                                                  TextButton.icon(
-                                                      onPressed: () => _open(
-                                                          context,
-                                                          ContentQueuePage(
-                                                              initialPostId:
-                                                                  '${x['id']}')),
-                                                      icon: const Icon(Icons
-                                                          .calendar_month_outlined),
-                                                      label: const Text(
-                                                          'Planla / düzenle'))
-                                                ]))
-                                      ]));
-                            });
+                                  '${post['coverPublicUrl'] ?? post['publicUrl'] ?? ''}';
+                              return SizedBox(
+                                  width: width,
+                                  child: Card(
+                                      clipBehavior: Clip.antiAlias,
+                                      child: Column(
+                                          crossAxisAlignment:
+                                              CrossAxisAlignment.start,
+                                          children: [
+                                            if (!video &&
+                                                url.startsWith('https://'))
+                                              Image.network(url,
+                                                  height: 160,
+                                                  width: double.infinity,
+                                                  fit: BoxFit.cover,
+                                                  cacheWidth: 600,
+                                                  errorBuilder: (_, __, ___) =>
+                                                      const SizedBox(
+                                                          height: 160,
+                                                          child: Center(
+                                                              child: Icon(
+                                                                  Icons
+                                                                      .broken_image_outlined,
+                                                                  size: 36))))
+                                            else
+                                              SizedBox(
+                                                  height: 160,
+                                                  width: double.infinity,
+                                                  child: Center(
+                                                      child: Icon(
+                                                          video
+                                                              ? Icons
+                                                                  .video_library_outlined
+                                                              : Icons
+                                                                  .image_outlined,
+                                                          size: 44))),
+                                            Padding(
+                                                padding:
+                                                    const EdgeInsets.all(12),
+                                                child: Column(
+                                                    crossAxisAlignment:
+                                                        CrossAxisAlignment
+                                                            .start,
+                                                    children: [
+                                                      Text(
+                                                          '${post['title'] ?? 'İçerik'}',
+                                                          maxLines: 2,
+                                                          overflow: TextOverflow
+                                                              .ellipsis,
+                                                          style:
+                                                              Theme.of(context)
+                                                                  .textTheme
+                                                                  .titleMedium),
+                                                      const SizedBox(height: 4),
+                                                      Text(
+                                                          '${post['caption'] ?? ''}',
+                                                          maxLines: 2,
+                                                          overflow: TextOverflow
+                                                              .ellipsis),
+                                                      const SizedBox(height: 8),
+                                                      TextButton.icon(
+                                                          onPressed: () => _open(
+                                                              context,
+                                                              ContentQueuePage(
+                                                                  initialPostId:
+                                                                      '${post['id']}')),
+                                                          icon: const Icon(Icons
+                                                              .calendar_month_outlined),
+                                                          label: Text(canOperate
+                                                              ? 'Planla / düzenle'
+                                                              : 'İçeriği görüntüle')),
+                                                    ])),
+                                          ])));
+                            }).toList());
                       }),
                   ]));
   }
@@ -1471,8 +1516,7 @@ class _ProductNotificationsPageState extends State<ProductNotificationsPage> {
                                       crossAxisAlignment:
                                           CrossAxisAlignment.start,
                                       children: [
-                                        Text(AppError.message(row['body'] ??
-                                            'Yeni bir işlem kaydedildi.')),
+                                        Text(_notificationText(row['body'])),
                                         const SizedBox(height: 6),
                                         Text(
                                             _date(

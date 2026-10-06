@@ -253,11 +253,12 @@ class ProductStatusChip extends StatelessWidget {
       {super.key, required this.label, this.tone = 'neutral'});
   @override
   Widget build(BuildContext context) {
+    final dark = Theme.of(context).brightness == Brightness.dark;
     final color = switch (tone) {
-      'success' => ProductColors.success,
-      'warning' => ProductColors.warning,
-      'danger' => ProductColors.danger,
-      'ai' => ProductColors.indigo,
+      'success' => dark ? const Color(0xFF68DAAE) : const Color(0xFF087148),
+      'warning' => dark ? const Color(0xFFE9BB68) : const Color(0xFF87530A),
+      'danger' => dark ? const Color(0xFFF99AA7) : const Color(0xFFA42E35),
+      'ai' => dark ? const Color(0xFFBEB2FF) : const Color(0xFF5944C8),
       _ => Theme.of(context).colorScheme.onSurfaceVariant
     };
     return Container(

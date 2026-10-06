@@ -1,5 +1,6 @@
 import {getAdSets,getCampaigns,getAds,getMetaAccount,resolveCredentials} from './meta.js';
-import {getLogs} from './store.js';
+import {getLogs,getTenant} from './store.js';
+import {withTenantLock} from './persistence.js';
 
 export const minorToMoney=value=>Math.round((Number(value)||0))/100;
 export const money=value=>Math.round(Number(value)*100)/100;
@@ -9,6 +10,15 @@ export function tenantCredentials(tenantId,tenant) {
 export function metaReady(credentials) {
   const c=resolveCredentials(credentials);
   return Boolean(c.accessToken&&c.adAccountId);
+}
+
+// Separate tenants may legitimately authorize the same external ad account.
+// Their local writes stay independent, while financial mutations share one account gate.
+export async function withAdAccountLock(tenantId,task) {
+  const tenant=await getTenant(tenantId);
+  const credentials=resolveCredentials(tenantCredentials(tenantId,tenant));
+  if(!credentials.adAccountId)return task();
+  return withTenantLock(`meta-account:${credentials.adAccountId}`,task);
 }
 export async function budgetGuard(credentials,settings,{adSetId='',nextBudget=0,activate=false,creating=false}={}) {
   const [sets,campaigns,account]=await Promise.all([getAdSets(credentials),getCampaigns(credentials),getMetaAccount(credentials)]);

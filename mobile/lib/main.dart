@@ -292,48 +292,79 @@ class _LoginPageState extends State<LoginPage> {
                 begin: Alignment.topLeft,
                 end: Alignment.bottomRight,
                 colors: [ProductColors.navy, Color(0xFF2C2A56)])),
-        child: Padding(
-            padding: const EdgeInsets.all(48),
-            child:
-                Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-              _brand(context, inverse: true),
-              const Spacer(),
-              const ProductStatusChip(
-                  label: 'Yapay zekâ ile daha anlaşılır reklam yönetimi',
-                  tone: 'ai'),
-              const SizedBox(height: 24),
-              const Text('İyi bir fikirden\ngerçek sonuca.',
-                  style: TextStyle(
-                      color: Colors.white,
-                      fontSize: 46,
-                      height: 1.15,
-                      fontWeight: FontWeight.w800,
-                      letterSpacing: -1.5)),
-              const SizedBox(height: 22),
-              const Text(
-                  'İçeriğini hazırla. Kampanyanı yönet.\nAdVise sonuçlardan öğrensin.',
-                  style: TextStyle(
-                      color: Color(0xFFBCBDD1), fontSize: 18, height: 1.6)),
-              const SizedBox(height: 36),
-              for (final entry in const [
-                (Icons.auto_awesome_outlined, 'Medyanı anlayan AI Studio'),
-                (Icons.calendar_month_outlined, 'Sana ait bir yayın planı'),
-                (Icons.insights_outlined, 'Gerçek veriden gelen kararlar')
-              ])
-                Padding(
-                    padding: const EdgeInsets.only(bottom: 18),
-                    child: Row(children: [
-                      Icon(entry.$1, color: const Color(0xFFB4A9FF), size: 22),
-                      const SizedBox(width: 14),
-                      Expanded(
-                          child: Text(entry.$2,
-                              style: const TextStyle(color: Colors.white70)))
-                    ])),
-              const Spacer(),
-              const Text('ADVISE DIGITAL',
-                  style: TextStyle(
-                      color: Colors.white38, letterSpacing: 2, fontSize: 11)),
-            ])),
+        child: LayoutBuilder(
+            builder: (context, bounds) => SingleChildScrollView(
+                  child: ConstrainedBox(
+                      constraints: BoxConstraints(minHeight: bounds.maxHeight),
+                      child: Padding(
+                        padding: const EdgeInsets.all(48),
+                        child: Column(
+                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              _brand(context, inverse: true),
+                              const SizedBox(height: 48),
+                              Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    const ProductStatusChip(
+                                        label:
+                                            'Yapay zekâ ile daha anlaşılır reklam yönetimi',
+                                        tone: 'ai'),
+                                    const SizedBox(height: 24),
+                                    const Text(
+                                        'İyi bir fikirden\ngerçek sonuca.',
+                                        style: TextStyle(
+                                            color: Colors.white,
+                                            fontSize: 46,
+                                            height: 1.15,
+                                            fontWeight: FontWeight.w800,
+                                            letterSpacing: -1.5)),
+                                    const SizedBox(height: 22),
+                                    const Text(
+                                        'İçeriğini hazırla. Kampanyanı yönet.\nAdVise sonuçlardan öğrensin.',
+                                        style: TextStyle(
+                                            color: Color(0xFFBCBDD1),
+                                            fontSize: 18,
+                                            height: 1.6)),
+                                    const SizedBox(height: 36),
+                                    for (final entry in const [
+                                      (
+                                        Icons.auto_awesome_outlined,
+                                        'Medyanı anlayan AI Studio'
+                                      ),
+                                      (
+                                        Icons.calendar_month_outlined,
+                                        'Sana ait bir yayın planı'
+                                      ),
+                                      (
+                                        Icons.insights_outlined,
+                                        'Gerçek veriden gelen kararlar'
+                                      )
+                                    ])
+                                      Padding(
+                                          padding:
+                                              const EdgeInsets.only(bottom: 18),
+                                          child: Row(children: [
+                                            Icon(entry.$1,
+                                                color: const Color(0xFFB4A9FF),
+                                                size: 22),
+                                            const SizedBox(width: 14),
+                                            Expanded(
+                                                child: Text(entry.$2,
+                                                    style: const TextStyle(
+                                                        color: Colors.white70)))
+                                          ])),
+                                  ]),
+                              const SizedBox(height: 48),
+                              const Text('ADVISE DIGITAL',
+                                  style: TextStyle(
+                                      color: Colors.white38,
+                                      letterSpacing: 2,
+                                      fontSize: 11)),
+                            ]),
+                      )),
+                )),
       );
 
   Widget _formPanel(BuildContext context) => AutofillGroup(

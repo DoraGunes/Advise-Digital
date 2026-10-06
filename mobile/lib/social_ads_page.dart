@@ -23,6 +23,9 @@ class _SocialAdsPageState extends State<SocialAdsPage> {
   bool creating = false;
   String? error;
   int _step = 0;
+  bool strategyLoading = false;
+  bool canOperate = false;
+  Map<String, dynamic>? strategyReport;
 
   final campaignName =
       TextEditingController(text: 'WhatsApp müşteri kampanyası');
@@ -53,6 +56,9 @@ class _SocialAdsPageState extends State<SocialAdsPage> {
     });
     try {
       final x = await Api.instagramMedia(limit: 50);
+      final me = await Api.me();
+      canOperate = ['ADMIN', 'CUSTOMER_ADMIN', 'MANAGER', 'OPERATOR']
+          .contains((me['user'] as Map?)?['role']);
       Map<String, dynamic> targeting = {};
       try {
         targeting = await Api.adTargetingOptions();
@@ -86,7 +92,7 @@ class _SocialAdsPageState extends State<SocialAdsPage> {
       if (mounted) {
         setState(() {
           loading = false;
-          error = e.toString();
+          error = AppError.message(e);
         });
       }
     }
@@ -102,6 +108,7 @@ class _SocialAdsPageState extends State<SocialAdsPage> {
   }
 
   Future<void> _chooseTargeting() async {
+    if (!canOperate || creating) return;
     var mode = locationMode;
     final chosen = Set<String>.from(selectedLocations);
     final search = TextEditingController();
@@ -235,12 +242,13 @@ class _SocialAdsPageState extends State<SocialAdsPage> {
       } catch (e) {
         if (mounted)
           _snack(
-              'Seçim bu kampanyada kullanılacak ancak Gemini tercihi kaydedilemedi: $e');
+              'Seçim bu kampanyada kullanılacak. İşletme tercihi kaydedilemedi: ${AppError.message(e)}');
       }
     }
   }
 
   Future<void> _createAd() async {
+    if (!canOperate || creating) return;
     final post = selected;
     if (post == null) {
       _snack('Önce reklam vereceğin Instagram gönderisini seç.');
@@ -284,7 +292,7 @@ class _SocialAdsPageState extends State<SocialAdsPage> {
         ),
       );
     } catch (e) {
-      if (mounted) _snack(e.toString());
+      if (mounted) _snack(AppError.message(e));
     } finally {
       if (mounted) setState(() => creating = false);
     }
@@ -292,9 +300,7 @@ class _SocialAdsPageState extends State<SocialAdsPage> {
 
   void _snack(String value) {
     ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-          content: Text(AppError.message(value)),
-          behavior: SnackBarBehavior.floating),
+      SnackBar(content: Text(value), behavior: SnackBarBehavior.floating),
     );
   }
 
@@ -366,7 +372,7 @@ class _SocialAdsPageState extends State<SocialAdsPage> {
                               onStepTapped: creating
                                   ? null
                                   : (i) => setState(() => _step = i),
-                              onStepContinue: creating
+                              onStepContinue: creating || !canOperate
                                   ? null
                                   : () {
                                       if (_step == 1 && selected == null) {
@@ -382,7 +388,7 @@ class _SocialAdsPageState extends State<SocialAdsPage> {
                                             'Günlük bütçe en az 50 TL olmalı.');
                                         return;
                                       }
-                                      if (_step < 3) {
+                                      if (_step < 4) {
                                         setState(() => _step++);
                                       } else {
                                         _confirmCampaign();
@@ -399,12 +405,12 @@ class _SocialAdsPageState extends State<SocialAdsPage> {
                                       children: [
                                         FilledButton.icon(
                                             onPressed: details.onStepContinue,
-                                            icon: Icon(_step == 3
+                                            icon: Icon(_step == 4
                                                 ? Icons.check
                                                 : Icons.arrow_forward),
                                             label: Text(creating
                                                 ? 'Oluşturuluyor…'
-                                                : _step == 3
+                                                : _step == 4
                                                     ? activateAd
                                                         ? 'Onayla ve yayınla'
                                                         : 'Onayla ve reklamı oluştur'
@@ -526,7 +532,7 @@ class _SocialAdsPageState extends State<SocialAdsPage> {
                                               subtitle: Text(_targetingSummary),
                                               trailing: const Icon(
                                                   Icons.edit_outlined),
-                                              onTap: creating
+                                              onTap: creating || !canOperate
                                                   ? null
                                                   : _chooseTargeting)),
                                       const SizedBox(height: 16),
@@ -563,8 +569,12 @@ class _SocialAdsPageState extends State<SocialAdsPage> {
                                           ]),
                                     ])),
                                 Step(
-                                    title: const Text('Önizle ve onayla'),
+                                    title: const Text('AI önerisi'),
                                     isActive: _step >= 3,
+                                    content: _strategyCard()),
+                                Step(
+                                    title: const Text('Önizle ve onayla'),
+                                    isActive: _step >= 4,
                                     content: Column(
                                         crossAxisAlignment:
                                             CrossAxisAlignment.start,
@@ -591,8 +601,10 @@ class _SocialAdsPageState extends State<SocialAdsPage> {
                                                         .textTheme
                                                         .titleMedium),
                                                 const SizedBox(height: 8),
-                                                Text('Günlük bütçe: ₺${budget.text}'),
-                                                Text('Bölge: $_targetingSummary')
+                                                Text(
+                                                    'Günlük bütçe: ₺${budget.text}'),
+                                                Text(
+                                                    'Bölge: $_targetingSummary')
                                               ])),
                                           const SizedBox(height: 12),
                                           SwitchListTile.adaptive(
@@ -602,7 +614,7 @@ class _SocialAdsPageState extends State<SocialAdsPage> {
                                               subtitle: const Text(
                                                   'Kapalıysa reklam durdurulmuş durumda oluşturulur.'),
                                               value: activateAd,
-                                              onChanged: creating
+                                              onChanged: creating || !canOperate
                                                   ? null
                                                   : (v) => setState(
                                                       () => activateAd = v)),
@@ -612,6 +624,7 @@ class _SocialAdsPageState extends State<SocialAdsPage> {
       );
 
   Future<void> _confirmCampaign() async {
+    if (!canOperate || creating) return;
     if (selected == null) {
       _snack('Önce bir Instagram gönderisi seç.');
       return;
@@ -631,5 +644,112 @@ class _SocialAdsPageState extends State<SocialAdsPage> {
                       child: const Text('Onayla'))
                 ]));
     if (accepted == true && mounted) await _createAd();
+  }
+
+  Future<void> _requestStrategy() async {
+    if (!canOperate || creating || strategyLoading) return;
+    if (selected == null) {
+      _snack('Önce reklam için bir gönderi seç.');
+      return;
+    }
+    setState(() => strategyLoading = true);
+    try {
+      final response = await Api.productStrategy({
+        'instagramMediaId': selected!['id'],
+        'title': selected!['caption']?.toString() ?? campaignName.text,
+        'dailyBudget': double.tryParse(budget.text.replaceAll(',', '.')) ?? 0,
+        'locationMode': locationMode,
+        'locations': selectedLocations.toList(),
+      });
+      if (mounted) setState(() => strategyReport = response);
+    } catch (e) {
+      if (mounted)
+        setState(() => strategyReport = {
+              'available': false,
+              'error': AppError.message(e)
+            });
+    }
+    if (mounted) setState(() => strategyLoading = false);
+  }
+
+  Widget _strategyCard() {
+    final raw = strategyReport?['strategy'];
+    final strategy =
+        raw is Map ? Map<String, dynamic>.from(raw) : <String, dynamic>{};
+    final available =
+        strategyReport?['available'] == true && strategy.isNotEmpty;
+    final audience =
+        strategy['audience'] is Map ? strategy['audience'] as Map : {};
+    final planBudget =
+        strategy['budget'] is Map ? strategy['budget'] as Map : {};
+    final creative =
+        strategy['creative'] is Map ? strategy['creative'] as Map : {};
+    final schedule =
+        strategy['schedule'] is Map ? strategy['schedule'] as Map : {};
+    return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+      const ProductInsightCard(
+          title: 'Bir test planı hazırlayalım',
+          body:
+              'Gemini işletme bilgilerini, seçtiğin içeriği, gerçek performansı ve Hafıza Sarayı’nı birlikte değerlendirir. Bu adım reklam oluşturmaz.',
+          icon: Icons.auto_awesome),
+      const SizedBox(height: 16),
+      FilledButton.tonalIcon(
+          onPressed: strategyLoading || creating || !canOperate
+              ? null
+              : _requestStrategy,
+          icon: const Icon(Icons.psychology_outlined),
+          label: Text(strategyLoading
+              ? 'Strateji hazırlanıyor…'
+              : 'AI kampanya önerisi al')),
+      if (strategyReport != null) ...[
+        const SizedBox(height: 16),
+        if (!available)
+          ProductErrorState(
+              message: AppError.message(strategyReport!['error'] ??
+                  'AI önerisi şu anda hazırlanamadı.'),
+              onRetry: strategyLoading || !canOperate ? null : _requestStrategy)
+        else
+          ProductSurface(
+              child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                const ProductStatusChip(
+                    label: 'Gemini önerisi · Onay bekliyor', tone: 'ai'),
+                const SizedBox(height: 16),
+                Text('${strategy['goal'] ?? 'WhatsApp mesajları'}',
+                    style: Theme.of(context).textTheme.titleLarge),
+                const SizedBox(height: 12),
+                Text(
+                    'Hedef kitle: ${audience['description'] ?? _targetingSummary}'),
+                Text(
+                    'Test bütçesi: ${planBudget['dailyBudget'] ?? budget.text} TL / gün'),
+                Text(
+                    'İçerik: ${creative['format'] ?? 'Gönderi'} · ${creative['angle'] ?? ''}'),
+                if (strategy['hook'] != null)
+                  Text('Açılış: ${strategy['hook']}'),
+                Text(
+                    'Önerilen saat: ${schedule['recommendedTime'] ?? '—'} · Türkiye saati'),
+                if (schedule['reason'] != null) Text('${schedule['reason']}'),
+                Text(
+                    'İlk değerlendirme: ${strategy['testDurationDays'] ?? '—'} günlük test'),
+                const SizedBox(height: 12),
+                for (final reason in (strategy['reasons'] is List
+                    ? strategy['reasons'] as List
+                    : []))
+                  Padding(
+                      padding: const EdgeInsets.only(bottom: 6),
+                      child: Text('• $reason')),
+                for (final warning in (strategy['warnings'] is List
+                    ? strategy['warnings'] as List
+                    : []))
+                  Padding(
+                      padding: const EdgeInsets.only(bottom: 6),
+                      child: Text('Not: $warning')),
+                const SizedBox(height: 12),
+                const Text(
+                    'Öneri harcama veya sonuç garantisi değildir. Bütçe ve bölge seçimlerini kontrol edip sonraki adımda açıkça onayla.'),
+              ])),
+      ],
+    ]);
   }
 }

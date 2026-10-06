@@ -3,7 +3,7 @@ import {getAdSets,insights,setStatus,updateAdSetBudget,updateAdSetTargeting,reso
 import {getSettings,getTenant,getLogs,addLog} from './store.js';
 import {config} from './config.js';
 import {withTenantLock} from './persistence.js';
-import {tenantCredentials,metaReady,budgetGuard,assertAutomaticReactivation} from './automation-safety.js';
+import {tenantCredentials,metaReady,budgetGuard,assertAutomaticReactivation,withAdAccountLock} from './automation-safety.js';
 
 const num = value => Number.isFinite(Number(value)) ? Number(value) : 0;
 const messageTypes = new Set(config.messageActionTypes.map(value => String(value).toLowerCase()));
@@ -24,10 +24,10 @@ function stable(value) {
   return JSON.stringify(value);
 }
 
-function actionMetrics(row) {
+export function actionMetrics(row) {
   let messages = 0;
   for (const action of row?.actions || []) {
-    if (messageTypes.has(String(action.action_type || '').toLowerCase())) messages += num(action.value);
+    if (messageTypes.has(String(action.action_type || '').toLowerCase())) messages = Math.max(messages,num(action.value));
   }
   const spend = num(row?.spend);
   const impressions = num(row?.impressions);
@@ -57,12 +57,14 @@ async function reviewInputs(tenantId, {includeInsights=true}={}) {
   for (let offset = 0; offset < rows.length; offset += 5) {
     const group = rows.slice(offset, offset + 5);
     const summaries = await Promise.all(group.map(async adset => {
-      let metrics = {spend7d:0, impressions7d:0, clicks7d:0, ctr7d:0, messages7d:0, messageCost7d:null};
+      let metricsAvailable=false;
+      let metrics = {spend7d:null, impressions7d:null, clicks7d:null, ctr7d:null, messages7d:null, messageCost7d:null};
       if (includeInsights) {
         try {
           const result = await insights(adset.id, 'adset', 7, credentials);
           const row = (result?.data || [])[0];
-          if (row) metrics = actionMetrics(row);
+          metrics = actionMetrics(row||{});
+          metricsAvailable=true;
         } catch {}
       }
       return {
@@ -71,6 +73,7 @@ async function reviewInputs(tenantId, {includeInsights=true}={}) {
         status:String(adset.effective_status || adset.status || 'UNKNOWN').toUpperCase(),
         dailyBudget:num(adset.daily_budget) / 100,
         ...metrics,
+        metricsAvailable,
         audienceMode:String(settings.adTargetingMode || 'COUNTRY'),
         usesSavedAudience:stable(adset.targeting?.geo_locations || {}) === stable(preferred.geo_locations || {})
       };
@@ -85,6 +88,11 @@ function savedAudienceLabel(settings) {
   const locations = Array.isArray(settings.adTargetingLocations) ? settings.adTargetingLocations : [];
   if (mode === 'COUNTRY') return 'Türkiye geneli';
   return `${mode === 'REGION' ? 'Bölgeler' : 'İller'}: ${locations.join(', ')}`;
+}
+
+export function canAutomateAdDecision(item,settings={}) {
+  return Number(item?.confidence)>=85 && item?.adSet?.metricsAvailable===true &&
+    num(item.adSet.spend7d)>=num(settings.earlyMinSpendBeforeDecision);
 }
 
 async function runGeminiAdReviewLocked(tenantId='system', {force=false}={}) {
@@ -131,7 +139,7 @@ async function runGeminiAdReviewLocked(tenantId='system', {force=false}={}) {
 
     if (!force && analysis.source === 'GEMINI') {
       for (const item of decisions.slice(0,10)) {
-        if (item.confidence < 85) continue;
+        if (!canAutomateAdDecision(item,input.settings)) continue;
         if (item.action === 'ACTIVATE') {
           const lastAutoPause = logs.find(row => row.type === 'GEMINI_AD_ACTION' &&
             row.adSetId === item.adSetId && row.automatic === true && row.action === 'PAUSE');
@@ -243,4 +251,4 @@ async function applyGeminiAdDecisionLocked(tenantId='system', {adSetId,action,au
 }
 
 export async function runGeminiAdReview(tenantId='system',options={}) { return withTenantLock(tenantId,()=>runGeminiAdReviewLocked(tenantId,options)); }
-export async function applyGeminiAdDecision(tenantId='system',options={}) { return withTenantLock(tenantId,()=>applyGeminiAdDecisionLocked(tenantId,options)); }
+export async function applyGeminiAdDecision(tenantId='system',options={}) { return withTenantLock(tenantId,()=>withAdAccountLock(tenantId,()=>applyGeminiAdDecisionLocked(tenantId,options))); }

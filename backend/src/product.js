@@ -1,8 +1,9 @@
 import {getTenant,getSettings,saveSettings,updateTenant,getPosts,getLogs,publicTenant,addLog} from './store.js';
-import {getCampaigns,getAds,accountInsights,getMetaAccount} from './meta.js';
+import {getCampaigns,getAds,accountInsights,getMetaAccount,getInstagramMedia} from './meta.js';
 import {tenantCredentials,metaReady} from './automation-safety.js';
 import {getLeads,getAlerts,createAlert} from './pro.js';
-import {getMemorySummary} from './ai-memory.js';
+import {getMemorySummary,buildMemoryContext} from './ai-memory.js';
+import {generateCampaignStrategy} from './ai.js';
 import {config} from './config.js';
 import {AD_CITIES,AD_REGIONS,provinceNamesForTargeting} from './ad-targeting.js';
 import {withDataLock} from './persistence.js';
@@ -178,6 +179,53 @@ export async function saveOnboarding(tenantId,input={}) {
     await saveSettings(tenantId,patch);
     return onboardingStatus(tenantId);
   });
+}
+
+export async function productStrategy(tenantId,input={}, {actorId='',request=null}={}) {
+  const [tenant,settings,onboarding,posts,memory,report]=await Promise.all([
+    getTenant(tenantId),getSettings(tenantId),onboardingStatus(tenantId),getPosts(tenantId),getMemorySummary(tenantId),productReport(tenantId,{range:'7d'})
+  ]);
+  if(settings.aiEnabled===false)throw new Error('AI modu kapalı. Hesap ayarlarından etkinleştirin.');
+  const text=(value,max)=>String(value||'').trim().slice(0,max);
+  const businessName=text(input.businessName||onboarding.businessName||tenant?.companyName,160);
+  const industry=text(input.industry||onboarding.industry,100);
+  const requestedBudget=Number(input.dailyBudget??(onboarding.dailyBudget||settings.geminiAdsDailyCap));
+  if(!businessName||!industry)throw new Error('İşletme adı ve sektör bilgilerini tamamlayın.');
+  if(!Number.isFinite(requestedBudget)||requestedBudget<1||requestedBudget>100000)throw new Error('Strateji için 1 ile 100.000 TL arasında bir günlük test bütçesi belirleyin.');
+  const locationMode=String(input.locationMode||settings.adTargetingMode||'COUNTRY').toUpperCase();
+  if(!['COUNTRY','CITY','REGION'].includes(locationMode))throw new Error('Geçerli bir hedef bölge türü seçin.');
+  const rawLocations=input.locations??settings.adTargetingLocations;
+  const locations=locationMode==='COUNTRY'?[]:[...new Set((Array.isArray(rawLocations)?rawLocations:[]).map(String))].slice(0,81);
+  const allowed=locationMode==='CITY'?AD_CITIES:Object.keys(AD_REGIONS);
+  if(locationMode!=='COUNTRY'&&(!locations.length||locations.some(row=>!allowed.includes(row))))throw new Error('Geçerli hedef şehir veya bölge seçin.');
+  let media={title:text(input.title,180),evidence:'USER_DESCRIPTION'};
+  let selectedPostId='';
+  if(input.postId) {
+    const post=posts.find(row=>row.id===String(input.postId));
+    if(!post)throw new Error('Seçilen içerik bu hesaba ait değil veya bulunamadı.');
+    selectedPostId=post.id;
+    media={postId:post.id,title:text(post.title,180),caption:text(post.caption,2200),hook:text(post.aiHook,300),format:text(post.mediaType,40),evidence:post.aiSource==='GEMINI'?'SAVED_AI_ANALYSIS':'SAVED_CONTENT'};
+  } else if(input.instagramMediaId) {
+    const credentials=tenantCredentials(tenantId,tenant);
+    if(!metaReady(credentials))throw new Error('Instagram gönderisi seçmek için Meta hesabınızı bağlayın.');
+    const instagram=await getInstagramMedia(credentials,100);
+    const selected=(instagram.data||[]).find(row=>String(row.id)===String(input.instagramMediaId));
+    if(!selected)throw new Error('Seçilen Instagram gönderisi bu bağlı hesaba ait listede bulunamadı.');
+    media={instagramMediaId:String(selected.id),caption:text(selected.caption,2200),format:text(selected.media_type,40),evidence:'INSTAGRAM_CAPTION_ONLY'};
+  }
+  if(report.available&&report.currency&&String(report.currency).toUpperCase()!=='TRY')return {available:false,source:'UNAVAILABLE',model:null,strategy:null,error:'Kampanya bütçesi önerisi şu anda TRY hesapları için destekleniyor.',requiresApproval:true,published:false,created:false};
+  const accountDailyCap=Number(settings.geminiAdsDailyCap)||0;
+  const budgetLimit=Math.min(requestedBudget,Number(settings.maxDailyBudget)||requestedBudget,accountDailyCap>0?accountDailyCap:requestedBudget);
+  const context=await buildMemoryContext(tenantId,{title:media.title||businessName,context:industry,mediaType:media.format||'AUTO'});
+  const result=await generateCampaignStrategy({
+    profile:{businessName,industry,goal:'WhatsApp mesajı',media},locationMode,locations,budgetLimit,accountDailyCap,
+    timezone:config.timezone,memoryOutcomeCount:memory.outcomeCount,reportAvailable:report.available,
+    performance:{available:report.available,period:{since:report.since,until:report.until},currency:report.currency||null,metrics:report.available?report.metrics:null,campaigns:report.campaigns.slice(0,20)},
+    memoryContext:context
+  },{request});
+  if(result.available)await addLog(tenantId,{type:'AI_CAMPAIGN_STRATEGY_GENERATED',source:result.source,model:result.model,actorId,postId:selectedPostId,dailyBudget:result.strategy.budget.dailyBudget,requiresApproval:true});
+  if(result.available&&accountDailyCap<=0)result.strategy.warnings.push('Reklamı etkinleştirmeden önce hesap günlük bütçe sınırını kaydedin.');
+  return {...result,evidence:{reportAvailable:report.available,period:{since:report.since,until:report.until},memoryOutcomeCount:memory.outcomeCount,selectedPostId}};
 }
 
 async function syncNotifications(tenantId,logs) {

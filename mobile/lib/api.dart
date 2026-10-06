@@ -23,6 +23,8 @@ class Api {
   static const String _baseUrlKey = 'apiBaseUrl';
   static String? _sessionToken;
   static http.Client _client = http.Client();
+  static Map<String, dynamic>? _cachedCompatibility;
+  static DateTime? _compatibilityCheckedAt;
   static final ValueNotifier<bool> authExpired = ValueNotifier<bool>(false);
 
   @visibleForTesting
@@ -34,6 +36,7 @@ class Api {
   static void resetRuntimeForTesting() {
     _runtimeBaseUrl = null;
     _sessionToken = null;
+    _clearCompatibility();
     authExpired.value = false;
   }
 
@@ -69,9 +72,24 @@ class Api {
       throw const ApiException(
           'Backend URL http:// veya https:// ile başlamalı.');
     }
+    final previous = Uri.tryParse(await baseUrl());
+    final next = Uri.tryParse(v);
+    final previousOrigin = previous != null &&
+            (previous.scheme == 'http' || previous.scheme == 'https') &&
+            previous.host.isNotEmpty
+        ? previous.origin
+        : null;
+    if (previousOrigin == null ||
+        next == null ||
+        previousOrigin != next.origin) {
+      // A session belongs to its API origin. Never carry a bearer token to
+      // another host, scheme or non-default port when configuration changes.
+      await logout();
+    }
     final prefs = await _prefs();
     await prefs.setString(_baseUrlKey, v);
     _runtimeBaseUrl = v;
+    _clearCompatibility();
   }
 
   static Future<void> setToken(String token, {bool remember = true}) async {
@@ -97,6 +115,7 @@ class Api {
     authExpired.value = false;
     final prefs = await _prefs();
     await prefs.remove(_tokenKey);
+    _clearCompatibility();
   }
 
   static dynamic _decode(String body) {
@@ -159,6 +178,11 @@ class Api {
         case 'PUT':
           response = await _client
               .put(uri, headers: headers, body: encodedBody)
+              .timeout(const Duration(seconds: 40));
+          break;
+        case 'PATCH':
+          response = await _client
+              .patch(uri, headers: headers, body: encodedBody)
               .timeout(const Duration(seconds: 40));
           break;
         case 'DELETE':
@@ -241,14 +265,57 @@ class Api {
       if (response.statusCode >= 200 &&
           response.statusCode < 300 &&
           data is Map) {
-        return compatibilityFromHealth(Map<String, dynamic>.from(data));
+        return _rememberCompatibility(
+            compatibilityFromHealth(Map<String, dynamic>.from(data)));
       }
     } catch (_) {}
-    return compatibilityFromHealth({'ok': false});
+    return _rememberCompatibility(compatibilityFromHealth({'ok': false}));
+  }
+
+  static void _clearCompatibility() {
+    _cachedCompatibility = null;
+    _compatibilityCheckedAt = null;
+  }
+
+  static Map<String, dynamic> _rememberCompatibility(
+      Map<String, dynamic> data) {
+    _cachedCompatibility = data;
+    _compatibilityCheckedAt = DateTime.now();
+    return Map<String, dynamic>.from(data);
+  }
+
+  static Future<void> _requireCapability(String capability,
+      {required String feature}) async {
+    final cachedAt = _compatibilityCheckedAt;
+    final cached = _cachedCompatibility;
+    final result = cached != null &&
+            cachedAt != null &&
+            DateTime.now().difference(cachedAt) < const Duration(seconds: 60)
+        ? cached
+        : await compatibility();
+    if (result['ok'] != true) {
+      throw const ApiException(
+          'Sunucuya ulaşılamıyor. İnternet bağlantınızı kontrol edin.');
+    }
+    final capabilities = result['capabilities'];
+    if (result['compatible'] != true ||
+        capabilities is! Map ||
+        capabilities[capability] != true) {
+      throw ApiException('$feature için sunucu güncellemesi gerekiyor. '
+          'Diğer çalışma alanlarını kullanmaya devam edebilirsiniz.');
+    }
   }
 
   static Future<Map<String, dynamic>> productOverview() async =>
       Map<String, dynamic>.from(await _request('GET', '/api/product/overview'));
+
+  static Future<Map<String, dynamic>> productStrategy(
+      Map<String, dynamic> values) async {
+    await _requireCapability('campaignStrategy',
+        feature: 'AI kampanya önerisi');
+    return Map<String, dynamic>.from(
+        await _request('POST', '/api/product/strategy', body: values));
+  }
 
   static Future<Map<String, dynamic>> productReport(
           {String range = '7d', String? since, String? until}) async =>
@@ -397,16 +464,24 @@ class Api {
   static Future<void> updateAdSetBudget(String id, double dailyBudget) async =>
       await _request('POST', '/api/budget/$id',
           body: {'dailyBudget': dailyBudget});
-  static Future<Map<String, dynamic>> geminiAdReview() async =>
-      Map<String, dynamic>.from(
-          await _request('POST', '/api/ads/gemini-review'));
+  static Future<Map<String, dynamic>> geminiAdReview() async {
+    await _requireCapability('geminiAdReview',
+        feature: 'Gemini reklam analizi');
+    return Map<String, dynamic>.from(
+        await _request('POST', '/api/ads/gemini-review'));
+  }
+
   static Future<Map<String, dynamic>> applyGeminiAdDecision(
-          {required String adSetId, required String action}) async =>
-      Map<String, dynamic>.from(
-          await _request('POST', '/api/ads/gemini-apply', body: {
-        'adSetId': adSetId,
-        'action': action,
-      }));
+      {required String adSetId, required String action}) async {
+    await _requireCapability('safeAutomationV16',
+        feature: 'Gemini reklam kararlarını uygulamak');
+    return Map<String, dynamic>.from(
+        await _request('POST', '/api/ads/gemini-apply', body: {
+      'adSetId': adSetId,
+      'action': action,
+    }));
+  }
+
   static Future<void> deletePost(String id) async =>
       await _request('DELETE', '/api/posts/$id');
   static Future<Map<String, dynamic>> updatePost(String id,
@@ -420,9 +495,16 @@ class Api {
         'linkUrl': linkUrl,
       }));
   static Future<Map<String, dynamic>> queuePost(String id,
-          {String scheduleAt = ''}) async =>
-      Map<String, dynamic>.from(await _request('POST', '/api/posts/$id/queue',
-          body: scheduleAt.isEmpty ? {} : {'scheduleAt': scheduleAt}));
+      {String scheduleAt = ''}) async {
+    if (scheduleAt.isNotEmpty) {
+      await _requireCapability('scheduledPublishing',
+          feature: 'Saat seçerek planlama');
+    }
+    return Map<String, dynamic>.from(await _request(
+        'POST', '/api/posts/$id/queue',
+        body: scheduleAt.isEmpty ? {} : {'scheduleAt': scheduleAt}));
+  }
+
   static Future<List<dynamic>> reorderQueuedPosts(List<String> postIds) async =>
       List<dynamic>.from((await _request('POST', '/api/posts/reorder',
               body: {'postIds': postIds}))['data'] ??
@@ -494,6 +576,10 @@ class Api {
       String mediaType = 'AUTO',
       String aiContext = '',
       String memoryGenerationId = ''}) async {
+    if (scheduleAt.isNotEmpty) {
+      await _requireCapability('scheduledPublishing',
+          feature: 'Saat seçerek planlama');
+    }
     final base = await baseUrl();
     final authToken = await token();
     final request =
