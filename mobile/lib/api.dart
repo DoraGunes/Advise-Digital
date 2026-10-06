@@ -778,7 +778,7 @@ class Api {
       final response = await _client
           .send(request)
           .then(http.Response.fromStream)
-          .timeout(const Duration(seconds: 450));
+          .timeout(const Duration(seconds: 120));
       final data = _decode(response.body);
       _checkUploadResponse(response, data, authToken);
 
@@ -791,7 +791,8 @@ class Api {
     } on ApiException {
       rethrow;
     } on TimeoutException {
-      throw const ApiException('AI görsel analizi zaman aşımına uğradı.');
+      throw const ApiException(
+          'AI görsel analizi 2 dakika içinde tamamlanamadı. Bağlantıyı kontrol edip tekrar deneyin.');
     } on http.ClientException catch (e) {
       throw ApiException('AI görsel analizi bağlantı hatası.',
           details: e.message);

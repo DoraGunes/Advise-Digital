@@ -28,13 +28,24 @@ abstract final class ProductSpacing {
 abstract final class ProductTheme {
   static ThemeData get light => _create(Brightness.light);
   static ThemeData get dark => _create(Brightness.dark);
+  static ThemeData get colorful => _create(Brightness.light, colorful: true);
 
-  static ThemeData _create(Brightness brightness) {
+  static ThemeData _create(Brightness brightness, {bool colorful = false}) {
     final dark = brightness == Brightness.dark;
     final scheme = ColorScheme.fromSeed(
-      seedColor: ProductColors.indigo,
+      seedColor: colorful ? const Color(0xFF7157E8) : ProductColors.indigo,
       brightness: brightness,
-      surface: dark ? const Color(0xFF202639) : Colors.white,
+      surface: colorful
+          ? const Color(0xFFFFFBEF)
+          : dark
+              ? const Color(0xFF202639)
+              : Colors.white,
+    ).copyWith(
+      primary: colorful ? const Color(0xFF6D4FE8) : null,
+      secondary: colorful ? const Color(0xFF00A9B8) : null,
+      tertiary: colorful ? const Color(0xFFF3B928) : null,
+      primaryContainer: colorful ? const Color(0xFFE8E0FF) : null,
+      secondaryContainer: colorful ? const Color(0xFFD6F7FA) : null,
     );
     final base = ThemeData(useMaterial3: true, colorScheme: scheme);
     final text = base.textTheme
@@ -59,14 +70,20 @@ abstract final class ProductTheme {
     final border = dark ? const Color(0xFF353B50) : ProductColors.border;
     return base.copyWith(
       textTheme: text,
-      scaffoldBackgroundColor:
-          dark ? const Color(0xFF151A29) : ProductColors.background,
+      scaffoldBackgroundColor: colorful
+          ? const Color(0xFFEAFBFF)
+          : dark
+              ? const Color(0xFF151A29)
+              : ProductColors.background,
       appBarTheme: AppBarTheme(
         centerTitle: false,
         elevation: 0,
         scrolledUnderElevation: 0,
-        backgroundColor:
-            dark ? const Color(0xFF151A29) : ProductColors.background,
+        backgroundColor: colorful
+            ? const Color(0xFFEAFBFF)
+            : dark
+                ? const Color(0xFF151A29)
+                : ProductColors.background,
         titleTextStyle: text.titleLarge,
       ),
       cardTheme: CardThemeData(
@@ -131,25 +148,50 @@ abstract final class ProductTheme {
   }
 }
 
+enum ProductThemeChoice { system, light, dark, colorful }
+
 abstract final class ProductThemeController {
-  static final mode = ValueNotifier<ThemeMode>(ThemeMode.system);
+  static final mode =
+      ValueNotifier<ProductThemeChoice>(ProductThemeChoice.system);
+
   static Future<void> load() async {
     final prefs = await SharedPreferences.getInstance();
     final stored = prefs.getString('productTheme');
-    mode.value = ThemeMode.values
-        .firstWhere((e) => e.name == stored, orElse: () => ThemeMode.system);
+    mode.value = ProductThemeChoice.values.firstWhere(
+      (e) => e.name == stored,
+      orElse: () => ProductThemeChoice.system,
+    );
   }
 
-  static Future<void> set(ThemeMode value) async {
+  static Future<void> set(ProductThemeChoice value) async {
     mode.value = value;
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString('productTheme', value.name);
   }
 
+  static ThemeMode get materialMode => switch (mode.value) {
+        ProductThemeChoice.system => ThemeMode.system,
+        ProductThemeChoice.light => ThemeMode.light,
+        ProductThemeChoice.dark => ThemeMode.dark,
+        ProductThemeChoice.colorful => ThemeMode.light,
+      };
+
+  static ThemeData get lightTheme =>
+      mode.value == ProductThemeChoice.colorful
+          ? ProductTheme.colorful
+          : ProductTheme.light;
+
+  static ThemeData get darkTheme =>
+      mode.value == ProductThemeChoice.colorful
+          ? ProductTheme.colorful
+          : ProductTheme.dark;
+
+  static bool get isColorful => mode.value == ProductThemeChoice.colorful;
+
   static void toggle(BuildContext context) =>
       set(Theme.of(context).brightness == Brightness.dark
-          ? ThemeMode.light
-          : ThemeMode.dark);
+          ? ProductThemeChoice.light
+          : ProductThemeChoice.dark);
 }
 
 String productFriendlyError(Object? error) => AppError.message(error);

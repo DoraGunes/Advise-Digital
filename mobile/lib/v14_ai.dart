@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
@@ -28,6 +30,9 @@ class _AiContentStudioPageState extends State<AiContentStudioPage> {
   String media = 'AUTO';
 
   bool loading = false;
+  int _analysisSeconds = 0;
+  Timer? _analysisTimer;
+  String? _analysisError;
   bool variantsLoading = false;
   bool scoreLoading = false;
   bool draftSaving = false;
@@ -81,6 +86,7 @@ class _AiContentStudioPageState extends State<AiContentStudioPage> {
 
   @override
   void dispose() {
+    _analysisTimer?.cancel();
     title.dispose();
     contextText.dispose();
     captionDraft.dispose();
@@ -122,6 +128,8 @@ class _AiContentStudioPageState extends State<AiContentStudioPage> {
     setState(() {
       image = picked;
       result = null;
+      _analysisError = null;
+      _analysisSeconds = 0;
       variants = [];
       score = {};
       savedPostId = null;
@@ -157,7 +165,16 @@ class _AiContentStudioPageState extends State<AiContentStudioPage> {
       return;
     }
 
-    setState(() => loading = true);
+    _analysisTimer?.cancel();
+    setState(() {
+      loading = true;
+      _analysisError = null;
+      _analysisSeconds = 0;
+    });
+    _analysisTimer = Timer.periodic(const Duration(seconds: 5), (_) {
+      if (!mounted || !loading) return;
+      setState(() => _analysisSeconds += 5);
+    });
 
     try {
       final data = image != null
@@ -202,13 +219,23 @@ class _AiContentStudioPageState extends State<AiContentStudioPage> {
       );
     } catch (e) {
       if (mounted) {
+        final message = AppError.message(e);
+        setState(() => _analysisError = message);
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(AppError.message(e))),
+          SnackBar(content: Text(message)),
         );
       }
     } finally {
+      _analysisTimer?.cancel();
       if (mounted) setState(() => loading = false);
     }
+  }
+
+  String get _analysisLabel {
+    if (_analysisSeconds < 10) return 'Medya hazırlanıyor…';
+    if (_analysisSeconds < 35) return 'AI görseli analiz ediyor…';
+    if (_analysisSeconds < 75) return 'İçerik stratejisi hazırlanıyor…';
+    return 'Analiz beklenenden uzun sürüyor…';
   }
 
   Future<void> _generateVariants() async {
@@ -934,13 +961,29 @@ class _AiContentStudioPageState extends State<AiContentStudioPage> {
                         : const Icon(Icons.auto_awesome),
                     label: Text(
                       loading
-                          ? 'İçeriğin hazırlanıyor…'
+                          ? _analysisLabel
                           : image != null
                               ? 'AI ile medyayı analiz et'
                               : 'AI ile içerik üret',
                     ),
                   ),
                 ),
+                if (loading) ...[
+                  const SizedBox(height: 10),
+                  Text(
+                    _analysisSeconds < 75
+                        ? 'Analiz sürerken bu ekran açık kalabilir. Sonuç geldiğinde otomatik devam edeceğiz.'
+                        : 'Bu işlem normalden uzun sürüyor. En geç 2 dakika sonunda güvenli şekilde durdurulacak.',
+                    style: Theme.of(context).textTheme.bodySmall,
+                  ),
+                ],
+                if (_analysisError != null) ...[
+                  const SizedBox(height: 12),
+                  ProductErrorState(
+                    message: _analysisError!,
+                    onRetry: loading ? null : _generate,
+                  ),
+                ],
               ],
             ),
           ),

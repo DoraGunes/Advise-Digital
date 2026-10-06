@@ -1111,13 +1111,20 @@ class _MemoryInsightsPageState extends State<MemoryInsightsPage> {
   }
 
   Future<void> _load() async {
+    if (mounted) {
+      setState(() {
+        loading = true;
+        error = null;
+      });
+    }
     try {
       data = await Api.aiMemory();
       error = null;
     } catch (e) {
       error = AppError.message(e);
+    } finally {
+      if (mounted) setState(() => loading = false);
     }
-    if (mounted) setState(() => loading = false);
   }
 
   @override

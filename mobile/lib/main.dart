@@ -30,14 +30,15 @@ Widget _mainHomeLeading(BuildContext context) => IconButton(
 class AdviseDigitalApp extends StatelessWidget {
   const AdviseDigitalApp({super.key});
   @override
-  Widget build(BuildContext context) => ValueListenableBuilder<ThemeMode>(
+  Widget build(BuildContext context) =>
+      ValueListenableBuilder<ProductThemeChoice>(
         valueListenable: ProductThemeController.mode,
-        builder: (context, mode, _) => MaterialApp(
+        builder: (context, choice, _) => MaterialApp(
           debugShowCheckedModeBanner: false,
           title: AppConfig.appName,
-          theme: ProductTheme.light,
-          darkTheme: ProductTheme.dark,
-          themeMode: mode,
+          theme: ProductThemeController.lightTheme,
+          darkTheme: ProductThemeController.darkTheme,
+          themeMode: ProductThemeController.materialMode,
           home: const ProductSessionGate(),
         ),
       );

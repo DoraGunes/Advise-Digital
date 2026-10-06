@@ -11,6 +11,13 @@ double contrast(Color foreground, Color background) {
 }
 
 void main() {
+  test('colorful theme keeps the playful palette distinct', () {
+    final theme = ProductTheme.colorful;
+    expect(theme.scaffoldBackgroundColor, const Color(0xFFEAFBFF));
+    expect(theme.colorScheme.primary, const Color(0xFF6D4FE8));
+    expect(theme.colorScheme.secondary, const Color(0xFF00A9B8));
+  });
+
   for (final brightness in [Brightness.light, Brightness.dark]) {
     for (final tone in ['success', 'warning', 'danger', 'ai', 'neutral']) {
       testWidgets('$brightness $tone status label contrast is at least 4.5',
