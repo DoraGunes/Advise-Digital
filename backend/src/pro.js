@@ -2,9 +2,10 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import crypto from 'node:crypto';
 import {fileURLToPath} from 'node:url';
-import {getTenant, getPosts, getLogs, addLog, getSettings, planDefinition} from './store.js';
+import {getTenant, getPosts, getLogs, addLog, getSettings, planDefinition, publicTenant} from './store.js';
+import {dataRoot,readJsonFile,writeJsonFile,withDataLock} from './persistence.js';
 
-const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../data');
+const root = dataRoot;
 const file = path.join(root, 'pro.json');
 
 const DEFAULT = {
@@ -20,11 +21,9 @@ const DEFAULT = {
 const clone = v => JSON.parse(JSON.stringify(v));
 
 async function read() {
-  await fs.mkdir(root, {recursive: true});
-  try { return JSON.parse(await fs.readFile(file, 'utf8')); }
-  catch { await fs.writeFile(file, JSON.stringify(DEFAULT, null, 2)); return clone(DEFAULT); }
+  return readJsonFile(file,DEFAULT);
 }
-async function write(data) { await fs.mkdir(root, {recursive: true}); await fs.writeFile(file, JSON.stringify(data, null, 2)); }
+async function write(data) { return writeJsonFile(file,data); }
 function tenantRows(db, key, tenantId) { return (db[key] || []).filter(x => x.tenantId === tenantId); }
 function id(prefix) { return `${prefix}_${Date.now()}_${crypto.randomBytes(3).toString('hex')}`; }
 function scoreFromSignals({cost=0, ctr=0, messages=0, spend=0}) {
@@ -58,21 +57,32 @@ export async function aiAdvisor(tenantId) {
 }
 
 export async function getAlerts(tenantId) { const db = await read(); return tenantRows(db,'alerts',tenantId).slice(0,100); }
-export async function createAlert(tenantId, input) {
-  const db = await read(); const alert = {id:id('alert'), tenantId, title:String(input.title||'Uyarı'), body:String(input.body||''), severity:String(input.severity||'INFO').toUpperCase(), read:false, createdAt:new Date().toISOString()};
+async function _createAlert(tenantId, input) {
+  const db = await read(); const alert = {id:id('alert'), tenantId, title:String(input.title||'Uyarı').slice(0,180), body:String(input.body||'').slice(0,1200), severity:String(input.severity||'INFO').toUpperCase(), sourceEventId:String(input.sourceEventId||'').slice(0,300),read:false, createdAt:new Date().toISOString()};
+  if(alert.sourceEventId) {const existing=(db.alerts||[]).find(row=>row.tenantId===tenantId&&row.sourceEventId===alert.sourceEventId);if(existing)return existing;}
   db.alerts = [alert, ...(db.alerts||[])].slice(0,2000); await write(db); return alert;
 }
-export async function markAlert(tenantId, alertId, read=true) { const db=await read(); const a=(db.alerts||[]).find(x=>x.tenantId===tenantId&&x.id===alertId); if(!a) throw new Error('Uyarı bulunamadı.'); a.read=Boolean(read); await write(db); return a; }
+async function _markAlert(tenantId, alertId, isRead=true) { const db=await read(); const a=(db.alerts||[]).find(x=>x.tenantId===tenantId&&x.id===alertId); if(!a) throw new Error('Uyarı bulunamadı.'); a.read=Boolean(isRead); await write(db); return a; }
 
 export async function getLeads(tenantId) { const db=await read(); return tenantRows(db,'leads',tenantId).slice(0,500); }
-export async function createLead(tenantId,input) {
-  const db=await read(); const lead={id:id('lead'),tenantId,name:String(input.name||''),phone:String(input.phone||''),email:String(input.email||''),source:String(input.source||'META'),status:String(input.status||'NEW').toUpperCase(),notes:String(input.notes||''),value:Number(input.value||0),createdAt:new Date().toISOString(),updatedAt:new Date().toISOString()};
-  if(!lead.name) throw new Error('Lead adı gerekli.'); db.leads=[lead,...(db.leads||[])]; await write(db); await addLog(tenantId,{type:'LEAD_CREATED',leadId:lead.id}); return lead;
+async function _createLead(tenantId,input,context={}) {
+  const db=await read(); const lead={id:id('lead'),tenantId,...leadFields(input),createdAt:new Date().toISOString(),updatedAt:new Date().toISOString()};
+  if(!lead.name) throw new Error('Lead adı gerekli.'); db.leads=[lead,...(db.leads||[])]; await write(db); await addLog(tenantId,{type:'LEAD_CREATED',leadId:lead.id,actorId:String(context.actorId||'')}); return lead;
 }
-export async function updateLead(tenantId,leadId,input){ const db=await read(); const l=(db.leads||[]).find(x=>x.tenantId===tenantId&&x.id===leadId); if(!l) throw new Error('Lead bulunamadı.'); Object.assign(l,{...input,status: input.status ? String(input.status).toUpperCase() : l.status,value: input.value == null ? l.value : Number(input.value),updatedAt:new Date().toISOString()}); await write(db); return l; }
-export async function deleteLead(tenantId,leadId){ const db=await read(); const before=db.leads?.length||0; db.leads=(db.leads||[]).filter(x=>!(x.tenantId===tenantId&&x.id===leadId)); if(db.leads.length===before) throw new Error('Lead bulunamadı.'); await write(db); return {deleted:true}; }
+function leadFields(input={},current={}) {
+  const value=Number(input.value??current.value??0);
+  if(!Number.isFinite(value)||value<0)throw new Error('Müşteri adayı değeri geçersiz.');
+  const status=String(input.status||current.status||'NEW').toUpperCase();
+  if(!['NEW','CONTACTED','QUALIFIED','WON','LOST'].includes(status))throw new Error('Geçerli müşteri adayı durumu seçin.');
+  const next={status,value};
+  for(const [key,max] of [['name',160],['phone',40],['email',160],['source',120],['notes',3000],['adId',120],['campaignId',120],['utmCampaign',200]])next[key]=String(input[key]??current[key]??'').trim().slice(0,max);
+  next.source=next.source||'MANUAL';
+  return next;
+}
+async function _updateLead(tenantId,leadId,input,context={}){ const db=await read(); const l=(db.leads||[]).find(x=>x.tenantId===tenantId&&x.id===leadId); if(!l) throw new Error('Lead bulunamadı.'); Object.assign(l,{...leadFields(input,l),updatedAt:new Date().toISOString()}); if(!l.name)throw new Error('Müşteri adayı adı gerekli.');await write(db); await addLog(tenantId,{type:'LEAD_UPDATED',leadId:l.id,status:l.status,actorId:String(context.actorId||'')}); return l; }
+async function _deleteLead(tenantId,leadId,context={}){ const db=await read(); const lead=(db.leads||[]).find(x=>x.tenantId===tenantId&&x.id===leadId); if(!lead) throw new Error('Lead bulunamadı.'); db.leads=(db.leads||[]).filter(x=>!(x.tenantId===tenantId&&x.id===leadId)); await write(db); await addLog(tenantId,{type:'LEAD_DELETED',leadId,actorId:String(context.actorId||'')}); return {deleted:true}; }
 
-export async function analyzeCreative(tenantId,input){
+async function _analyzeCreative(tenantId,input){
   const title=String(input.title||'Kreatif'); const type=String(input.type||'IMAGE').toUpperCase(); const copy=String(input.copy||'');
   const db=await read(); const prior=tenantRows(db,'creatives',tenantId); const flags=[];
   if(copy.length>180) flags.push('Metin uzun; daha kısa CTA denenebilir.');
@@ -96,12 +106,12 @@ export async function simulateBudget(tenantId,input){
   return {totalBudget:total,reservePercent:reservePct,reserve:Math.round(total*reservePct/100),allocations:rows.map(x=>({name:x.name||`Reklam ${x._index+1}`,score:x._score,allocation:x.allocation,messageCost:Number(x.messageCost||0)}))};
 }
 
-export async function createExperiment(tenantId,input){
+async function _createExperiment(tenantId,input){
   const db=await read(); const e={id:id('exp'),tenantId,name:String(input.name||'A/B Test'),status:'DRAFT',budget:Number(input.budget||0),variants:Array.isArray(input.variants)?input.variants.map((v,i)=>({id:`v${i+1}`,name:String(v.name||`Varyant ${i+1}`),goal:String(v.goal||'MESSAGE_COST'),target:Number(v.target||0)})):[],createdAt:new Date().toISOString()};
   if(e.variants.length<2) throw new Error('En az 2 varyant gerekli.'); db.experiments=[e,...(db.experiments||[])]; await write(db); return e;
 }
 export async function getExperiments(tenantId){const db=await read();return tenantRows(db,'experiments',tenantId).slice(0,100);}
-export async function updateExperiment(tenantId,idValue,status){const db=await read(); const e=(db.experiments||[]).find(x=>x.tenantId===tenantId&&x.id===idValue); if(!e) throw new Error('A/B test bulunamadı.'); e.status=String(status||'DRAFT').toUpperCase(); e.updatedAt=new Date().toISOString(); await write(db); return e;}
+async function _updateExperiment(tenantId,idValue,status){const db=await read(); const e=(db.experiments||[]).find(x=>x.tenantId===tenantId&&x.id===idValue); if(!e) throw new Error('A/B test bulunamadı.'); e.status=String(status||'DRAFT').toUpperCase(); e.updatedAt=new Date().toISOString(); await write(db); return e;}
 
 export function buildUtm(input){
   const clean=s=>String(s||'').trim().toLowerCase().replace(/[^a-z0-9_-]+/g,'-').replace(/-+/g,'-').replace(/^-|-$/g,'');
@@ -119,7 +129,7 @@ export async function reportPack(tenantId){
     ['ADVISE AI ÖZETİ'],...ai.summary.map(x=>['•',x]),[],['SON LOG KAYITLARI'],...logs.slice(0,20).map(x=>[x.type,x.at])
   ];
   const csv=rows.map(r=>r.map(v=>`"${String(v??'').replaceAll('"','""')}"`).join(';')).join('\r\n');
-  return {tenant,summary,ai,generatedAt:date.toISOString(),csv,postCount:posts.length};
+  return {tenant:publicTenant(tenant),summary,ai,generatedAt:date.toISOString(),csv,postCount:posts.length};
 }
 
 export async function agencyOverview(){
@@ -129,3 +139,19 @@ export async function agencyOverview(){
 }
 
 export async function addSystemNotification(tenantId,title,body,severity='INFO'){return createAlert(tenantId,{title,body,severity});}
+
+export async function createAlert(...args) {return withDataLock(()=>_createAlert(...args));}
+
+export async function markAlert(...args) {return withDataLock(()=>_markAlert(...args));}
+
+export async function createLead(...args) {return withDataLock(()=>_createLead(...args));}
+
+export async function updateLead(...args) {return withDataLock(()=>_updateLead(...args));}
+
+export async function deleteLead(...args) {return withDataLock(()=>_deleteLead(...args));}
+
+export async function analyzeCreative(...args) {return withDataLock(()=>_analyzeCreative(...args));}
+
+export async function createExperiment(...args) {return withDataLock(()=>_createExperiment(...args));}
+
+export async function updateExperiment(...args) {return withDataLock(()=>_updateExperiment(...args));}

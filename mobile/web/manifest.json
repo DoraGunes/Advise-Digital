@@ -1,12 +1,15 @@
 {
-    "name": "advise_digital",
-    "short_name": "advise_digital",
+    "id": ".",
+    "name": "AdVise Digital",
+    "short_name": "AdVise",
     "start_url": ".",
     "display": "standalone",
-    "background_color": "#0175C2",
-    "theme_color": "#0175C2",
-    "description": "A new Flutter project.",
-    "orientation": "portrait-primary",
+    "background_color": "#F5F6FA",
+    "theme_color": "#111B33",
+    "description": "İçerik, reklam ve öğrenmeyi tek bir AI çalışma alanında yönetin.",
+    "orientation": "any",
+    "lang": "tr",
+    "categories": ["business", "productivity"],
     "prefer_related_applications": false,
     "icons": [
         {

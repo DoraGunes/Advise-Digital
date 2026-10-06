@@ -5,7 +5,6 @@ import path from 'node:path';
 import fs from 'node:fs/promises';
 import crypto from 'node:crypto';
 import {fileURLToPath} from 'node:url';
-import jwt from 'jsonwebtoken';
 import {config} from './config.js';
 import {ensureAdmin, login, authMiddleware, allowRoles, createCustomerAccount, resetUserPassword, createTenantUser, changeOwnPassword} from './auth.js';
 import {
@@ -13,17 +12,23 @@ import {
   getTenant, updateTenant, getCustomerSummaries, adminStats, getUsersForTenant, getUserById, saveUser, publicUser,
   createLicense, getLicenses, assignLicense, deleteTenantCascade
 } from './store.js';
-import {getCampaigns, getAdSets, getAds, insights, setStatus, updateAdSetBudget, metaHealth, getInstagramMedia, createCampaign, createAdSet, createAdCreativeFromInstagramMedia, createAd} from './meta.js';
+import {getCampaigns, getAdSets, getAds, insights, setStatus, updateAdSetBudget, metaHealth, getInstagramMedia, createCampaign, createAdSet, createAdCreativeFromInstagramMedia, createAd, resolveAdGeoTargeting,resolveCredentials} from './meta.js';
+import {AD_CITIES, AD_REGIONS, provinceNamesForTargeting} from './ad-targeting.js';
 import {optimizeAds} from './optimizer.js';
-import {startScheduler, scheduleUploadedPost, scheduleUploadedPosts, publishDuePosts} from './scheduler.js';
+import {startScheduler, scheduleUploadedPost, scheduleUploadedPosts, publishDuePosts,publishPost} from './scheduler.js';
 import {analyticsSummary, aiInsights, billingSummary, brandingSummary, saveBranding, notificationPrefs, saveNotificationPrefs, securityOverview, planCatalog, adminOverview} from './v78.js';
 import {dbHealth} from './db.js';
 import {aiAdvisor, performanceSummary, getAlerts, createAlert, markAlert, getLeads, createLead, updateLead, deleteLead, analyzeCreative, getCreatives, simulateBudget, createExperiment, getExperiments, updateExperiment, buildUtm, reportPack, agencyOverview} from './pro.js';
 import {generateContentPack, generateCaption, generateCaptionVariants, scoreCreative, aiStatus} from './ai.js';
-import {learnFromGeneration, getMemorySummary} from './ai-memory.js';
+import {learnFromGeneration, linkGenerationToPost, getMemorySummary} from './ai-memory.js';
+import {runGeminiAdReview, applyGeminiAdDecision} from './gemini-ads.js';
+import {withTenantLock} from './persistence.js';
+import {tenantCredentials,metaReady,budgetGuard,activationGuard,withAdAccountLock} from './automation-safety.js';
+import {metaOAuthCallback,startMetaOAuth,metaAssets,selectMetaAssets} from './meta-oauth.js';
+import {productOverview,productReport,onboardingStatus,saveOnboarding,productStrategy} from './product.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const uploadDir = path.resolve(__dirname, '../uploads');
+const uploadDir = path.resolve(process.env.ADVISE_UPLOAD_DIR || path.resolve(__dirname, '../uploads'));
 await fs.mkdir(uploadDir, {recursive: true});
 
 function publicBaseUrlForRequest(req) {
@@ -56,17 +61,36 @@ function mediaKind(file = {}) {
   return 'OTHER';
 }
 
+function adTargetingPrompt(settings = {}) {
+  const mode = String(settings.adTargetingMode || 'COUNTRY').toUpperCase();
+  const locations = Array.isArray(settings.adTargetingLocations) ? settings.adTargetingLocations : [];
+  if (mode === 'COUNTRY' || !locations.length) return 'Instagram reklam hedefi: Türkiye geneli.';
+  const selected = locations.map(x => String(x || '').trim()).filter(Boolean);
+  const detail = mode === 'REGION'
+    ? selected.map(region => `${region} (${AD_REGIONS[region]?.join(', ') || ''})`).join('; ')
+    : selected.join(', ');
+  return `Instagram reklam hedefi: ${mode === 'REGION' ? 'seçilen bölgelerin illeri' : 'seçilen iller'}: ${detail}.`;
+}
+
 const storage = multer.diskStorage({
   destination: (_req, _file, cb) => cb(null, uploadDir),
   filename: (_req, file, cb) => {
-    const safe = file.originalname.replace(/[^a-zA-Z0-9._-]/g, '_');
-    cb(null, `${Date.now()}-${safe}`);
+    const ext = fileExtension(file.originalname);
+    cb(null, `${crypto.randomUUID()}${ext}`);
   }
 });
 
 const upload = multer({
   storage,
-  limits: {fileSize: 100 * 1024 * 1024},
+  limits: {
+    fileSize: 100 * 1024 * 1024,
+    files: 20,
+    fields: 50,
+    parts: 80,
+    fieldNameSize: 100,
+    fieldSize: 1024 * 1024,
+    fieldArrayIndexLimit: 100
+  },
   fileFilter: (_req, file, cb) => {
     const kind = mediaKind(file);
     if (kind === 'OTHER') {
@@ -79,36 +103,44 @@ const upload = multer({
 });
 
 function hasMetaCredentials(credentials = {}) {
-  const accessToken = String(
-    credentials?.accessToken ||
-    credentials?.metaAccessToken ||
-    config.metaAccessToken ||
-    ''
-  ).trim();
-  const adAccountId = String(
-    credentials?.adAccountId ||
-    config.adAccountId ||
-    ''
-  ).replace(/^act_/, '').trim();
-  return Boolean(accessToken && adAccountId);
+  return metaReady(credentials);
 }
 
 function hasInstagramCredentials(credentials = {}) {
-  const instagramUserId = String(
-    credentials?.instagramUserId ||
-    config.instagramUserId ||
-    ''
-  ).trim();
-  const instagramAccessToken = String(
-    credentials?.instagramAccessToken ||
-    config.instagramAccessToken ||
-    ''
-  ).trim();
-  return Boolean(instagramUserId && instagramAccessToken);
+  const c=resolveCredentials(credentials);
+  return Boolean(c.instagramUserId&&c.instagramAccessToken);
+}
+function postPublicationProtected(post) {
+  return ['PUBLISHED','PUBLISHING','RECONCILE'].includes(post.publishStatus) || Boolean(post.publishAmbiguous) || ['SUBMITTING','RECONCILE'].includes(post.publishPhase);
 }
 await ensureAdmin();
 
-const app = express();
+export const app = express();
+const requestMutations = new WeakMap();
+function trackedMutationHandler(handler) {
+  if(Array.isArray(handler))return handler.map(trackedMutationHandler);
+  if(typeof handler!=='function'||handler.length===4)return handler;
+  return (req,res,next)=>{
+    const operation=requestMutations.get(req);
+    let resolveTask;const task=new Promise(resolve=>{resolveTask=resolve;});
+    operation?.pending.add(task);
+    const settled=()=>{operation?.pending.delete(task);resolveTask();};
+    try {
+      // A deferred upload middleware may finish after the client disconnects.
+      // Do not start its subsequent data/Meta mutation; remove newly uploaded files.
+      const result=(req.aborted||res.destroyed)
+        ? Promise.all([req.file,...(Array.isArray(req.files)?req.files:Object.values(req.files||{}).flat())].filter(Boolean).map(file=>fs.rm(file.path,{force:true}).catch(()=>{})))
+        : handler(req,res,next);
+      if(result&&typeof result.then==='function')Promise.resolve(result).catch(next).finally(settled);
+      else settled();
+    } catch(error) {settled();next(error);}
+  };
+}
+// Keep each asynchronous write handler observable without changing its Express contract.
+for(const method of ['post','put','patch','delete']) {
+  const register=app[method].bind(app);
+  app[method]=(route,...handlers)=>register(route,...handlers.map(trackedMutationHandler));
+}
 app.set('trust proxy', true);
 app.use(cors());
 app.use(express.json({limit: '2mb'}));
@@ -118,7 +150,10 @@ app.get('/health', (_req, res) => res.json({
   ok: true,
   app: 'AdVise AI',
   version: config.appVersion,
-  buildMarker: 'GEMINI_INTERACTIONS_2026_10_03_V1',
+  apiVersion:16,
+  minClientVersion:'14.0.0',
+  capabilities:{productExperience:true,productOverview:true,productReporting:true,onboarding:true,scheduledPublishing:true,geminiAdReview:true,safeAutomationV16:true,campaignStrategy:true},
+  buildMarker: 'ADVISE_PRODUCT_V16_2026_10_05',
   uploadMode: 'EXTENSION_AWARE',
   aiImageMode: 'GEMINI_INTERACTIONS_MULTIMODAL'
 }));
@@ -148,7 +183,38 @@ app.use('/api/ai/content-pack-from-file', (req, res, next) => {
   next();
 });
 
+app.get('/api/meta/oauth/callback',metaOAuthCallback);
 app.use('/api', authMiddleware);
+app.use('/api', (req,res,next)=>{
+  const originalJson=res.json.bind(res);
+  const safe=value=>{
+    if(Array.isArray(value))return value.map(safe);
+    if(value&&typeof value==='object')return Object.fromEntries(Object.entries(value).filter(([key])=>!['accessToken','access_token','metaAccessToken','instagramAccessToken','passwordHash','oauthAssets','oauthNonce','oauthUserId'].includes(key)).map(([key,item])=>[key,safe(item)]));
+    if(typeof value==='string')return value.replace(/([?&](?:access_token|key|token)=)[^&\s]+/gi,'$1[hidden]').replace(/Bearer\s+[\w.-]+/gi,'Bearer [hidden]');
+    return value;
+  };
+  res.json=body=>originalJson(safe(body));
+  const feature=req.path.startsWith('/ai/')||req.path==='/product/strategy'?'aiContent':req.path.startsWith('/automation/')||req.path.includes('/gemini-')?'automation':req.path.startsWith('/product/report')?'analytics':null;
+  if(feature && req.user.role!=='ADMIN' && req.tenant.features?.[feature]!==true)return res.status(403).json({error:'Bu özellik mevcut paketinizde etkin değil.'});
+  if(['GET','HEAD','OPTIONS'].includes(req.method))return next();
+  const personal=req.path==='/profile/password'||/^\/pro\/alerts\/[^/]+\/read$/.test(req.path);
+  if(!personal&&!['ADMIN','CUSTOMER_ADMIN','MANAGER','OPERATOR'].includes(req.user.role))return res.status(403).json({error:'Bu işlem için yetkiniz bulunmuyor.'});
+  const operation={pending:new Set()};requestMutations.set(req,operation);
+  const finish=()=>new Promise(resolve=>{
+    let finishing=false;
+    const completed=async()=>{
+      if(finishing)return;finishing=true;
+      // Socket close is not completion of an outstanding Graph/file write.
+      while(operation.pending.size)await Promise.allSettled([...operation.pending]);
+      res.off('finish',completed);res.off('close',completed);resolve();
+    };
+    if(req.aborted||res.destroyed){void completed();return;}
+    res.once('finish',completed);res.once('close',completed);next();
+    if(res.writableEnded||res.destroyed)void completed();
+  });
+  const financial=/^\/(ads\/create|ads\/gemini-apply|status\/|budget\/|automation\/run)/.test(req.path);
+  withTenantLock(req.user.tenantId,()=>financial?withAdAccountLock(req.user.tenantId,finish):finish()).catch(error=>{if(!res.headersSent)res.status(409).json({error:error.message});});
+});
 
 app.get('/api/system/health', async (_req, res) => {
   try { res.json({app:'AdVise AI', version:config.appVersion, environment:config.environment, database: await dbHealth()}); }
@@ -159,14 +225,25 @@ app.get('/api/me', async (req, res) => {
   res.json({user: req.user, tenant: req.tenant});
 });
 
+app.get('/api/product/overview',async(req,res)=>{try{res.json(await productOverview(req.user.tenantId,req.user));}catch{res.status(503).json({error:'Ana sayfa verileri alınamadı. Yeniden deneyin.'});}});
+app.get('/api/product/report',async(req,res)=>{try{res.json(await productReport(req.user.tenantId,req.query));}catch(error){res.status(400).json({error:error.message});}});
+app.post('/api/product/strategy',allowRoles('ADMIN','CUSTOMER_ADMIN','MANAGER','OPERATOR'),async(req,res)=>{try{res.json(await productStrategy(req.user.tenantId,req.body||{},{actorId:req.user.id}));}catch(error){res.status(400).json({error:error.message});}});
+app.get('/api/product/onboarding',async(req,res)=>{try{res.json(await onboardingStatus(req.user.tenantId));}catch(error){res.status(503).json({error:'Kurulum bilgileri alınamadı.'});}});
+app.put('/api/product/onboarding',allowRoles('ADMIN','CUSTOMER_ADMIN'),async(req,res)=>{try{
+  const result=await saveOnboarding(req.user.tenantId,req.body);
+  await addLog(req.user.tenantId,{type:'ONBOARDING_UPDATED',actorId:req.user.id,step:Number(result.step||0),completed:result.completed===true});
+  res.json(result);
+}catch(error){res.status(400).json({error:error.message});}});
+
 app.post('/api/profile/password', async (req, res) => {
   try {
     const user = await changeOwnPassword(req.user.id, req.body?.currentPassword, req.body?.newPassword);
+    await addLog(req.user.tenantId,{type:'PASSWORD_CHANGED',actorId:req.user.id,userId:req.user.id});
     res.json({user});
   } catch (e) { res.status(400).json({error: e.message}); }
 });
 
-app.get('/api/users', async (req, res) => {
+app.get('/api/users', allowRoles('ADMIN','CUSTOMER_ADMIN'), async (req, res) => {
   try { res.json({data: await getUsersForTenant(req.user.tenantId)}); }
   catch (e) { res.status(400).json({error: e.message}); }
 });
@@ -216,7 +293,7 @@ app.get('/api/dashboard', async (req, res) => {
     const tenantRaw = await getTenant(tenantId);
     const settings = await getSettings(tenantId);
     const [posts, logs] = await Promise.all([getPosts(tenantId), getLogs(tenantId, 50)]);
-    const credentials = tenantId === 'system' ? {} : (tenantRaw?.meta?.connected ? tenantRaw.meta : null);
+    const credentials = tenantId === 'system' ? {systemAccount:true} : (tenantRaw?.meta?.connected ? tenantRaw.meta : null);
 
     let campaigns = [], adsets = [], ads = [];
     const metaReady = hasMetaCredentials(credentials || {});
@@ -252,7 +329,7 @@ app.get('/api/dashboard', async (req, res) => {
 app.get('/api/campaigns', async (req, res) => {
   try {
     const tenant = await getTenant(req.user.tenantId);
-    const credentials = req.user.tenantId === 'system' ? {} : tenant?.meta;
+    const credentials = req.user.tenantId === 'system' ? {systemAccount:true} : tenant?.meta;
     if (!hasMetaCredentials(credentials || {})) {
       return res.json({data: [], connected: false, mode: 'PLANNING', reason: 'Meta bağlantısı kurulmadı.'});
     }
@@ -262,7 +339,7 @@ app.get('/api/campaigns', async (req, res) => {
 app.get('/api/adsets', async (req, res) => {
   try {
     const tenant = await getTenant(req.user.tenantId);
-    const credentials = req.user.tenantId === 'system' ? {} : tenant?.meta;
+    const credentials = req.user.tenantId === 'system' ? {systemAccount:true} : tenant?.meta;
     if (!hasMetaCredentials(credentials || {})) {
       return res.json({data: [], connected: false, mode: 'PLANNING', reason: 'Meta bağlantısı kurulmadı.'});
     }
@@ -272,7 +349,7 @@ app.get('/api/adsets', async (req, res) => {
 app.get('/api/ads', async (req, res) => {
   try {
     const tenant = await getTenant(req.user.tenantId);
-    const credentials = req.user.tenantId === 'system' ? {} : tenant?.meta;
+    const credentials = req.user.tenantId === 'system' ? {systemAccount:true} : tenant?.meta;
     if (!hasMetaCredentials(credentials || {})) {
       return res.json({data: [], connected: false, mode: 'PLANNING', reason: 'Meta bağlantısı kurulmadı.'});
     }
@@ -282,7 +359,7 @@ app.get('/api/ads', async (req, res) => {
 app.get('/api/instagram/media', async (req, res) => {
   try {
     const tenant = await getTenant(req.user.tenantId);
-    const credentials = req.user.tenantId === 'system' ? {} : (tenant?.meta || {});
+    const credentials = req.user.tenantId === 'system' ? {systemAccount:true} : (tenant?.meta || {});
     const limit = Math.max(1, Math.min(100, Number(req.query.limit || 50)));
     if (!hasInstagramCredentials(credentials || {})) {
       return res.json({data: [], connected: false, mode: 'PLANNING', reason: 'Instagram bağlantısı kurulmadı.'});
@@ -291,7 +368,25 @@ app.get('/api/instagram/media', async (req, res) => {
   } catch (e) { res.status(502).json({error: e.message}); }
 });
 
-app.post('/api/ads/create', allowRoles('ADMIN','CUSTOMER_ADMIN','OPERATOR'), async (req, res) => {
+app.get('/api/ads/targeting-options', async (req, res) => {
+  try {
+    const settings = await getSettings(req.user.tenantId);
+    res.json({cities:AD_CITIES, regions:Object.keys(AD_REGIONS), mode:settings.adTargetingMode, locations:settings.adTargetingLocations});
+  } catch (e) { res.status(500).json({error:e.message}); }
+});
+
+app.put('/api/ads/targeting-preferences', allowRoles('ADMIN','CUSTOMER_ADMIN','MANAGER','OPERATOR'), async (req, res) => {
+  try {
+    const mode = String(req.body?.mode || 'COUNTRY').toUpperCase();
+    const locations = Array.isArray(req.body?.locations) ? [...new Set(req.body.locations.map(x => String(x || '').trim()).filter(Boolean))] : [];
+    if (mode !== 'COUNTRY') provinceNamesForTargeting(mode, locations);
+    const settings = await saveSettings(req.user.tenantId, {adTargetingMode:mode, adTargetingLocations:mode === 'COUNTRY' ? [] : locations});
+    await addLog(req.user.tenantId,{type:'AD_TARGETING_CHANGED',actorId:req.user.id,mode:settings.adTargetingMode,locationCount:settings.adTargetingLocations.length});
+    res.json({mode:settings.adTargetingMode, locations:settings.adTargetingLocations});
+  } catch (e) { res.status(400).json({error:e.message}); }
+});
+
+app.post('/api/ads/create', allowRoles('ADMIN','CUSTOMER_ADMIN','MANAGER','OPERATOR'), async (req, res) => {
   let stage = 'validation';
   let createdCampaignId = '';
   let createdAdSetId = '';
@@ -300,7 +395,11 @@ app.post('/api/ads/create', allowRoles('ADMIN','CUSTOMER_ADMIN','OPERATOR'), asy
   try {
     const tenantId = req.user.tenantId;
     const tenant = await getTenant(tenantId);
-    const credentials = tenantId === 'system' ? {} : (tenant?.meta || {});
+    const credentials = tenantId === 'system' ? {systemAccount:true} : (tenant?.meta || {});
+    const savedSettings = await getSettings(tenantId);
+    const locationMode = String(req.body?.locationMode || savedSettings.adTargetingMode || 'COUNTRY').toUpperCase();
+    const rawLocations = Array.isArray(req.body?.locations) ? req.body.locations : savedSettings.adTargetingLocations;
+    const locations = [...new Set(rawLocations.map(x => String(x || '').trim()).filter(Boolean))];
     const mediaId = String(req.body?.instagramMediaId || '').trim();
     const dailyBudget = Number(req.body?.dailyBudget);
     if (!mediaId) return res.status(400).json({error: 'Instagram gönderisi seçmelisin.'});
@@ -310,8 +409,20 @@ app.post('/api/ads/create', allowRoles('ADMIN','CUSTOMER_ADMIN','OPERATOR'), asy
     const adSetName = String(req.body?.adSetName || 'AdVise AI Ad Set').trim().slice(0, 120);
     const adName = String(req.body?.adName || 'AdVise AI Reklamı').trim().slice(0, 120);
     const activate = req.body?.activate !== false;
+    await budgetGuard(credentials,savedSettings,{nextBudget:dailyBudget,creating:true});
+    const media=await getInstagramMedia(credentials,100);
+    if(!(media.data||[]).some(row=>String(row.id)===mediaId))throw new Error('Seçilen Instagram gönderisi bu hesaba ait değil.');
+    const existingAds=await getAds(credentials);
+    if((existingAds.data||[]).length>=Number(req.tenant.limits?.maxAds||0))throw new Error('Paketinizin reklam limitine ulaşıldı.');
 
     console.log(`[ADS CREATE] start media=${mediaId} budget=${dailyBudget} activate=${activate}`);
+
+    stage = 'targeting';
+    const audience = await resolveAdGeoTargeting(locationMode, locations, credentials);
+    await saveSettings(tenantId, {
+      adTargetingMode: locationMode,
+      adTargetingLocations: locationMode === 'COUNTRY' ? [] : locations
+    });
 
     stage = 'campaign';
     const campaign = await createCampaign({
@@ -330,7 +441,8 @@ app.post('/api/ads/create', allowRoles('ADMIN','CUSTOMER_ADMIN','OPERATOR'), asy
       dailyBudget,
       optimizationGoal: 'CONVERSATIONS',
       billingEvent: 'IMPRESSIONS',
-      destinationType: 'INSTAGRAM_DIRECT',
+      destinationType: 'WHATSAPP',
+      targeting: {geo_locations:audience.geo_locations},
       credentials
     });
     createdAdSetId = String(adSet?.id || '');
@@ -396,7 +508,9 @@ app.post('/api/ads/create', allowRoles('ADMIN','CUSTOMER_ADMIN','OPERATOR'), asy
       adset: adSet,
       creative,
       ad: {...ad, status: activate ? 'ACTIVE' : 'PAUSED'},
-      activated: activate
+      activated: activate,
+      contactChannel: 'WHATSAPP',
+      targeting: {mode: audience.locationMode, locations: audience.locations}
     });
   } catch (e) {
     console.error(`[ADS CREATE] failed stage=${stage}:`, e.message);
@@ -410,7 +524,7 @@ app.post('/api/ads/create', allowRoles('ADMIN','CUSTOMER_ADMIN','OPERATOR'), asy
     ]) {
       if (!id) continue;
       try {
-        await request(id, {method:'DELETE', credentials});
+        if(kind!=='creative') await setStatus(id,'PAUSED',tenantCredentials(req.user.tenantId,await getTenant(req.user.tenantId)));
         console.log(`[ADS CREATE] cleanup ${kind}=${id}`);
       } catch (cleanupError) {
         console.error(`[ADS CREATE] cleanup ${kind}=${id} failed:`, cleanupError.message);
@@ -425,43 +539,62 @@ app.get('/api/insights/:id', async (req, res) => {
   try {
     const days = Math.max(1, Math.min(30, Number(req.query.days || 7)));
     const tenant = await getTenant(req.user.tenantId);
-    const credentials = req.user.tenantId === 'system' ? {} : tenant?.meta;
+    const credentials = req.user.tenantId === 'system' ? {systemAccount:true} : tenant?.meta;
     res.json(await insights(req.params.id, req.query.level || 'ad', days, credentials || {}));
   } catch (e) { res.status(502).json({error: e.message}); }
 });
-app.post('/api/status/:id', allowRoles('ADMIN','CUSTOMER_ADMIN','OPERATOR'), async (req, res) => {
+app.post('/api/status/:id', allowRoles('ADMIN','CUSTOMER_ADMIN','MANAGER','OPERATOR'), async (req, res) => {
   try {
     const status = String(req.body?.status || '').toUpperCase();
     const tenant = await getTenant(req.user.tenantId);
-    const credentials = req.user.tenantId === 'system' ? {} : tenant?.meta;
-    res.json(await setStatus(req.params.id, status, credentials || {}));
+    const credentials = req.user.tenantId === 'system' ? {systemAccount:true} : tenant?.meta;
+    if(status==='ACTIVE')await activationGuard(credentials||{},await getSettings(req.user.tenantId),req.params.id);
+    const result=await setStatus(req.params.id, status, credentials || {});
+    await addLog(req.user.tenantId,{type:'META_STATUS_CHANGED',id:String(req.params.id),status,source:'USER_ACTION',actorId:req.user.id});
+    res.json(result);
   } catch (e) { res.status(502).json({error: e.message}); }
 });
 
-app.post('/api/budget/:id', allowRoles('ADMIN','CUSTOMER_ADMIN','OPERATOR'), async (req, res) => {
+app.post('/api/budget/:id', allowRoles('ADMIN','CUSTOMER_ADMIN','MANAGER','OPERATOR'), async (req, res) => {
   try {
     const budget = Number(req.body?.dailyBudget);
     if (!Number.isFinite(budget) || budget <= 0) return res.status(400).json({error: 'Geçersiz günlük bütçe.'});
-    const tenant = await getTenant(req.user.tenantId);
-    const credentials = req.user.tenantId === 'system' ? {} : tenant?.meta;
-    res.json(await updateAdSetBudget(req.params.id, budget, credentials || {}));
+    const tenantId = req.user.tenantId;
+    const tenant = await getTenant(tenantId);
+    const credentials = tenantId === 'system' ? {systemAccount:true} : tenant?.meta;
+    const settings = await getSettings(tenantId);
+    await budgetGuard(credentials || {}, settings, {adSetId:req.params.id, nextBudget:budget});
+    const result=await updateAdSetBudget(req.params.id, budget, credentials || {});
+    await addLog(tenantId,{type:'META_BUDGET_CHANGED',actorId:req.user.id,adSetId:String(req.params.id),dailyBudget:Math.round(budget*100)/100,source:'USER_ACTION'});
+    res.json(result);
   } catch (e) { res.status(502).json({error: e.message}); }
 });
 
-function oauthStatePayload(req) {
-  return jwt.sign({sub:req.user.id, tenantId:req.user.tenantId, purpose:'meta-oauth'}, config.jwtSecret, {expiresIn:'10m'});
-}
+app.post('/api/ads/gemini-review', allowRoles('ADMIN','CUSTOMER_ADMIN','MANAGER','OPERATOR'), async (req,res) => {
+  try { res.json(await runGeminiAdReview(req.user.tenantId,{force:true})); }
+  catch (e) { res.status(502).json({error:e.message}); }
+});
+
+app.post('/api/ads/gemini-apply', allowRoles('ADMIN','CUSTOMER_ADMIN','MANAGER','OPERATOR'), async (req,res) => {
+  try {
+    const adSetId=String(req.body?.adSetId||'').trim();
+    const action=String(req.body?.action||'').trim().toUpperCase();
+    if (!adSetId) return res.status(400).json({error:'Reklam grubu seçilmedi.'});
+    res.json(await applyGeminiAdDecision(req.user.tenantId,{adSetId,action}));
+  } catch (e) { res.status(400).json({error:e.message}); }
+});
 
 app.get('/api/meta/health', async (req, res) => {
   try {
-    const tenant=req.tenant||{};
-    const credentials=req.user.tenantId==='system' ? {} : (tenant.meta||{});
+    const tenant=await getTenant(req.user.tenantId);
+    const credentials=tenantCredentials(req.user.tenantId,tenant);
     res.json(await metaHealth(credentials));
   } catch(e) { res.status(502).json({error:e.message}); }
 });
 
 app.get('/api/meta/status', async (req, res) => {
   const meta = req.tenant?.meta || {};
+  const system = req.user?.tenantId === 'system';
   const configured = Boolean(config.metaAppId && config.metaAppSecret && config.metaRedirectUri);
   res.json({
     configured,
@@ -473,8 +606,8 @@ app.get('/api/meta/status', async (req, res) => {
     businessId: meta.businessId || '',
     connectedAt: meta.connectedAt || null,
     source: meta.source || null,
-    metaTokenReady: Boolean(meta.metaAccessToken || meta.accessToken || config.metaAccessToken),
-    instagramTokenReady: Boolean(meta.instagramAccessToken || config.instagramAccessToken),
+    metaTokenReady: Boolean(meta.metaAccessToken || meta.accessToken || (system&&config.metaAccessToken)),
+    instagramTokenReady: Boolean(meta.instagramAccessToken || (system&&config.instagramAccessToken)),
     appId: config.metaAppId || '',
     configId: config.metaLoginConfigId || '',
     configuredTarget: {
@@ -486,163 +619,14 @@ app.get('/api/meta/status', async (req, res) => {
   });
 });
 
-app.get('/api/meta/connect/start', allowRoles('ADMIN','CUSTOMER_ADMIN'), async (req, res) => {
-  try {
-    const igToken = String(process.env.INSTAGRAM_ACCESS_TOKEN || '').trim();
-    const configuredIgId = String(process.env.INSTAGRAM_USER_ID || '').trim();
-    const pageId = String(process.env.META_PAGE_ID || config.metaPageId || '').trim();
-    const businessId = String(process.env.META_BUSINESS_ID || config.metaBusinessId || '').trim();
-    const rawAdAccount = String(process.env.META_AD_ACCOUNT_ID || config.adAccountId || '').trim();
-    const adAccountId = rawAdAccount.replace(/^act_/, '');
-
-    if (!igToken || !configuredIgId) {
-      return res.status(503).json({
-        error: 'Instagram baÄŸlantÄ±sÄ± iÃ§in INSTAGRAM_ACCESS_TOKEN ve INSTAGRAM_USER_ID .env iÃ§inde bulunmalÄ±.'
-      });
-    }
-
-    const igUrl = new URL('https://graph.instagram.com/me');
-    igUrl.searchParams.set('fields', 'id,username');
-    igUrl.searchParams.set('access_token', igToken);
-
-    const igResp = await fetch(igUrl);
-    const igData = JSON.parse(await igResp.text());
-
-    if (!igResp.ok || igData.error) {
-      return res.status(401).json({
-        error: igData.error?.message || 'Instagram access token doÄŸrulanamadÄ±.'
-      });
-    }
-
-    const instagramUserId = String(igData.id || configuredIgId);
-    if (configuredIgId && instagramUserId !== configuredIgId) throw new Error(`Instagram kullanıcı ID uyuşmuyor. .env=${configuredIgId}, API=${instagramUserId}`);
-    const instagramUsername = String(igData.username || '');
-
-    const metaPatch = {
-      connected: true,
-      source: 'INSTAGRAM_ENV',
-      accessToken: config.metaAccessToken || '',
-      metaAccessToken: config.metaAccessToken || '',
-      instagramAccessToken: igToken,
-      adAccountId,
-      pageId,
-      instagramUserId,
-      instagramUsername,
-      businessId,
-      connectedAt: new Date().toISOString()
-    };
-
-    await updateTenant(req.user.tenantId, { meta: metaPatch });
-
-    await addLog(req.user.tenantId, {
-      type: 'META_CONNECTED',
-      source: 'INSTAGRAM_ENV',
-      adAccountId,
-      instagramUserId
-    });
-
-    res.json({
-      connected: true,
-      source: metaPatch.source,
-      adAccountId,
-      pageId,
-      instagramUserId,
-      instagramUsername,
-      businessId,
-      connectedAt: metaPatch.connectedAt
-    });
-  } catch (e) {
-    res.status(500).json({ error: e.message || String(e) });
-  }
-});
-app.get('/api/meta/oauth/callback', async (req, res) => {
-  const html = (title, body) => res.status(200).type('html').send(`<!doctype html><html lang="tr"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>${title}</title><style>body{font-family:Arial,sans-serif;background:#f6f7fb;padding:40px}main{max-width:640px;margin:auto;background:#fff;border-radius:20px;padding:28px;box-shadow:0 12px 40px rgba(0,0,0,.08)}h1{color:#252a5a}p{line-height:1.6}</style></head><body><main><h1>${title}</h1><p>${body}</p><p>AdVise AI uygulamasına dönüp <b>Yenile</b> düğmesine basabilirsin.</p></main></body></html>`);
-  try {
-    const state = String(req.query.state || '');
-    if (!state) return html('Bağlantı başlatılamadı', 'OAuth state bulunamadı.');
-    const payload = jwt.verify(state, config.jwtSecret);
-    if (payload.purpose !== 'meta-oauth') return html('Geçersiz bağlantı', 'OAuth state doğrulanamadı.');
-    if (req.query.error) return html('Meta bağlantısı iptal edildi', String(req.query.error_description || req.query.error));
-    const code = String(req.query.code || '');
-    if (!code) return html('Meta bağlantısı tamamlanamadı', 'Meta authorization code döndürmedi.');
-
-    const tokenUrl = new URL(`https://graph.facebook.com/${config.metaApiVersion}/oauth/access_token`);
-    tokenUrl.searchParams.set('client_id', config.metaAppId);
-    tokenUrl.searchParams.set('redirect_uri', config.metaRedirectUri);
-    tokenUrl.searchParams.set('client_secret', config.metaAppSecret);
-    tokenUrl.searchParams.set('code', code);
-    const tokenResp = await fetch(tokenUrl);
-    const tokenData = JSON.parse(await tokenResp.text());
-    if (!tokenResp.ok || tokenData.error) throw new Error(tokenData.error?.message || 'Meta token alınamadı.');
-    let accessToken = tokenData.access_token;
-
-    // Try long-lived user token exchange; keep the short-lived token if Meta rejects the exchange.
-    try {
-      const longUrl = new URL(`https://graph.facebook.com/${config.metaApiVersion}/oauth/access_token`);
-      longUrl.searchParams.set('grant_type','fb_exchange_token');
-      longUrl.searchParams.set('client_id',config.metaAppId);
-      longUrl.searchParams.set('client_secret',config.metaAppSecret);
-      longUrl.searchParams.set('fb_exchange_token',accessToken);
-      const lr = await fetch(longUrl);
-      const ld = JSON.parse(await lr.text());
-      if (lr.ok && ld.access_token) accessToken = ld.access_token;
-    } catch {}
-
-    const fields = 'id,name,instagram_business_account';
-    const pagesUrl = new URL(`https://graph.facebook.com/${config.metaApiVersion}/me/accounts`);
-    pagesUrl.searchParams.set('fields', fields);
-    pagesUrl.searchParams.set('access_token', accessToken);
-    const pagesResp = await fetch(pagesUrl);
-    const pagesData = JSON.parse(await pagesResp.text());
-    if (!pagesResp.ok || pagesData.error) throw new Error(pagesData.error?.message || 'Meta sayfaları alınamadı.');
-
-    const pageList = Array.isArray(pagesData.data) ? pagesData.data : [];
-    const page = pageList.find(x => String(x.id || '') === config.metaPageId)
-      || pageList.find(x => String(x.instagram_business_account?.id || '') === config.metaInstagramUserId)
-      || pageList.find(x => x.instagram_business_account?.id)
-      || pageList[0] || null;
-    let instagramUserId = page?.instagram_business_account?.id || config.metaInstagramUserId || '';
-    let instagramUsername = '';
-    let businessId = config.metaBusinessId || '';
-    if (instagramUserId) {
-      const igUrl = new URL(`https://graph.facebook.com/${config.metaApiVersion}/${instagramUserId}`);
-      igUrl.searchParams.set('fields','id,username');
-      igUrl.searchParams.set('access_token',accessToken);
-      const igResp = await fetch(igUrl);
-      const igData = JSON.parse(await igResp.text());
-      if (igResp.ok && !igData.error) instagramUsername = igData.username || '';
-    }
-    const adUrl = new URL(`https://graph.facebook.com/${config.metaApiVersion}/me/adaccounts`);
-    adUrl.searchParams.set('fields','id,name,account_id,account_status');
-    adUrl.searchParams.set('limit','100');
-    adUrl.searchParams.set('access_token',accessToken);
-    const adResp = await fetch(adUrl);
-    const adData = JSON.parse(await adResp.text());
-    const adList = Array.isArray(adData.data) ? adData.data : [];
-    const expectedAd = String(config.adAccountId || '').replace(/^act_/, '');
-    const adAccount = adList.find(x => String(x.account_id || x.id || '').replace(/^act_/, '') === expectedAd) || adList[0] || null;
-
-    const metaPatch = {
-      connected:true,
-      source:'OAUTH',
-      accessToken,
-      adAccountId: adAccount?.account_id || adAccount?.id?.replace(/^act_/, '') || '',
-      pageId: page?.id || '',
-      instagramUserId,
-      instagramUsername,
-      businessId,
-      connectedAt:new Date().toISOString()
-    };
-    const tenant = await updateTenant(payload.tenantId, {meta:metaPatch});
-    await addLog(payload.tenantId, {type:'META_CONNECTED', source:'OAUTH', adAccountId:metaPatch.adAccountId, instagramUserId});
-    return html('Meta bağlantısı tamamlandı', `Bağlanan Instagram: <b>${instagramUsername || instagramUserId || 'bulunamadı'}</b><br>Reklam hesabı: <b>${metaPatch.adAccountId || 'bulunamadı'}</b>`);
-  } catch (e) { return html('Meta bağlantısı başarısız', String(e.message || e)); }
-});
+app.get('/api/meta/connect/start', allowRoles('ADMIN','CUSTOMER_ADMIN'), startMetaOAuth);
+app.get('/api/meta/assets',allowRoles('ADMIN','CUSTOMER_ADMIN'),metaAssets);
+app.post('/api/meta/select',allowRoles('ADMIN','CUSTOMER_ADMIN'),async(req,res)=>{try {await selectMetaAssets(req,res);}catch(error){res.status(400).json({error:error.message});}});
 
 app.post('/api/meta/disconnect', allowRoles('ADMIN','CUSTOMER_ADMIN'), async (req, res) => {
   try {
     const current = req.tenant?.meta || {};
-    const meta = {connected:false, source:null, adAccountId:'', pageId:'', instagramUserId:'', instagramUsername:'', businessId:'', connectedAt:null, accessToken:'', metaAccessToken:'', instagramAccessToken:''};
+    const meta = {oauthAssets:null,oauthNonce:'',oauthUserId:'',connected:false, source:null, adAccountId:'', pageId:'', instagramUserId:'', instagramUsername:'', businessId:'', connectedAt:null, accessToken:'', metaAccessToken:'', instagramAccessToken:''};
     await updateTenant(req.user.tenantId, {meta});
     await addLog(req.user.tenantId, {type:'META_DISCONNECTED', previousAdAccountId:current.adAccountId || ''});
     res.json(meta);
@@ -655,7 +639,7 @@ app.get('/api/billing', async (req, res) => { try { res.json(await billingSummar
 app.get('/api/branding', async (req, res) => { try { res.json(await brandingSummary(req.user.tenantId)); } catch (e) { res.status(500).json({error:e.message}); } });
 app.put('/api/branding', allowRoles('ADMIN', 'CUSTOMER_ADMIN'), async (req, res) => { try { res.json(await saveBranding(req.user.tenantId, req.body || {})); } catch (e) { res.status(400).json({error:e.message}); } });
 app.get('/api/notifications', async (req, res) => { try { res.json(await notificationPrefs(req.user.tenantId)); } catch (e) { res.status(500).json({error:e.message}); } });
-app.put('/api/notifications', async (req, res) => { try { res.json(await saveNotificationPrefs(req.user.tenantId, req.body || {})); } catch (e) { res.status(400).json({error:e.message}); } });
+app.put('/api/notifications', allowRoles('ADMIN','CUSTOMER_ADMIN'), async (req, res) => { try { const result=await saveNotificationPrefs(req.user.tenantId, req.body || {}); await addLog(req.user.tenantId,{type:'NOTIFICATION_PREFS_UPDATED',actorId:req.user.id}); res.json(result); } catch (e) { res.status(400).json({error:e.message}); } });
 app.get('/api/security/overview', async (req, res) => { try { res.json(await securityOverview(req.user.tenantId)); } catch (e) { res.status(500).json({error:e.message}); } });
 app.get('/api/ai/status', async (_req, res) => res.json(aiStatus()));
 app.get('/api/ai/memory', async (req, res) => { try { res.json(await getMemorySummary(req.user.tenantId)); } catch(e) { res.status(500).json({error:e.message}); } });
@@ -664,10 +648,12 @@ app.post('/api/ai/content-pack', async (req, res) => {
     const settings=await getSettings(req.user.tenantId);
     if(settings.aiEnabled===false) return res.json({source:'DISABLED',message:'AI modu kapalı.',recommendedFormat:String(req.body?.mediaType||'IMAGE').toUpperCase()==='VIDEO'?'REELS':'POST'});
     const history=await getLogs(req.user.tenantId, 20);
-    const result=await generateContentPack({...req.body, tone:req.body?.tone||settings.aiTone, goal:req.body?.goal||settings.aiGoal, language:req.body?.language||settings.aiLanguage, timezone:config.timezone, tenantId:req.user.tenantId, history});
+    const result=await generateContentPack({...req.body, tone:req.body?.tone||settings.aiTone, goal:'WhatsApp mesajı', adTargeting:adTargetingPrompt(settings), language:req.body?.language||settings.aiLanguage, timezone:config.timezone, tenantId:req.user.tenantId, history});
     await addLog(req.user.tenantId,{type:'AI_CONTENT_GENERATED',source:result.source,mediaType:req.body?.mediaType||'AUTO'});
-    if (result.source === 'GEMINI') await learnFromGeneration(req.user.tenantId, result, {postId: String(req.body?.postId || '').trim()});
-    res.json(result);
+    const generation = result.source === 'GEMINI'
+      ? await learnFromGeneration(req.user.tenantId, result, {postId: String(req.body?.postId || '').trim(), mediaType: req.body?.mediaType || 'AUTO'})
+      : null;
+    res.json(generation ? {...result, memoryGenerationId: generation.id} : result);
   } catch(e) { res.status(400).json({error:e.message}); }
 });
 app.post('/api/ai/content-pack-from-file', upload.single('image'), async (req, res) => {
@@ -719,7 +705,8 @@ app.post('/api/ai/content-pack-from-file', upload.single('image'), async (req, r
       title: req.body?.title || req.file.originalname,
       context: req.body?.context || '',
       tone: req.body?.tone || settings.aiTone,
-      goal: req.body?.goal || settings.aiGoal,
+      goal: 'WhatsApp mesajı',
+      adTargeting: adTargetingPrompt(settings),
       language: req.body?.language || settings.aiLanguage,
       mediaType: req.body?.mediaType || (kind === 'VIDEO' ? 'REELS' : 'AUTO'),
       imageUrl: '',
@@ -748,9 +735,9 @@ app.post('/api/ai/content-pack-from-file', upload.single('image'), async (req, r
       mediaType: req.body?.mediaType || 'AUTO',
       visualAnalysis: true
     });
-    await learnFromGeneration(req.user.tenantId, result, {postId: String(req.body?.postId || '').trim()});
+    const generation = await learnFromGeneration(req.user.tenantId, result, {postId: String(req.body?.postId || '').trim(), mediaType: kind});
 
-    res.json({...result, visualAnalysis: true});
+    res.json({...result, visualAnalysis: true, memoryGenerationId: generation.id});
   } catch (e) {
     res.status(400).json({error: e.message});
   } finally {
@@ -763,7 +750,7 @@ app.post('/api/ai/caption', async (req, res) => {
     const settings=await getSettings(req.user.tenantId);
     if(settings.aiEnabled===false) return res.status(403).json({error:'AI modu kapalı.'});
     const history=await getLogs(req.user.tenantId, 20);
-    res.json(await generateCaption({...req.body,tone:req.body?.tone||settings.aiTone,goal:req.body?.goal||settings.aiGoal,language:req.body?.language||settings.aiLanguage,timezone:config.timezone,tenantId:req.user.tenantId,history}));
+    res.json(await generateCaption({...req.body,tone:req.body?.tone||settings.aiTone,goal:'WhatsApp mesajı',adTargeting:adTargetingPrompt(settings),language:req.body?.language||settings.aiLanguage,timezone:config.timezone,tenantId:req.user.tenantId,history}));
   } catch(e) { res.status(400).json({error:e.message}); }
 });
 app.post('/api/ai/caption-variants', async (req,res)=>{ try { res.json(await generateCaptionVariants(req.body||{})); } catch(e) { res.status(400).json({error:e.message}); } });
@@ -771,7 +758,17 @@ app.post('/api/ai/creative-score', async (req,res)=>{ try { res.json(await score
 
 app.get('/api/settings', async (req, res) => res.json(await getSettings(req.user.tenantId)));
 app.put('/api/settings', allowRoles('ADMIN', 'CUSTOMER_ADMIN'), async (req, res) => {
-  try { res.json(await saveSettings(req.user.tenantId, req.body || {})); }
+  try {
+    const current=await getSettings(req.user.tenantId);
+    const nextAuto=Object.prototype.hasOwnProperty.call(req.body||{},'geminiAdsAuto') ? Boolean(req.body.geminiAdsAuto) : Boolean(current.geminiAdsAuto);
+    const nextCap=Number(Object.prototype.hasOwnProperty.call(req.body||{},'geminiAdsDailyCap') ? req.body.geminiAdsDailyCap : current.geminiAdsDailyCap);
+    const nextEnabled=Object.prototype.hasOwnProperty.call(req.body||{},'enabled')?req.body.enabled===true:current.enabled===true;
+    if((nextAuto||nextEnabled) && (!Number.isFinite(nextCap)||nextCap<1)) return res.status(400).json({error:'Otomatik reklam yönetimi için hesap günlük bütçe sınırını belirleyin.'});
+    const result=await saveSettings(req.user.tenantId, req.body || {});
+    const changedKeys=Object.keys(req.body||{}).filter(key=>!/(token|secret|password|key)/i.test(key)).slice(0,50);
+    await addLog(req.user.tenantId,{type:'SETTINGS_UPDATED',actorId:req.user.id,changedKeys});
+    res.json(result);
+  }
   catch (e) { res.status(400).json({error: e.message}); }
 });
 
@@ -782,9 +779,9 @@ app.get('/api/pro/alerts', async (req,res)=>{ try{ res.json({data:await getAlert
 app.post('/api/pro/alerts', async (req,res)=>{ try{ res.status(201).json(await createAlert(req.user.tenantId,req.body||{})); }catch(e){res.status(400).json({error:e.message});} });
 app.post('/api/pro/alerts/:id/read', async (req,res)=>{ try{res.json(await markAlert(req.user.tenantId,req.params.id,true));}catch(e){res.status(400).json({error:e.message});} });
 app.get('/api/pro/leads', async (req,res)=>{ try{res.json({data:await getLeads(req.user.tenantId)});}catch(e){res.status(500).json({error:e.message});} });
-app.post('/api/pro/leads', async (req,res)=>{ try{res.status(201).json(await createLead(req.user.tenantId,req.body||{}));}catch(e){res.status(400).json({error:e.message});} });
-app.put('/api/pro/leads/:id', async (req,res)=>{ try{res.json(await updateLead(req.user.tenantId,req.params.id,req.body||{}));}catch(e){res.status(400).json({error:e.message});} });
-app.delete('/api/pro/leads/:id', async (req,res)=>{ try{res.json(await deleteLead(req.user.tenantId,req.params.id));}catch(e){res.status(400).json({error:e.message});} });
+app.post('/api/pro/leads', async (req,res)=>{ try{res.status(201).json(await createLead(req.user.tenantId,req.body||{},{actorId:req.user.id}));}catch(e){res.status(400).json({error:e.message});} });
+app.put('/api/pro/leads/:id', async (req,res)=>{ try{res.json(await updateLead(req.user.tenantId,req.params.id,req.body||{},{actorId:req.user.id}));}catch(e){res.status(400).json({error:e.message});} });
+app.delete('/api/pro/leads/:id', async (req,res)=>{ try{res.json(await deleteLead(req.user.tenantId,req.params.id,{actorId:req.user.id}));}catch(e){res.status(400).json({error:e.message});} });
 app.post('/api/pro/creatives/analyze', async (req,res)=>{ try{res.status(201).json(await analyzeCreative(req.user.tenantId,req.body||{}));}catch(e){res.status(400).json({error:e.message});} });
 app.get('/api/pro/creatives', async (req,res)=>{ try{res.json({data:await getCreatives(req.user.tenantId)});}catch(e){res.status(500).json({error:e.message});} });
 app.post('/api/pro/budget/simulate', async (req,res)=>{ try{res.json(await simulateBudget(req.user.tenantId,req.body||{}));}catch(e){res.status(400).json({error:e.message});} });
@@ -793,12 +790,12 @@ app.post('/api/pro/experiments', async (req,res)=>{ try{res.status(201).json(awa
 app.post('/api/pro/experiments/:id/status', async (req,res)=>{ try{res.json(await updateExperiment(req.user.tenantId,req.params.id,req.body?.status));}catch(e){res.status(400).json({error:e.message});} });
 app.post('/api/pro/utm', async (req,res)=>{ try{res.json(buildUtm(req.body||{}));}catch(e){res.status(400).json({error:e.message});} });
 app.get('/api/pro/report', async (req,res)=>{ try{res.json(await reportPack(req.user.tenantId));}catch(e){res.status(500).json({error:e.message});} });
-app.get('/api/pro/agency', async (_req,res)=>{ try{res.json(await agencyOverview());}catch(e){res.status(500).json({error:e.message});} });
+app.get('/api/pro/agency', allowRoles('ADMIN'), async (_req,res)=>{ try{res.json(await agencyOverview());}catch(e){res.status(500).json({error:e.message});} });
 
 app.post('/api/automation/run', async (req, res) => {
   try {
     const tenant = await getTenant(req.user.tenantId);
-    const credentials = req.user.tenantId === 'system' ? {} : (tenant?.meta || {});
+    const credentials = req.user.tenantId === 'system' ? {systemAccount:true} : (tenant?.meta || {});
     if (!hasMetaCredentials(credentials || {})) {
       return res.json({
         enabled: true,
@@ -829,6 +826,7 @@ app.post('/api/posts', upload.single('image'), async (req, res) => {
     const mediaType=mediaKind(req.file)==='VIDEO'?'REELS':(requestedMediaType==='CAROUSEL'?'CAROUSEL':'POST');
     const requestedAuto=String(req.body?.autoPublish ?? 'true').toLowerCase()!=='false';
     const useAI=String(req.body?.useAI ?? 'true').toLowerCase()!=='false';
+    const memoryGenerationId=String(req.body?.memoryGenerationId || '').trim();
     const post={
       id:`post_${Date.now()}`,
       tenantId,
@@ -842,13 +840,14 @@ app.post('/api/posts', upload.single('image'), async (req, res) => {
       mimeType:req.file.mimetype,
       mediaType,
       format:mediaType,
+      memoryGenerationId,
       aiGenerated:false,
       performanceScore:0,
       createdAt:new Date().toISOString()
     };
     if(useAI && settings.aiEnabled!==false && !post.caption) {
       const history=await getLogs(tenantId, 20);
-      const pack=await generateContentPack({title:post.title,context:req.body?.aiContext||'',tone:settings.aiTone,goal:settings.aiGoal,language:settings.aiLanguage,mediaType,timezone:config.timezone,tenantId,history,imageUrl:mediaType==='POST' && /^https:\/\//i.test(post.publicUrl)?post.publicUrl:'',
+      const pack=await generateContentPack({title:post.title,context:req.body?.aiContext||'',tone:settings.aiTone,goal:'WhatsApp mesajı',adTargeting:adTargetingPrompt(settings),language:settings.aiLanguage,mediaType,timezone:config.timezone,tenantId,history,imageUrl:mediaType==='POST' && /^https:\/\//i.test(post.publicUrl)?post.publicUrl:'',
         filePath:post.filePath,
         mimeType:post.mimeType});
       post.aiGenerated=true;
@@ -865,15 +864,19 @@ app.post('/api/posts', upload.single('image'), async (req, res) => {
         String(pack.caption||'').trim(),
         post.aiCta,
         post.aiHashtags.join(' ')
-      ].filter(Boolean).join('\\n\\n');
+      ].filter(Boolean).join('\n\n');
     }
-    if(post.autoPublish) await scheduleUploadedPost(post,tenantId); else post.publishStatus='MANUAL';
+    if(post.autoPublish || req.body?.scheduleAt) {
+      await scheduleUploadedPost(post,tenantId,req.body?.scheduleAt||'');
+      if (!post.autoPublish) post.publishStatus='READY';
+    } else post.publishStatus='MANUAL';
     const memoryPack = post.aiMemoryPack;
     delete post.aiMemoryPack;
     posts.unshift(post);
     await savePosts(tenantId,posts);
     await addLog(tenantId,{type:'POST_UPLOADED',postId:post.id,title:post.title,mediaType,aiGenerated:post.aiGenerated});
     if (post.aiGenerated && memoryPack && memoryPack.source === 'GEMINI') await learnFromGeneration(tenantId, memoryPack, {postId:post.id});
+    else if (memoryGenerationId) await linkGenerationToPost(tenantId, memoryGenerationId, post.id, {caption:post.caption});
     res.status(201).json(post);
   } catch (e) { res.status(500).json({error:e.message}); }
 });
@@ -927,7 +930,8 @@ app.post('/api/posts/bulk', upload.array('files', 20), async (req, res) => {
             title:post.title,
             context:aiContext,
             tone:settings.aiTone,
-            goal:settings.aiGoal,
+            goal:'WhatsApp mesajı',
+            adTargeting:adTargetingPrompt(settings),
             language:settings.aiLanguage,
             mediaType,
             timezone:config.timezone,
@@ -994,26 +998,88 @@ app.post('/api/posts/bulk', upload.array('files', 20), async (req, res) => {
   }
 });
 
-app.post('/api/posts/:id/publish', async (req, res) => {
+app.patch('/api/posts/:id', async (req, res) => {
   try {
-    const tenantId=req.user.tenantId;
-    const posts=await getPosts(tenantId);
-    const post=posts.find(x=>x.id===req.params.id);
-    if(!post) return res.status(404).json({error:'Post bulunamadı.'});
-    if(!/^https:\/\//i.test(String(post.publicUrl||''))) return res.status(400).json({error:'Instagram paylaşımı için PUBLIC_BASE_URL HTTPS olmalı.'});
-    const tenant=await getTenant(tenantId);
-    const credentials=tenantId==='system'?{}:(tenant?.meta||{});
-    const {instagramPublishMedia}=await import('./meta.js');
-    const result=await instagramPublishMedia({mediaType:post.mediaType||'POST',imageUrl:post.publicUrl,videoUrl:post.publicUrl,caption:post.caption||'',coverUrl:post.coverPublicUrl||'',thumbOffset:post.coverThumbOffset,credentials});
-    post.publishStatus='PUBLISHED'; post.publishedAt=new Date().toISOString(); post.instagramPublishResult=result; post.publishError='';
-    await savePosts(tenantId,posts);
-    await addLog(tenantId,{type:'INSTAGRAM_POST_PUBLISHED',postId:post.id,mediaType:post.mediaType||'POST',manual:true});
+    const tenantId = req.user.tenantId;
+    const posts = await getPosts(tenantId);
+    const post = posts.find(x => x.id === req.params.id);
+    if (!post) return res.status(404).json({error:'İçerik bulunamadı.'});
+    if (postPublicationProtected(post)) return res.status(409).json({error:'Yayınlanmış veya yayın sonucu beklenen içerik düzenlenemez.'});
+    if (Object.prototype.hasOwnProperty.call(req.body || {}, 'title')) post.title = String(req.body.title || '').trim().slice(0,180);
+    if (Object.prototype.hasOwnProperty.call(req.body || {}, 'caption')) post.caption = String(req.body.caption || '').trim().slice(0,2200);
+    if (Object.prototype.hasOwnProperty.call(req.body || {}, 'linkUrl')) post.linkUrl = String(req.body.linkUrl || '').trim().slice(0,1200);
+    post.updatedAt = new Date().toISOString();
+    await savePosts(tenantId, posts);
+    if (post.memoryGenerationId) await linkGenerationToPost(tenantId, post.memoryGenerationId, post.id, {caption:post.caption});
+    await addLog(tenantId, {type:'POST_EDITED',postId:post.id,title:post.title});
     res.json(post);
-  } catch(e) { res.status(502).json({error:e.message}); }
+  } catch (e) { res.status(400).json({error:e.message}); }
 });
 
-app.post('/api/automation/publish-due', async (_req, res) => {
-  try { res.json(await publishDuePosts()); } catch (e) { res.status(502).json({error: e.message}); }
+app.post('/api/posts/:id/queue', async (req, res) => {
+  try {
+    const tenantId = req.user.tenantId;
+    const settings = await getSettings(tenantId);
+    const posts = await getPosts(tenantId);
+    const post = posts.find(x => x.id === req.params.id);
+    if (!post) return res.status(404).json({error:'İçerik bulunamadı.'});
+    if (postPublicationProtected(post)) return res.status(409).json({error:'Yayınlanmış veya yayın sonucu beklenen içerik tekrar kuyruğa alınamaz.'});
+    const requestedTime = String(req.body?.scheduleAt || '').trim();
+    await scheduleUploadedPost(post, tenantId, requestedTime);
+    post.autoPublish = settings.autoPublish !== false;
+    if (!post.autoPublish) post.publishStatus = 'READY';
+    if (requestedTime && post.autoPublish) {
+      let cursor = new Date(post.nextPublishAt).getTime();
+      const later = posts
+        .filter(item => item.id !== post.id && ['QUEUED','RETRY'].includes(item.publishStatus))
+        .map(item => ({item, time:new Date(item.nextPublishAt || '').getTime()}))
+        .filter(entry => Number.isFinite(entry.time) && entry.time >= cursor)
+        .sort((a,b) => a.time-b.time);
+      for (const entry of later) {
+        const nextTime = Math.max(entry.time, cursor + 86400000);
+        entry.item.nextPublishAt = new Date(nextTime).toISOString();
+        if (entry.item.selectedTime) entry.item.selectedTime = {...entry.item.selectedTime, scheduledAt:entry.item.nextPublishAt};
+        cursor = nextTime;
+      }
+    }
+    await savePosts(tenantId, posts);
+    await addLog(tenantId, {type:'POST_QUEUED',postId:post.id,nextPublishAt:post.nextPublishAt});
+    res.json(post);
+  } catch (e) { res.status(400).json({error:e.message}); }
+});
+
+app.post('/api/posts/reorder', async (req, res) => {
+  try {
+    const tenantId = req.user.tenantId;
+    const posts = await getPosts(tenantId);
+    const queued = posts.filter(x => ['QUEUED','RETRY'].includes(x.publishStatus));
+    const ids = Array.isArray(req.body?.postIds) ? req.body.postIds.map(String) : [];
+    if (ids.length !== queued.length || new Set(ids).size !== ids.length || ids.some(id => !queued.some(post => post.id === id))) {
+      return res.status(400).json({error:'Sıralama, bekleyen kuyruk içeriklerinin tamamını içermeli.'});
+    }
+    const byId = new Map(queued.map(post => [post.id, post]));
+    const slots = [...queued].sort((a,b) => new Date(a.nextPublishAt || 0) - new Date(b.nextPublishAt || 0));
+    const reordered = ids.map((id, index) => {
+      const post = byId.get(id);
+      post.nextPublishAt = slots[index].nextPublishAt;
+      if (post.selectedTime) post.selectedTime = {...post.selectedTime, scheduledAt:post.nextPublishAt};
+      return post;
+    });
+    const pendingIds = new Set(ids);
+    const next = [...reordered, ...posts.filter(post => !pendingIds.has(post.id))];
+    await savePosts(tenantId, next);
+    await addLog(tenantId, {type:'POST_QUEUE_REORDERED',postIds:ids});
+    res.json({data:reordered});
+  } catch (e) { res.status(400).json({error:e.message}); }
+});
+
+app.post('/api/posts/:id/publish', async (req,res)=>{
+  try {res.json(await publishPost(req.user.tenantId,req.params.id,{manual:true}));}
+  catch(error){res.status(409).json({error:error.message});}
+});
+
+app.post('/api/automation/publish-due', async (req, res) => {
+  try { res.json(await publishDuePosts(req.user.tenantId)); } catch (e) { res.status(502).json({error: e.message}); }
 });
 
 app.post('/api/posts/:id/cover', upload.single('cover'), async (req,res) => {
@@ -1022,8 +1088,12 @@ app.post('/api/posts/:id/cover', upload.single('cover'), async (req,res) => {
     const tenantId=req.user.tenantId;
     const postList=await getPosts(tenantId);
     const post=postList.find(x=>x.id===postId);
-    if(!post) return res.status(404).json({error:'İçerik bulunamadı.'});
-    if(post.mediaType!=='REELS') return res.status(400).json({error:'Özel kapak yalnızca Reels için kullanılabilir.'});
+    if(!post || postPublicationProtected(post) || post.mediaType!=='REELS') {
+      if(req.file?.path) await fs.rm(req.file.path,{force:true}).catch(()=>{});
+      if(!post) return res.status(404).json({error:'İçerik bulunamadı.'});
+      if(postPublicationProtected(post)) return res.status(409).json({error:'Yayınlanmış veya yayın sonucu beklenen içeriğin kapağı değiştirilemez.'});
+      return res.status(400).json({error:'Özel kapak yalnızca Reels için kullanılabilir.'});
+    }
     if(!req.file) return res.status(400).json({error:'Kapak görseli gerekli.'});
     if(!String(req.file.mimetype||'').startsWith('image/')) {
       await fs.rm(req.file.path,{force:true});
@@ -1044,15 +1114,18 @@ app.post('/api/posts/:id/cover', upload.single('cover'), async (req,res) => {
 });
 
 app.delete('/api/posts/:id', async (req, res) => {
+  try {
   const tenantId = req.user.tenantId;
   const posts = await getPosts(tenantId);
   const post = posts.find(x => x.id === req.params.id);
   if (!post) return res.status(404).json({error: 'Post bulunamadı.'});
-  await fs.rm(post.filePath, {force: true});
+  if (postPublicationProtected(post)) return res.status(409).json({error:'Yayınlanmış veya yayın sonucu beklenen içerik silinemez. Yayın ve uzlaştırma kaydı korunmalıdır.'});
+  if(post.filePath) await fs.rm(post.filePath, {force: true});
   if(post.coverPath) await fs.rm(post.coverPath, {force: true});
   await savePosts(tenantId, posts.filter(x => x.id !== req.params.id));
   await addLog(tenantId, {type: 'POST_DELETED', postId: post.id});
   res.json({ok: true});
+  } catch(e) {res.status(400).json({error:e.message});}
 });
 
 // Super Admin / SaaS management
@@ -1159,5 +1232,5 @@ app.use((err, _req, res, _next) => {
   res.status(400).json({error: message});
 });
 
-app.listen(config.port, '0.0.0.0', () => console.log(`AdVise AI backend: http://0.0.0.0:${config.port}`));
+if(process.env.ADVISE_NO_LISTEN!=='true')app.listen(config.port, '0.0.0.0', () => console.log(`AdVise AI backend: http://0.0.0.0:${config.port}`));
 startScheduler();

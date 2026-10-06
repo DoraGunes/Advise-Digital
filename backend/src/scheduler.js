@@ -1,11 +1,14 @@
 import cron from 'node-cron';
 import {getSettings,getPosts,getLogs,addLog,savePosts,getTenants,getTenant} from './store.js';
-import {createCampaign,createAdSet,uploadAdImage,createAdCreative,createAdCreativeFromInstagramMedia,createAd,setStatus,instagramPublishMedia} from './meta.js';
+import {createCampaign,createAdSet,uploadAdImage,createAdCreative,createAdCreativeFromInstagramMedia,createAd,setStatus,instagramPublishMedia,getInstagramContainerStatus,resolveAdGeoTargeting,resolveCredentials} from './meta.js';
 import {config} from './config.js';
 import {seedTimeScore} from './rules.js';
 import {optimizeAds} from './optimizer.js';
+import {runGeminiAdReview} from './gemini-ads.js';
 import fs from 'node:fs/promises';
 import path from 'node:path';
+import {withTenantLock} from './persistence.js';
+import {tenantCredentials,metaReady,budgetGuard,withAdAccountLock} from './automation-safety.js';
 
 function localParts(date=new Date()) {
   const parts=new Intl.DateTimeFormat('en-GB',{timeZone:config.timezone,weekday:'short',hour:'2-digit',minute:'2-digit',hour12:false}).formatToParts(date);
@@ -17,6 +20,20 @@ function weekKey(date=new Date()) {
   const p=localParts(date);
   const d=new Intl.DateTimeFormat('en-CA',{timeZone:config.timezone,year:'numeric',month:'2-digit',day:'2-digit'}).format(date);
   return `${d}-d${p.day}`;
+}
+
+export function weeklyLaunchGate(logs=[],week='') {
+  const rows=(Array.isArray(logs)?logs:[]).filter(row=>row?.week===week);
+  if(rows.some(row=>row.type==='WEEKLY_LAUNCH')) {
+    return {blocked:true,reason:'already launched',retry:false};
+  }
+  const startedIndex=rows.findIndex(row=>row.type==='WEEKLY_LAUNCH_STARTED');
+  if(startedIndex<0) return {blocked:false,retry:false};
+  const errorIndex=rows.findIndex(row=>row.type==='WEEKLY_LAUNCH_ERROR');
+  if(errorIndex>=0 && errorIndex<startedIndex) {
+    return {blocked:false,retry:true,lastError:rows[errorIndex]?.error||''};
+  }
+  return {blocked:true,reason:'launch started and awaits verification',retry:false,startedAt:rows[startedIndex]?.at||null};
 }
 function chooseBestStart(settings,logs) {
   const fallback={day:settings.weeklyDay,hour:settings.startHour,minute:settings.startMinute};
@@ -91,12 +108,19 @@ function nextOccurrence({day,hour,minute}) {
   return new Date(now.getTime()+7*86400000);
 }
 
-export async function scheduleUploadedPosts(posts, tenantId='system') {
+export async function scheduleUploadedPosts(posts, tenantId='system', requestedTime='') {
   const settings=await getSettings(tenantId);
   const logs=await getLogs(tenantId,500);
   const existing=await getPosts(tenantId);
   const start=chooseBestStart(settings,logs);
   let cursor=nextOccurrence(start);
+  if (requestedTime) {
+    const requested = new Date(requestedTime);
+    if (!Number.isFinite(requested.getTime()) || requested.getTime() <= Date.now()) {
+      throw new Error('Planlanan paylaşım zamanı gelecekte olmalı.');
+    }
+    cursor = requested;
+  }
 
   const futureQueued=existing
     .filter(x => ['QUEUED','RETRY'].includes(x.publishStatus) && x.nextPublishAt && new Date(x.nextPublishAt).getTime() > Date.now())
@@ -104,7 +128,7 @@ export async function scheduleUploadedPosts(posts, tenantId='system') {
     .filter(d => !Number.isNaN(d.getTime()))
     .sort((a,b)=>a-b);
 
-  if(futureQueued.length) {
+  if(futureQueued.length && !requestedTime) {
     const latest=futureQueued[futureQueued.length-1];
     if(latest.getTime() >= cursor.getTime()) cursor=new Date(latest.getTime()+86400000);
   }
@@ -115,73 +139,121 @@ export async function scheduleUploadedPosts(posts, tenantId='system') {
     post.publishAttempts=Number(post.publishAttempts||0);
     post.publishMaxRetries=Number(settings.publishMaxRetries||3);
     post.nextPublishAt=cursor.toISOString();
-    post.selectedTime={...start,timezone:config.timezone,scheduledAt:post.nextPublishAt};
+    post.selectedTime={...localParts(cursor),timezone:config.timezone,scheduledAt:post.nextPublishAt};
     cursor=new Date(cursor.getTime()+86400000);
   }
   return posts;
 }
 
-export async function scheduleUploadedPost(post, tenantId='system') {
-  const result=await scheduleUploadedPosts([post],tenantId);
+export async function scheduleUploadedPost(post, tenantId='system', requestedTime='') {
+  const result=await scheduleUploadedPosts([post],tenantId,requestedTime);
   return result[0];
 }
 
-export async function publishDuePosts(tenantId='system') {
+export async function publishPost(tenantId,postId,{manual=false}={}) {
+  return withTenantLock(tenantId,async()=>{
+    const posts=await getPosts(tenantId);
+    const post=posts.find(row=>row.id===postId);
+    if(!post) throw new Error('İçerik bulunamadı.');
+    if(post.publishStatus==='PUBLISHED') return post;
+    const tenant=await getTenant(tenantId);
+    const credentials=tenantCredentials(tenantId,tenant);
+    if(!/^https:\/\//i.test(String(post.publicUrl||''))) throw new Error('Instagram paylaşımı için medya HTTPS üzerinden erişilebilir olmalı.');
+    if(post.instagramContainerId && ['SUBMITTING','RECONCILE'].includes(post.publishPhase)) {
+      let state;
+      try { state=await getInstagramContainerStatus(post.instagramContainerId,credentials); }
+      catch { throw new Error('Önceki yayının sonucu doğrulanamadı. Çift paylaşımı önlemek için Instagram hesabınızı kontrol edin.'); }
+      const status=String(state.status_code||state.status||'').toUpperCase();
+      if(status==='PUBLISHED') {
+        post.publishStatus='PUBLISHED';post.publishPhase='CONFIRMED';post.publishedAt=new Date().toISOString();post.publishError='';
+        await savePosts(tenantId,posts);
+        await addLog(tenantId,{type:'INSTAGRAM_POST_PUBLISHED',postId:post.id,reconciled:true});
+        return post;
+      }
+      if(status!=='FINISHED') throw new Error('Önceki yayın henüz doğrulanamadı. İçeriği tekrar paylaşmadan önce Instagram hesabınızı kontrol edin.');
+    }
+    post.publishStatus='PUBLISHING';post.publishPhase='PREPARING';post.publishAttempts=Number(post.publishAttempts||0)+1;
+    post.publishStartedAt=new Date().toISOString();post.publishError='';
+    await savePosts(tenantId,posts);
+    try {
+      const result=await instagramPublishMedia({
+        mediaType:post.mediaType||'POST',imageUrl:post.publicUrl,videoUrl:post.publicUrl,caption:post.caption||'',
+        coverUrl:post.coverPublicUrl||'',thumbOffset:post.coverThumbOffset,credentials,containerId:post.instagramContainerId||'',
+        onContainer:async id=>{post.instagramContainerId=String(id);post.publishPhase='PREPARED';await savePosts(tenantId,posts);},
+        onBeforePublish:async()=>{post.publishPhase='SUBMITTING';await savePosts(tenantId,posts);}
+      });
+      post.publishStatus='PUBLISHED';post.publishPhase='CONFIRMED';post.publishedAt=new Date().toISOString();
+      post.instagramPublishResult=result;post.instagramMediaId=String(result.id);post.publishError='';
+      await savePosts(tenantId,posts);
+      await addLog(tenantId,{type:'INSTAGRAM_POST_PUBLISHED',postId:post.id,mediaType:post.mediaType||'POST',attempt:post.publishAttempts,manual});
+      return post;
+    } catch(error) {
+      const settings=await getSettings(tenantId);
+      post.publishError=error.message;
+      if(post.publishPhase==='SUBMITTING') {
+        post.publishStatus='RECONCILE';post.publishPhase='RECONCILE';
+      } else if(post.publishAttempts<Number(post.publishMaxRetries||settings.publishMaxRetries||3)) {
+        post.publishStatus='RETRY';post.nextPublishAt=new Date(Date.now()+Number(settings.publishRetryMinutes||10)*60000*Math.min(4,post.publishAttempts)).toISOString();
+      } else post.publishStatus='ERROR';
+      await savePosts(tenantId,posts);
+      await addLog(tenantId,{type:'INSTAGRAM_POST_ERROR',postId:post.id,error:error.message,attempt:post.publishAttempts,status:post.publishStatus});
+      throw error;
+    }
+  });
+}
+
+async function publishDuePostsLocked(tenantId='system') {
   const settings=await getSettings(tenantId);
-  const tenant=await getTenant(tenantId);
-  const credentials=tenantId==='system'?{}:(tenant?.meta||{});
   if(!settings.autoPublish) return {published:0,reason:'autoPublish disabled'};
   const posts=await getPosts(tenantId);
-  let changed=false,published=0;
+  let published=0;
   for(const post of posts) {
-    if(!['QUEUED','RETRY'].includes(post.publishStatus)||!post.nextPublishAt) continue;
+    if(!['QUEUED','RETRY','PUBLISHING'].includes(post.publishStatus)||!post.nextPublishAt||post.autoPublish===false) continue;
     if(new Date(post.nextPublishAt)>new Date()) continue;
     try {
-      if(!/^https:\/\//i.test(String(post.publicUrl||''))) throw new Error('Instagram otomatik paylaşımı için PUBLIC_BASE_URL HTTPS olmalı.');
-      post.publishAttempts=Number(post.publishAttempts||0)+1;
-      const result=await instagramPublishMedia({mediaType:post.mediaType||'POST',imageUrl:post.publicUrl,videoUrl:post.publicUrl,caption:post.caption||'',coverUrl:post.coverPublicUrl||'',thumbOffset:post.coverThumbOffset,credentials});
-      post.publishStatus='PUBLISHED'; post.publishedAt=new Date().toISOString(); post.instagramPublishResult=result; post.instagramMediaId=String(result?.id||'').trim(); changed=true; published++;
-      await addLog(tenantId,{type:'INSTAGRAM_POST_PUBLISHED',postId:post.id,mediaType:post.mediaType||'POST',attempt:post.publishAttempts,instagramResult:result});
-    } catch(e) {
-      post.publishError=e.message; changed=true;
-      const max=Number(post.publishMaxRetries||settings.publishMaxRetries||3);
-      if(Number(post.publishAttempts||0)<max) {
-        post.publishStatus='RETRY';
-        const delay=Number(settings.publishRetryMinutes||10)*60000*Math.min(4,Math.max(1,post.publishAttempts||1));
-        post.nextPublishAt=new Date(Date.now()+delay).toISOString();
-      } else {
-        post.publishStatus='ERROR';
-      }
-      await addLog(tenantId,{type:'INSTAGRAM_POST_ERROR',postId:post.id,error:e.message,attempt:post.publishAttempts,status:post.publishStatus});
-    }
+      const result=await publishPost(tenantId,post.id);if(result.publishStatus==='PUBLISHED')published++;
+    } catch {}
   }
-  if(changed) await savePosts(tenantId,posts);
   return {published};
 }
 
-export async function weeklySchedulerTick(tenantId='system') {
+export async function publishDuePosts(tenantId='system') { return withTenantLock(tenantId,()=>publishDuePostsLocked(tenantId)); }
+
+async function weeklySchedulerTickLocked(tenantId='system') {
   const settings=await getSettings(tenantId);
   const tenant=await getTenant(tenantId);
-  const credentials=tenantId==='system'?{}:(tenant?.meta||{});
+  const credentials=resolveCredentials(tenantCredentials(tenantId,tenant));
   if(!settings.enabled) return {scheduled:false,reason:'disabled'};
   const metaToken=String(credentials?.accessToken || credentials?.metaAccessToken || config.metaAccessToken || '').trim();
   const adAccountId=String(credentials?.adAccountId || config.adAccountId || '').replace(/^act_/,'').trim();
-  if(!metaToken || !adAccountId) return {scheduled:false,reason:'Meta bağlantısı bekleniyor',mode:'PLANNING'};
+  if(!metaReady(credentials)) return {scheduled:false,reason:'Meta bağlantısı bekleniyor',mode:'PLANNING'};
   const logs=await getLogs(tenantId,500);
   const schedule=chooseBestStart(settings,logs), now=localParts();
   if(now.day!==schedule.day||now.hour!==schedule.hour||now.minute!==schedule.minute) return {scheduled:false};
   const currentWeek=weekKey();
-  if(logs.some(x=>x.type==='WEEKLY_LAUNCH'&&x.week===currentWeek)) return {scheduled:false,reason:'already launched this week',week:currentWeek};
+  const launchGate=weeklyLaunchGate(logs,currentWeek);
+  if(launchGate.blocked) return {scheduled:false,reason:launchGate.reason,week:currentWeek};
   const posts=await getPosts(tenantId);
   if(!posts.length) return {scheduled:false,reason:'No posts uploaded'};
   const sorted=[...posts].sort((a,b)=>Number(b.performanceScore||0)-Number(a.performanceScore||0)||new Date(b.createdAt)-new Date(a.createdAt));
   const post=sorted[0];
   const dailyBudget=Math.max(settings.minDailyBudget,Math.min(settings.maxDailyBudget,settings.weeklyBudget/Math.max(1,settings.durationHours/24)));
+  let stage='validation',createdCampaignId='',createdAdSetId='',createdCreativeId='',createdAdId='';
   try {
+    stage='budget_guard';
+    await budgetGuard(credentials,settings,{nextBudget:dailyBudget,creating:true});
+    stage='targeting';
+    const audience=await resolveAdGeoTargeting(settings.adTargetingMode,settings.adTargetingLocations,credentials);
+    await addLog(tenantId,{type:'WEEKLY_LAUNCH_STARTED',week:currentWeek,postId:post.id,retry:Boolean(launchGate.retry)});
+    stage='campaign';
     const campaign=await createCampaign({name:`Advise Digital Weekly ${currentWeek}`,objective:'OUTCOME_ENGAGEMENT',status:'PAUSED',credentials});
-    const adset=await createAdSet({name:`Weekly ${post.title||post.id}`,campaignId:campaign.id,dailyBudget,optimizationGoal:'CONVERSATIONS',billingEvent:'IMPRESSIONS',instagramActorId:credentials.instagramUserId||config.instagramUserId,pageId:credentials.pageId,credentials});
+    createdCampaignId=String(campaign?.id||'');
+    stage='adset';
+    const adset=await createAdSet({name:`Weekly ${post.title||post.id}`,campaignId:campaign.id,dailyBudget,targeting:{geo_locations:audience.geo_locations},destinationType:'WHATSAPP',optimizationGoal:'CONVERSATIONS',billingEvent:'IMPRESSIONS',instagramActorId:credentials.instagramUserId,pageId:credentials.pageId,credentials});
+    createdAdSetId=String(adset?.id||'');
     const instagramMediaId=String(post.instagramMediaId||post.instagramPublishResult?.id||'').trim();
     let creative;
+    stage='creative';
     if(instagramMediaId) {
       creative=await createAdCreativeFromInstagramMedia({
         name:`Creative ${post.title||post.id}`,
@@ -205,7 +277,14 @@ export async function weeklySchedulerTick(tenantId='system') {
         credentials
       });
     }
-    const ad=await createAd({name:`Ad ${post.title||post.id}`,adsetId:adset.id,creativeId:creative.id,status:'ACTIVE',credentials});
+    createdCreativeId=String(creative?.id||'');
+    stage='ad';
+    const ad=await createAd({name:`Ad ${post.title||post.id}`,adsetId:adset.id,creativeId:creative.id,status:'PAUSED',credentials});
+    createdAdId=String(ad?.id||'');
+    stage='activation_guard';
+    await budgetGuard(credentials,settings,{adSetId:adset.id,activate:true});
+    stage='activation';
+    await setStatus(ad.id,'ACTIVE',credentials);
     await setStatus(campaign.id,'ACTIVE',credentials);
     await setStatus(adset.id,'ACTIVE',credentials);
     const selectionScore=Number(post.performanceScore||0);
@@ -213,8 +292,23 @@ export async function weeklySchedulerTick(tenantId='system') {
     const result={scheduled:true,campaignId:campaign.id,adsetId:adset.id,adId:ad.id,postId:post.id,week:currentWeek,selectionScore,schedule,launchAt};
     await addLog(tenantId,{type:'WEEKLY_LAUNCH',...result});
     return result;
-  } catch(e) { await addLog(tenantId,{type:'WEEKLY_LAUNCH_ERROR',error:e.message,postId:post.id,week:currentWeek}); return {scheduled:false,error:e.message}; }
+  } catch(e) {
+    const cleanup=[];
+    for(const [kind,id] of [['ad',createdAdId],['adset',createdAdSetId],['campaign',createdCampaignId]]) {
+      if(!id) continue;
+      try {
+        await setStatus(id,'PAUSED',credentials);
+        cleanup.push({kind,id,status:'PAUSED'});
+      } catch(cleanupError) {
+        cleanup.push({kind,id,status:'UNKNOWN',error:cleanupError.message});
+      }
+    }
+    await addLog(tenantId,{type:'WEEKLY_LAUNCH_ERROR',error:e.message,stage,postId:post.id,week:currentWeek,campaignId:createdCampaignId,adsetId:createdAdSetId,creativeId:createdCreativeId,adId:createdAdId,cleanup});
+    return {scheduled:false,error:e.message,stage,retryAllowed:true};
+  }
 }
+
+export async function weeklySchedulerTick(tenantId='system') { return withTenantLock(tenantId,()=>withAdAccountLock(tenantId,()=>weeklySchedulerTickLocked(tenantId))); }
 
 export function startScheduler() {
   if(!config.cronEnabled) return;
@@ -229,6 +323,7 @@ export function startScheduler() {
         // The 12-hour ad decision engine must run from the scheduler as well;
         // the manual /api/automation/run endpoint is not sufficient for SaaS automation.
         if (tenant.id === 'system' || tenant.meta?.connected) await optimizeAds(tenant.id);
+        if (tenant.id === 'system' || tenant.meta?.connected) await runGeminiAdReview(tenant.id);
         await weeklySchedulerTick(tenant.id);
       }
     } catch(e) { console.error('[SCHEDULER]',e.message); }
