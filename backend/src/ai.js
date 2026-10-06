@@ -369,11 +369,25 @@ export async function callGemini(options, {client:providedClient=null}={}) {
   var models = Array.from(new Set([MODEL, FALLBACK_MODEL, RESCUE_MODEL].filter(Boolean)));
   var configuredTimeout = Number(process.env.GEMINI_REQUEST_TIMEOUT_MS || 60000);
   var timeoutMs = Number.isFinite(configuredTimeout) ? Math.max(15000, Math.min(90000, configuredTimeout)) : 60000;
+  var configuredOverallTimeout = Number(process.env.GEMINI_OVERALL_TIMEOUT_MS || 105000);
+  var overallTimeoutMs = Number.isFinite(configuredOverallTimeout)
+    ? Math.max(30000, Math.min(120000, configuredOverallTimeout))
+    : 105000;
+  var deadline = Date.now() + overallTimeoutMs;
   var lastError = null;
+  geminiModels:
   for (var modelIndex = 0; modelIndex < models.length; modelIndex++) {
     var model = models[modelIndex];
     var maxAttempts = 3;
     for (var attempt = 1; attempt <= maxAttempts; attempt++) {
+      if (Date.now() >= deadline) {
+        var overallTimeoutError = new Error('Gemini toplam istek süresi aşıldı.');
+        overallTimeoutError.code = 'ETIMEDOUT';
+        lastError = overallTimeoutError;
+        break geminiModels;
+      }
+      var remainingMs = Math.max(5000, deadline - Date.now());
+      var requestTimeoutMs = Math.min(timeoutMs, remainingMs);
       try {
         console.log('[AI GEMINI INTERACTIONS REQUEST]', {
           model: model,
@@ -392,7 +406,7 @@ export async function callGemini(options, {client:providedClient=null}={}) {
           },
           generation_config: {max_output_tokens: options.maxOutputTokens || 8192, thinking_level: 'low'},
           store: false
-        }, {timeout: timeoutMs, maxRetries: 0});
+        }, {timeout: requestTimeoutMs, maxRetries: 0});
         var status = String(interaction && interaction.status || '').toLowerCase();
         var outputText = String(interaction && interaction.output_text || '').trim();
         console.log('[AI GEMINI INTERACTIONS RESPONSE]', {model: model, attempt: attempt, status: ['completed','incomplete','failed','in_progress','cancelled'].includes(status)?status:'unknown', hasOutput: Boolean(outputText)});
@@ -413,6 +427,12 @@ export async function callGemini(options, {client:providedClient=null}={}) {
         console.error('[AI GEMINI INTERACTIONS ERROR]', {model: model, attempt: attempt, ...safeGeminiError(error)});
         if (!retryableError(error) || attempt === maxAttempts) break;
         var waitMs = 1000 * Math.pow(2, attempt - 1);
+        if (Date.now() + waitMs + 5000 >= deadline) {
+          var retryBudgetError = new Error('Gemini toplam istek süresi aşıldı.');
+          retryBudgetError.code = 'ETIMEDOUT';
+          lastError = retryBudgetError;
+          break geminiModels;
+        }
         await new Promise(function(resolve) { setTimeout(resolve, waitMs); });
       }
     }
