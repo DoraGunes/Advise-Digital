@@ -33,19 +33,23 @@ abstract final class ProductTheme {
   static ThemeData _create(Brightness brightness, {bool colorful = false}) {
     final dark = brightness == Brightness.dark;
     final scheme = ColorScheme.fromSeed(
-      seedColor: colorful ? const Color(0xFF7157E8) : ProductColors.indigo,
+      seedColor: colorful ? const Color(0xFFF2B705) : ProductColors.indigo,
       brightness: brightness,
       surface: colorful
-          ? const Color(0xFFFFFBEF)
+          ? const Color(0xFFFFF7C7)
           : dark
               ? const Color(0xFF202639)
               : Colors.white,
     ).copyWith(
-      primary: colorful ? const Color(0xFF6D4FE8) : null,
-      secondary: colorful ? const Color(0xFF00A9B8) : null,
-      tertiary: colorful ? const Color(0xFFF3B928) : null,
-      primaryContainer: colorful ? const Color(0xFFE8E0FF) : null,
-      secondaryContainer: colorful ? const Color(0xFFD6F7FA) : null,
+      primary: colorful ? const Color(0xFF9A6500) : null,
+      onPrimary: colorful ? Colors.white : null,
+      secondary: colorful ? const Color(0xFF008E9B) : null,
+      tertiary: colorful ? const Color(0xFFFF6F61) : null,
+      primaryContainer: colorful ? const Color(0xFFFFE36E) : null,
+      onPrimaryContainer: colorful ? const Color(0xFF4C3300) : null,
+      secondaryContainer: colorful ? const Color(0xFFCFF6F8) : null,
+      tertiaryContainer: colorful ? const Color(0xFFFFD4CE) : null,
+      surfaceContainerHighest: colorful ? const Color(0xFFFFED99) : null,
     );
     final base = ThemeData(useMaterial3: true, colorScheme: scheme);
     final text = base.textTheme
@@ -71,7 +75,7 @@ abstract final class ProductTheme {
     return base.copyWith(
       textTheme: text,
       scaffoldBackgroundColor: colorful
-          ? const Color(0xFFEAFBFF)
+          ? const Color(0xFFFFF0A8)
           : dark
               ? const Color(0xFF151A29)
               : ProductColors.background,
@@ -80,7 +84,7 @@ abstract final class ProductTheme {
         elevation: 0,
         scrolledUnderElevation: 0,
         backgroundColor: colorful
-            ? const Color(0xFFEAFBFF)
+            ? const Color(0xFFFFF0A8)
             : dark
                 ? const Color(0xFF151A29)
                 : ProductColors.background,

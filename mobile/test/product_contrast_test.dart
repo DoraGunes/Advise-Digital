@@ -13,9 +13,10 @@ double contrast(Color foreground, Color background) {
 void main() {
   test('colorful theme keeps the playful palette distinct', () {
     final theme = ProductTheme.colorful;
-    expect(theme.scaffoldBackgroundColor, const Color(0xFFEAFBFF));
-    expect(theme.colorScheme.primary, const Color(0xFF6D4FE8));
-    expect(theme.colorScheme.secondary, const Color(0xFF00A9B8));
+    expect(theme.scaffoldBackgroundColor, const Color(0xFFFFF0A8));
+    expect(theme.colorScheme.primary, const Color(0xFF9A6500));
+    expect(theme.colorScheme.secondary, const Color(0xFF008E9B));
+    expect(theme.colorScheme.primaryContainer, const Color(0xFFFFE36E));
   });
 
   for (final brightness in [Brightness.light, Brightness.dark]) {

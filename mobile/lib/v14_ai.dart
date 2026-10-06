@@ -171,6 +171,32 @@ class _AiContentStudioPageState extends State<AiContentStudioPage> {
       _analysisError = null;
       _analysisSeconds = 0;
     });
+
+    if (image != null) {
+      try {
+        final compatibility = await Api.compatibility();
+        if (compatibility['compatible'] != true) {
+          final version = compatibility['version']?.toString().trim();
+          throw ApiException(
+            version == null || version.isEmpty
+                ? 'AI medya analizi için V16 sunucu gerekiyor. Canlı backend henüz güncel değil.'
+                : 'AI medya analizi için V16 sunucu gerekiyor. Canlı backend şu anda $version.',
+          );
+        }
+      } catch (e) {
+        if (mounted) {
+          final message = AppError.message(e);
+          setState(() {
+            loading = false;
+            _analysisError = message;
+          });
+          ScaffoldMessenger.of(context)
+              .showSnackBar(SnackBar(content: Text(message)));
+        }
+        return;
+      }
+    }
+
     _analysisTimer = Timer.periodic(const Duration(seconds: 5), (_) {
       if (!mounted || !loading) return;
       setState(() => _analysisSeconds += 5);
