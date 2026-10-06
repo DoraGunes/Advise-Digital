@@ -3,7 +3,71 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import {fixtureVideoFromJpeg} from './fixture-video.mjs';
+function fixtureVideoFromJpeg(jpeg) {
+  const frameCount=20,fps=10,width=640,height=360;
+  const u32=value=>{const b=Buffer.alloc(4);b.writeUInt32LE(value>>>0);return b;};
+  const chunk=(id,payload)=>{
+    const pad=payload.length%2?Buffer.from([0]):Buffer.alloc(0);
+    return Buffer.concat([Buffer.from(id,'ascii'),u32(payload.length),payload,pad]);
+  };
+  const list=(type,parts)=>chunk('LIST',Buffer.concat([Buffer.from(type,'ascii'),...parts]));
+  const avih=Buffer.alloc(56);
+  avih.writeUInt32LE(Math.round(1_000_000/fps),0);
+  avih.writeUInt32LE(jpeg.length*fps,4);
+  avih.writeUInt32LE(0x10,12);
+  avih.writeUInt32LE(frameCount,16);
+  avih.writeUInt32LE(1,24);
+  avih.writeUInt32LE(jpeg.length,28);
+  avih.writeUInt32LE(width,32);
+  avih.writeUInt32LE(height,36);
+  const strh=Buffer.alloc(56);
+  strh.write('vids',0,'ascii');
+  strh.write('MJPG',4,'ascii');
+  strh.writeUInt32LE(1,20);
+  strh.writeUInt32LE(fps,24);
+  strh.writeUInt32LE(frameCount,32);
+  strh.writeUInt32LE(jpeg.length,36);
+  strh.writeUInt16LE(width,52);
+  strh.writeUInt16LE(height,54);
+  const strf=Buffer.alloc(40);
+  strf.writeUInt32LE(40,0);
+  strf.writeInt32LE(width,4);
+  strf.writeInt32LE(height,8);
+  strf.writeUInt16LE(1,12);
+  strf.writeUInt16LE(24,14);
+  strf.write('MJPG',16,'ascii');
+  strf.writeUInt32LE(jpeg.length,20);
+  const hdrl=list('hdrl',[
+    chunk('avih',avih),
+    list('strl',[chunk('strh',strh),chunk('strf',strf)])
+  ]);
+  const frameChunks=[];
+  const offsets=[];
+  let relative=4;
+  for(let i=0;i<frameCount;i++){
+    offsets.push(relative);
+    const frame=chunk('00dc',jpeg);
+    frameChunks.push(frame);
+    relative+=frame.length;
+  }
+  const movi=list('movi',frameChunks);
+  const idxPayload=Buffer.alloc(frameCount*16);
+  for(let i=0;i<frameCount;i++){
+    const at=i*16;
+    idxPayload.write('00dc',at,'ascii');
+    idxPayload.writeUInt32LE(0x10,at+4);
+    idxPayload.writeUInt32LE(offsets[i],at+8);
+    idxPayload.writeUInt32LE(jpeg.length,at+12);
+  }
+  const payload=Buffer.concat([
+    Buffer.from('AVI ','ascii'),
+    hdrl,
+    movi,
+    chunk('idx1',idxPayload)
+  ]);
+  const video=Buffer.concat([Buffer.from('RIFF','ascii'),u32(payload.length),payload]);
+  return {video,metadata:{durationSeconds:frameCount/fps,frameCount,fps,width,height}};
+}
 const fixture=await fs.mkdtemp(path.join(os.tmpdir(),'advise-v16-test-'));
 Object.assign(process.env,{DOTENV_CONFIG_PATH:path.join(fixture,'missing.env'),ADVISE_DATA_DIR:path.join(fixture,'data'),ADVISE_UPLOAD_DIR:path.join(fixture,'uploads'),JWT_SECRET:'test-only-session-secret',ADMIN_USERNAME:'fixture-admin',ADMIN_PASSWORD:'fixture-password',CRON_ENABLED:'false',ADVISE_NO_LISTEN:'true',NODE_ENV:'test',META_ACCESS_TOKEN:'fixture-system-token',META_AD_ACCOUNT_ID:'999',INSTAGRAM_ACCESS_TOKEN:'fixture-instagram-token',INSTAGRAM_USER_ID:'888',GEMINI_API_KEY:'',GOOGLE_API_KEY:'',META_APP_ID:'',META_APP_SECRET:'',META_REDIRECT_URI:''});
 const persistence=await import('../src/persistence.js');

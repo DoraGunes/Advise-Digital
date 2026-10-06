@@ -695,18 +695,26 @@ class _AiContentStudioPageState extends State<AiContentStudioPage> {
   Widget build(BuildContext context) {
     final source = result?['source']?.toString() ?? '';
     final configured = aiStatus['configured'] == true;
+    final compactTopBar = MediaQuery.sizeOf(context).width < 390;
     return Scaffold(
       appBar: AppBar(
-        title: const Text(
-          'AI İçerik Stüdyosu',
-          style: TextStyle(fontWeight: FontWeight.w900),
+        title: Text(
+          compactTopBar ? 'AI Studio' : 'AI İçerik Stüdyosu',
+          style: const TextStyle(fontWeight: FontWeight.w900),
         ),
         actions: [
-          TextButton.icon(
-            onPressed: _openQueue,
-            icon: const Icon(Icons.calendar_month_rounded, size: 19),
-            label: const Text('Kuyruk'),
-          ),
+          if (compactTopBar)
+            IconButton(
+              tooltip: 'İçerik kuyruğu',
+              onPressed: _openQueue,
+              icon: const Icon(Icons.calendar_month_rounded),
+            )
+          else
+            TextButton.icon(
+              onPressed: _openQueue,
+              icon: const Icon(Icons.calendar_month_rounded, size: 19),
+              label: const Text('Kuyruk'),
+            ),
           IconButton(
             tooltip: 'AI durumunu yenile',
             onPressed: _loadAiStatus,
