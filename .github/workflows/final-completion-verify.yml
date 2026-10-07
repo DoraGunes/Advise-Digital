@@ -13,8 +13,35 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  repository-safety:
+    name: Repository safety verification
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: git diff --check
+        run: git diff --check 8d09bb2db0749f1177747635aae6f7418c4632b1...HEAD
+      - name: clean checkout and staged files
+        shell: bash
+        run: |
+          set -e
+          test -z "$(git status --porcelain)"
+          test -z "$(git diff --cached --name-only)"
+      - name: runtime and secrets excluded
+        shell: bash
+        run: |
+          set -e
+          git diff --name-only 8d09bb2db0749f1177747635aae6f7418c4632b1...HEAD > changed-files.txt
+          cat changed-files.txt
+          if grep -E '^(backend/data/|backend/uploads/|\.env($|\.)|secrets?/|tokens?/)' changed-files.txt; then
+            echo "Unsafe runtime or secret path detected."
+            exit 1
+          fi
+
   backend-phase:
-    name: Backend targeted verification
+    name: Full backend test suite
+    needs: repository-safety
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -27,17 +54,12 @@ jobs:
           cache: npm
           cache-dependency-path: backend/package-lock.json
       - run: npm ci
-      - run: node --check src/hashtag-strategy.js
-      - run: node --check src/copy-style.js
-      - run: node --check src/ai-memory.js
-      - run: node --check src/performance-memory.js
-      - run: node --check src/optimizer.js
-      - run: node --check src/ai.js
-      - run: node --check src/server.js
-      - run: node --test test/hashtag-strategy.test.js test/content-quality.test.js test/content-memory.test.js test/performance-memory.test.js test/campaign-ai.test.js test/memory-scale.test.js test/scheduler-regression.test.js
+      - name: Full backend tests
+        run: npm test
 
   flutter-phase:
-    name: Flutter targeted verification
+    name: Full Flutter test suite and analyze
+    needs: backend-phase
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -49,5 +71,71 @@ jobs:
           channel: stable
           cache: true
       - run: flutter pub get
-      - run: flutter analyze
-      - run: flutter test test/widget_test.dart test/product_regression_test.dart
+      - name: Full Flutter tests
+        run: flutter test
+      - name: Flutter analyze
+        run: flutter analyze
+
+  android-web:
+    name: Android release and Web PWA build
+    needs: flutter-phase
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: mobile
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+      - run: flutter pub get
+      - name: PWA worker validation
+        run: node tool/check_pwa_worker.cjs
+      - name: Android release APK
+        run: flutter build apk --release --dart-define=ADVISE_API_URL=https://advisedigital.poyrazteknikservis.com.tr
+      - name: Web PWA release
+        run: flutter build web --release --dart-define=ADVISE_API_URL=https://advisedigital.poyrazteknikservis.com.tr
+      - name: Final APK filename
+        shell: bash
+        run: cp build/app/outputs/flutter-apk/app-release.apk build/AdVise-Digital-android-release.apk
+      - uses: actions/upload-artifact@v4
+        with:
+          name: advise-final-android
+          path: mobile/build/AdVise-Digital-android-release.apk
+          if-no-files-found: error
+      - uses: actions/upload-artifact@v4
+        with:
+          name: advise-final-web-pwa
+          path: mobile/build/web
+          if-no-files-found: error
+
+  windows:
+    name: Windows release build
+    needs: flutter-phase
+    runs-on: windows-latest
+    defaults:
+      run:
+        working-directory: mobile
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+      - run: flutter config --enable-windows-desktop
+      - run: flutter pub get
+      - name: Windows release
+        run: flutter build windows --release --dart-define=ADVISE_API_URL=https://advisedigital.poyrazteknikservis.com.tr
+      - name: Package Windows release
+        shell: pwsh
+        run: Compress-Archive -Path build\windows\x64\runner\Release\* -DestinationPath build\AdVise-Digital-windows-release.zip -Force
+      - uses: actions/upload-artifact@v4
+        with:
+          name: advise-final-windows
+          path: mobile/build/AdVise-Digital-windows-release.zip
+          if-no-files-found: error
