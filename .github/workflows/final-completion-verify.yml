@@ -28,9 +28,11 @@ jobs:
           cache-dependency-path: backend/package-lock.json
       - run: npm ci
       - run: node --check src/hashtag-strategy.js
+      - run: node --check src/copy-style.js
+      - run: node --check src/ai-memory.js
       - run: node --check src/ai.js
       - run: node --check src/server.js
-      - run: node --test test/hashtag-strategy.test.js test/content-quality.test.js
+      - run: node --test test/hashtag-strategy.test.js test/content-quality.test.js test/content-memory.test.js
 
   flutter-phase:
     name: Flutter targeted verification

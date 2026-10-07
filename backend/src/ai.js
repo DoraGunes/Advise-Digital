@@ -2,7 +2,7 @@ import {config} from './config.js';
 import {boundedRead} from './operation-budget.js';
 import {GoogleGenAI} from '@google/genai';
 import fs from 'node:fs/promises';
-import {buildMemoryContext} from './ai-memory.js';
+import {buildMemoryContext, getCopyStyleRecommendation} from './ai-memory.js';
 import {randomUUID, createHash} from 'node:crypto';
 import {STYLE_SCHEMA, ALTERNATIVE_SCHEMA, validateContentQuality} from './content-quality.js';
 import {buildHashtagStrategy, normalizeHashtagMode, normalizeHashtagUse} from './hashtag-strategy.js';
@@ -498,9 +498,15 @@ export async function generateContentPack(input={}, {request=null}={}) {
     competitors: Array.isArray(input.competitors)?input.competitors.slice(0,30).map(x=>clean(x,100)).filter(Boolean):[],
     competitorHashtags: Array.isArray(input.competitorHashtags)?input.competitorHashtags.slice(0,60).map(x=>clean(x,80)).filter(Boolean):[],
     bannedHashtags: Array.isArray(input.bannedHashtags)?input.bannedHashtags.slice(0,100).map(x=>clean(x,80)).filter(Boolean):[],
-    recentHashtagSets: Array.isArray(input.recentHashtagSets)?input.recentHashtagSets.slice(-20).filter(Array.isArray):[]
+    recentHashtagSets: Array.isArray(input.recentHashtagSets)?input.recentHashtagSets.slice(-20).filter(Array.isArray):[],
+    styleRecipeOverride: input.styleRecipe && typeof input.styleRecipe === 'object' ? input.styleRecipe : {}
   };
-  const fallback=(failure={})=>finish({...localPack(safe),source:'FALLBACK',fallbackKind:'ADVISE_TEMPLATE',headline:safe.title||'İçerik taslağı',primaryText:localPack(safe).caption,description:'Medya analizi doğrulanamadı; yayın öncesi düzenleyin.',visualAngle:'Medya analizi kullanılamıyor.',recommendedPublishTime:null,styleRecipe:null,rationaleSummary:'Gemini çıktısı doğrulanamadı; genel taslak hazırlandı.',alternatives:[],...failure});
+  let styleRecommendation={recipe:null,sampleSize:0,confidence:0,reason:'Copy Style hafızası kullanılamadı.'};
+  if(safe.tenantId){
+    try{styleRecommendation=await boundedRead(()=>getCopyStyleRecommendation(safe.tenantId,safe,safe.styleRecipeOverride),8000,'copy_style_read');}
+    catch{styleRecommendation={recipe:null,sampleSize:0,confidence:0,reason:'Copy Style hafızası bu istekte okunamadı.'};}
+  }
+  const fallback=(failure={})=>finish({...localPack(safe),source:'FALLBACK',fallbackKind:'ADVISE_TEMPLATE',headline:safe.title||'İçerik taslağı',primaryText:localPack(safe).caption,description:'Medya analizi doğrulanamadı; yayın öncesi düzenleyin.',visualAngle:'Medya analizi kullanılamıyor.',recommendedPublishTime:null,styleRecipe:styleRecommendation.recipe,rationaleSummary:'Gemini çıktısı doğrulanamadı; genel taslak hazırlandı.',alternatives:[],styleRecommendation,...failure});
   if (!request&&!String(process.env.GEMINI_API_KEY || '').trim()) return fallback({errorCategory:'UNCONFIGURED'});
 
   var memoryContext='ADVISE AI HAFIZA SARAYI: tenant hafızası bağlı değil.';
@@ -518,6 +524,7 @@ export async function generateContentPack(input={}, {request=null}={}) {
     'Ürünün sektörünü ve ürün kategorisini tanımla; emin değilsen tahminini kısa ve temkinli yaz.',
     'Ton, format, amaç ve içerik açısını AI kendi seçsin.',
     'Hashtags alanında yalnız bağlama uygun adaylar üret. Final hashtag seçimi, filtreleme ve sayısı AdVise Hashtag Strategy Engine tarafından belirlenecek; sırf sayıyı doldurmak için etiket ekleme.',
+    'AdVise Copy Style önerisi: ' + JSON.stringify(styleRecommendation) + '. Bu öneriyi dil gerçekleştirmesinde kullan; kullanıcı override alanları varsa önceliklidir.',
     'Hook görsele özel, caption en az 60 karakter ve doğal Türkçe; CTA tek ve WhatsApp yönlendirmeli olsun. Jenerik şimdi tam zamanı, kaçırmayın, benzersiz deneyim girişlerinden kaçın.',
     'headline, primaryText, description, visualAngle ve kısa rationaleSummary yaz. Düşünce zinciri verme.',
     'Üç ayrı hook/açı/CTA/caption alternatifi üret: samimi, bilgi veren, fayda odaklı. Görünen detaylar dışında fiyat/indirim/garanti/üstünlük iddiası ekleme.',
@@ -577,7 +584,7 @@ export async function generateContentPack(input={}, {request=null}={}) {
       if(remaining<=0)throw Object.assign(new Error('Gemini operation timeout.'),{code:'ETIMEDOUT'});
       const result=await boundedRead(()=> (request||callGemini)({...options,overallTimeoutMs:Math.min(45000,remaining),prompt:attempt?prompt+'\nÖnceki yanıt kalite kapısından geçmedi. Yalnızca şu hata kodlarını gidererek yeni paket üret: '+quality.issues.join(','):prompt}),Math.min(45000,remaining),'content_quality');
       quality=validateContentQuality(result.parsed,safe,OUTPUT_SCHEMA);
-      if(quality.passed) return finish({...normalizePack(result.parsed,safe,result.model),headline:clean(result.parsed.headline,180),primaryText:clean(result.parsed.primaryText,2200),description:clean(result.parsed.description,500),visualAngle:clean(result.parsed.visualAngle,700),recommendedPublishTime:result.parsed.recommendedPublishTime,styleRecipe:Object.fromEntries(Object.keys(STYLE_SCHEMA.properties).map(key=>[key,result.parsed.styleRecipe[key]])),rationaleSummary:clean(result.parsed.rationaleSummary,700),alternatives:result.parsed.alternatives.map(x=>({hook:clean(x.hook,300),caption:clean(x.caption,2200),cta:clean(x.cta,300),visualAngle:clean(x.visualAngle,700)})),source:attempt?'GEMINI_REGENERATED':'GEMINI'});
+      if(quality.passed) return finish({...normalizePack(result.parsed,safe,result.model),headline:clean(result.parsed.headline,180),primaryText:clean(result.parsed.primaryText,2200),description:clean(result.parsed.description,500),visualAngle:clean(result.parsed.visualAngle,700),recommendedPublishTime:result.parsed.recommendedPublishTime,styleRecipe:Object.fromEntries(Object.keys(STYLE_SCHEMA.properties).map(key=>[key,result.parsed.styleRecipe[key]])),styleRecommendation,rationaleSummary:clean(result.parsed.rationaleSummary,700),alternatives:result.parsed.alternatives.map(x=>({hook:clean(x.hook,300),caption:clean(x.caption,2200),cta:clean(x.cta,300),visualAngle:clean(x.visualAngle,700)})),source:attempt?'GEMINI_REGENERATED':'GEMINI'});
       if(attempt===0)regenerationUsed=true;
     }
     return fallback({errorCategory:'QUALITY_REJECTED',error:'Üretilen metin kalite kontrolünden geçmedi. Genel taslağı düzenleyin veya tekrar deneyin.'});
