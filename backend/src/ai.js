@@ -3,13 +3,15 @@ import {boundedRead} from './operation-budget.js';
 import {GoogleGenAI} from '@google/genai';
 import fs from 'node:fs/promises';
 import {buildMemoryContext} from './ai-memory.js';
+import {randomUUID, createHash} from 'node:crypto';
+import {STYLE_SCHEMA, ALTERNATIVE_SCHEMA, validateContentQuality} from './content-quality.js';
 
 const MODEL = process.env.GEMINI_MODEL || config.aiModel || 'gemini-3.8-flash';
 const FALLBACK_MODEL = process.env.GEMINI_FALLBACK_MODEL || 'gemini-3.7-flash';
 const RESCUE_MODEL = process.env.GEMINI_RESCUE_MODEL || 'gemini-3.5-flash-lite';
 const MAX_INLINE_MEDIA_BYTES = 20 * 1024 * 1024;
 
-const OUTPUT_SCHEMA = {
+export const OUTPUT_SCHEMA = {
   type: 'object',
   properties: {
     productName: {type: 'string'},
@@ -26,6 +28,14 @@ const OUTPUT_SCHEMA = {
     caption: {type: 'string'},
     cta: {type: 'string'},
     hashtags: {type: 'array', items: {type: 'string'}},
+    headline: {type:'string'},
+    primaryText: {type:'string'},
+    description: {type:'string'},
+    visualAngle: {type:'string'},
+    recommendedPublishTime: {type:'string'},
+    styleRecipe: STYLE_SCHEMA,
+    rationaleSummary: {type:'string'},
+    alternatives: {type:'array',minItems:3,maxItems:3,items:ALTERNATIVE_SCHEMA},
     recommendedFormat: {type: 'string', enum: ['POST', 'REELS', 'CAROUSEL']},
     recommendedPostTime: {type: 'string'},
     recommendedPostTimeReason: {type: 'string'},
@@ -42,7 +52,8 @@ const OUTPUT_SCHEMA = {
     'selectedTone', 'contentAngle', 'hook', 'hookType', 'caption', 'cta', 'hashtags',
     'recommendedFormat', 'recommendedPostTime', 'recommendedPostTimeReason',
     'contentGoal', 'targetAudience', 'visualSummary', 'creativeScore',
-    'adRecommendation', 'nextAction', 'confidence'
+    'adRecommendation', 'nextAction', 'confidence',
+    'headline','primaryText','description','visualAngle','recommendedPublishTime','styleRecipe','rationaleSummary','alternatives'
   ]
 };
 
@@ -374,7 +385,7 @@ export async function callGemini(options, {client:providedClient=null}={}) {
   var lastError = null;
   for (var modelIndex = 0; modelIndex < models.length; modelIndex++) {
     var model = models[modelIndex];
-    var maxAttempts = 3;
+    var maxAttempts = Math.max(1,Math.min(3,options.maxAttempts||3));
     for (var attempt = 1; attempt <= maxAttempts; attempt++) {
       const remaining=deadline-Date.now();
       if(remaining<=0)throw Object.assign(new Error('Gemini operation timeout.'),{code:'ETIMEDOUT'});
@@ -429,6 +440,13 @@ export async function callGemini(options, {client:providedClient=null}={}) {
 }
 
 export async function generateContentPack(input={}, {request=null}={}) {
+  const startedAt=Date.now(),correlationId=randomUUID(),deadline=startedAt+105000;
+  let regenerationUsed=false,quality={passed:false,issues:['PROVIDER_UNAVAILABLE'],score:0};
+  const finish=(pack)=>{
+    const telemetry={correlationId,tenantRef:input.tenantId?createHash('sha256').update(String(input.tenantId)).digest('hex').slice(0,12):null,requestType:'CONTENT_PACKAGE',model:pack.modelUsed||null,durationMs:Date.now()-startedAt,success:pack.source!=='FALLBACK',timeout:pack.errorCategory==='TIMEOUT',parseRetry:false,regenerationUsed,fallbackUsed:pack.source==='FALLBACK',outputLength:pack.caption?.length||0,hashtagCount:pack.hashtags?.length||0,styleRecipe:pack.source==='FALLBACK'?null:pack.styleRecipe,retrievedMemoryCount:Array.isArray(input.memoryExamples)?Math.min(5,input.memoryExamples.length):null,confidence:pack.confidence||0};
+    console.log('[AI CONTENT RESULT]',telemetry);
+    return {...pack,correlationId,quality,regenerationUsed};
+  };
   var safe = {
     title: clean(input.title, 180),
     context: clean(input.context, 1200),
@@ -451,11 +469,18 @@ export async function generateContentPack(input={}, {request=null}={}) {
     brand: clean(input.brand, 100),
     model: clean(input.model, 120),
     hook: clean(input.hook, 300),
-    tenantId: clean(input.tenantId, 120)
+    tenantId: clean(input.tenantId, 120),
+    verifiedFacts: Array.isArray(input.verifiedFacts)?input.verifiedFacts.slice(0,20).map(x=>clean(x,200)):[],
+    memoryExamples: Array.isArray(input.memoryExamples)?input.memoryExamples.slice(0,5).map(x=>({caption:clean(x?.caption,2200)})):[]
   };
-  if (!request&&!String(process.env.GEMINI_API_KEY || '').trim()) return localPack(safe);
+  const fallback=(failure={})=>finish({...localPack(safe),source:'FALLBACK',fallbackKind:'ADVISE_TEMPLATE',headline:safe.title||'İçerik taslağı',primaryText:localPack(safe).caption,description:'Medya analizi doğrulanamadı; yayın öncesi düzenleyin.',visualAngle:'Medya analizi kullanılamıyor.',recommendedPublishTime:null,styleRecipe:null,rationaleSummary:'Gemini çıktısı doğrulanamadı; genel taslak hazırlandı.',alternatives:[],...failure});
+  if (!request&&!String(process.env.GEMINI_API_KEY || '').trim()) return fallback({errorCategory:'UNCONFIGURED'});
 
-  var memoryContext = safe.tenantId ? await buildMemoryContext(safe.tenantId, safe) : 'ADVISE AI HAFIZA SARAYI: tenant hafızası bağlı değil.';
+  var memoryContext='ADVISE AI HAFIZA SARAYI: tenant hafızası bağlı değil.';
+  if(safe.tenantId) {
+    try {memoryContext=await boundedRead(()=>buildMemoryContext(safe.tenantId,safe),8000,'memory_read');}
+    catch {memoryContext='Hafıza bağlamı bu istekte alınamadı. Geçmiş performans varsayma.';}
+  }
 
   var prompt = [
     'AdVise AI için sosyal medya içerik paketi oluştur.',
@@ -465,7 +490,10 @@ export async function generateContentPack(input={}, {request=null}={}) {
     'Marka/model/yazılar görünüyorsa mümkün olduğunca doğru çıkar.',
     'Ürünün sektörünü ve ürün kategorisini tanımla; emin değilsen tahminini kısa ve temkinli yaz.',
     'Ton, format, amaç ve içerik açısını AI kendi seçsin.',
-    'Hook kısa ve güçlü; caption doğal Türkçe; CTA tek ve net; hashtag 4-8 adet olsun.',
+    'Hook görsele özel, caption en az 60 karakter ve doğal Türkçe; CTA tek ve WhatsApp yönlendirmeli olsun. Jenerik şimdi tam zamanı, kaçırmayın, benzersiz deneyim girişlerinden kaçın.',
+    'headline, primaryText, description, visualAngle ve kısa rationaleSummary yaz. Düşünce zinciri verme.',
+    'Üç ayrı hook/açı/CTA/caption alternatifi üret: samimi, bilgi veren, fayda odaklı. Görünen detaylar dışında fiyat/indirim/garanti/üstünlük iddiası ekleme.',
+    'styleRecipe şemadaki boyutlardan oluşsun; cta=whatsapp. recommendedPublishTime HH:MM ile recommendedPostTime aynı olsun. Ölçülmüş saat verisi yoksa bunun deneme hipotezi olduğunu belirt.',
     'hookType alanında hook stratejisini kısa kategorik etiketle belirt (ör. SORU, MERAK, FAYDA, SORUN_ÇÖZÜM, TEKLİF, SOSYAL_KANIT, ACİLİYET, HİKAYE, DOĞRUDAN).',
     'recommendedPostTime Türkiye saatiyle HH:MM olsun.',
     'Geçmiş performans verisi yoksa bunu açıkça belirt; başarı garantisi verme.',
@@ -501,7 +529,7 @@ export async function generateContentPack(input={}, {request=null}={}) {
     else if (safe.filePath && safe.mimeType) mediaParts.push(await fileToGeminiInputPart(client, safe.filePath, safe.mimeType, safe.mediaType));
     else if (safe.imageUrl) mediaParts.push(await imageUrlToInputPart(safe.imageUrl));
 
-    var result = await (request||callGemini)({
+    const options = {
       prompt: prompt,
       systemInstruction: [
         'Sen AdVise AI isimli profesyonel yaratıcı direktörsün.',
@@ -513,12 +541,21 @@ export async function generateContentPack(input={}, {request=null}={}) {
       ].join('\n'),
       mediaParts: mediaParts,
       schema: OUTPUT_SCHEMA,
-      maxOutputTokens: 8192
-    });
-    return normalizePack(result.parsed, safe, result.model);
+      maxOutputTokens: 8192,
+      maxAttempts: 1
+    };
+    for(let attempt=0;attempt<2;attempt++) {
+      const remaining=deadline-Date.now();
+      if(remaining<=0)throw Object.assign(new Error('Gemini operation timeout.'),{code:'ETIMEDOUT'});
+      const result=await boundedRead(()=> (request||callGemini)({...options,overallTimeoutMs:Math.min(45000,remaining),prompt:attempt?prompt+'\nÖnceki yanıt kalite kapısından geçmedi. Yalnızca şu hata kodlarını gidererek yeni paket üret: '+quality.issues.join(','):prompt}),Math.min(45000,remaining),'content_quality');
+      quality=validateContentQuality(result.parsed,safe,OUTPUT_SCHEMA);
+      if(quality.passed) return finish({...normalizePack(result.parsed,safe,result.model),headline:clean(result.parsed.headline,180),primaryText:clean(result.parsed.primaryText,2200),description:clean(result.parsed.description,500),visualAngle:clean(result.parsed.visualAngle,700),recommendedPublishTime:result.parsed.recommendedPublishTime,styleRecipe:Object.fromEntries(Object.keys(STYLE_SCHEMA.properties).map(key=>[key,result.parsed.styleRecipe[key]])),rationaleSummary:clean(result.parsed.rationaleSummary,700),alternatives:result.parsed.alternatives.map(x=>({hook:clean(x.hook,300),caption:clean(x.caption,2200),cta:clean(x.cta,300),visualAngle:clean(x.visualAngle,700)})),source:attempt?'GEMINI_REGENERATED':'GEMINI'});
+      if(attempt===0)regenerationUsed=true;
+    }
+    return fallback({errorCategory:'QUALITY_REJECTED',error:'Üretilen metin kalite kontrolünden geçmedi. Genel taslağı düzenleyin veya tekrar deneyin.'});
   } catch (error) {
     const failure=safeGeminiError(error);console.error('[AI GEMINI ERROR]', failure);
-    return {...localPack(safe), source: 'LOCAL_FALLBACK_AFTER_AI_ERROR', error:failure.message,errorCategory:failure.category,errorStatus:failure.status};
+    return fallback({error:failure.message,errorCategory:failure.category,errorStatus:failure.status});
   }
 }
 

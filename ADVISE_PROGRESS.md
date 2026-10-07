@@ -2,9 +2,11 @@
 
 Current branch: `wip/codex-product-redesign-2026-10-05`
 Current HEAD at revision start: `d82ef4e49147142880bbced726f790698c2177cc`
-Current tested source checkpoint: `904aa1cd0d81c2cfd39fe6d107ca40bd90bc60eb` (theme phase). A documentation-only checkpoint follows; run git rev-parse HEAD for current HEAD.
-Last good source commit: `904aa1cd0d81c2cfd39fe6d107ca40bd90bc60eb` (baseline documentation/fixture commit remains `a12ca3e`).
+Current continuation source checkpoint: `feat(ai): validate professional content packages with one regeneration`; exact committed HEAD is returned by git rev-parse HEAD. See continuation FAZ 5 below for the latest test/STOP record.
+Previous tested source commit: `904aa1cd0d81c2cfd39fe6d107ca40bd90bc60eb` (theme phase); continuation started at docs checkpoint `c9ee1fff0cb2e031f9a885098ce0bda0956e3324`.
 Binding request: `C:/Users/ANL/Downloads/ADVISE_CODEX_MASTER_FINAL_REVISION_2026-10-07.txt`
+
+Continuation request: `C:/Users/ANL/.codex/attachments/8a66d740-bca3-4d70-a370-f8872e9a9fcd/Yapıştırılan metin.txt`. Latest steering: user reports 21% credit remaining and requests STOP after a safe checkpoint of the current phase; no new phase, full build or push.
 
 Canonical branding: `icon.jpeg` = APP ICON; `logo.jpeg` = FULL LOGO. New revision overrides older branding descriptions and older no-commit instructions. Phases are tested and committed separately; no production deploy/main merge/live Meta spending.
 
@@ -15,7 +17,7 @@ Canonical branding: `icon.jpeg` = APP ICON; `logo.jpeg` = FULL LOGO. New revisio
 - FAZ 1 Reels Cover: ✅
 - FAZ 2 Branding: ✅
 - FAZ 3 Theme Contrast: ✅
-- Gemini quality / hashtag engine: ⬜
+- Gemini quality / hashtag engine: 🟡 (quality checkpoint complete; hashtag engine not started)
 - FAZ 4 Scheduler: ⬜
 - FAZ 5 Dual Memory Palace / Copy Style / Performance: ⬜
 - FAZ 6 Gemini Independence: ⬜
@@ -95,3 +97,18 @@ Canonical branding: `icon.jpeg` = APP ICON; `logo.jpeg` = FULL LOGO. New revisio
 - Push: attempted normal WIP push after 904aa1c; rejected non-fast-forward. Phase commits remain local. Remote work preserved; no force push or blind merge.
 - Known limits: installed Android/PWA/Windows visual smoke remains manual. Existing Web Cupertino font-family warning is recorded; no missing glyph observed or claimed. Colorful quick-toggle switches to dark; use More > Görünüm > Renkli to select colorful explicitly.
 - Next exact task: EK FAZ 5A/5B/5C professional content package schema, deterministic quality gate with one bounded regeneration, relevant grouped hashtag engine and safe response telemetry; preserve WhatsApp destination, tenant isolation and truthful fallback source. Start with ai.js generateContentPack/normalizePack/OUTPUT_SCHEMA, server content-pack input/output, v14_ai.dart editor and existing isolated AI tests. Memory/scheduler/DB phases remain incomplete.
+
+## Continuation FAZ 5 — Gemini quality checkpoint
+
+- Status: implemented, targeted tests green, STOP requested by user at 21% credit. No next phase started and no new builds.
+- Files: backend/src/content-quality.js, ai.js, server.js; backend/test/content-quality.test.js; mobile/lib/v14_ai.dart and mobile/test/product_modules_smoke_test.dart.
+- Commit: feat(ai): validate professional content packages with one regeneration (exact SHA in git log after checkpoint commit).
+- Output: headline/primaryText/description/visualAngle/publish time/style recipe/rationale plus three distinct hook/angle/caption/CTA alternatives; old fields retained for existing clients. Short rationale only, no chain-of-thought.
+- Gate: recursive required-field/type/enum checks, length/generic/repetition/encoding/destination/tag duplicates, evidence checks for explicit price/discount/guarantee/technical-unit claims, media-text relation and supplied memory near-copy checks. At most one controlled quality regeneration; explicit GEMINI/GEMINI_REGENERATED/FALLBACK sources. Rejected packs are not silently normalized into Gemini success.
+- Integration: regenerated packs recognized by existing server memory/create flows and Studio status. Media upload still rejects fallback as verified visual analysis. No success claim for unverified media.
+- Safe telemetry: correlation ID, tenant digest, model, duration, source outcome, regeneration/fallback flags, counts and enum-only style recipe; no raw provider error/prompt/user text. Retrieval count remains null when not measurable; no fabricated zero count.
+- Tests: latest targeted backend 7/7; Flutter module smoke 15/15 including both GEMINI and GEMINI_REGENERATED to scheduled queue. Earlier in this phase full backend 69/69, full Flutter 79/79 and analyze clean. After final claim-boundary/time-alias checks the repeated full backend run was interrupted on the user's credit instruction; latest targeted tests pass. Do not report a new completed full regression or an 80-test full Flutter run.
+- Limits: fixtures only; real Gemini output quality not yet provider-smoked. Deterministic text checks cannot prove every vision fact/location/property. Conservative high-risk claim checks complement prompt grounding. New professional fields are not yet preserved by the old v2 memory storage; that extension is FAZ 7. Hashtag strategy still uses the prior logic until FAZ 6. UI details/alternatives controls and measured timing remain later phases.
+- Exact next task on resume: FAZ 6 separate Hashtag Strategy Engine (broad/niche/local/branded/intent; Minimal/Balanced/Discovery; organic vs paid; relevance, dedupe, competitor/spam filtering, controlled variety), wired into generated packs and Studio inputs; isolated tests then phase regressions/analyze and a separate commit.
+- Remaining order: FAZ 7 Content Memory + original/final edits + retrieval + Copy Style + assisted/hybrid/AdVise-first; FAZ 8 real Performance/Timing + organic/paid separation/provenance/confidence; FAZ 9 campaign recommendation quality + Studio explainability; FAZ 10 additive DB/migration rehearsal; FAZ 11 targeted scheduler validation; FAZ 12 safe remote reconciliation + full tests/build. No final APK before completion.
+- Runtime/production/.env/uploads untouched and excluded from commits. Remote reconciliation not performed; no push/main merge/force push/deploy/real ad creation or spend.

@@ -2,6 +2,20 @@
 
 Revision: 7 October 2026. Binding user TXT: `C:/Users/ANL/Downloads/ADVISE_CODEX_MASTER_FINAL_REVISION_2026-10-07.txt`.
 
+## Active checkpoint — user-requested STOP at 21% credit
+
+- Continuation instruction: C:/Users/ANL/.codex/attachments/8a66d740-bca3-4d70-a370-f8872e9a9fcd/Yapıştırılan metin.txt. Its phase numbering supersedes the historical phase numbering below.
+- Start HEAD of continuation: c9ee1fff0cb2e031f9a885098ce0bda0956e3324; branch unchanged. New source checkpoint commit: feat(ai): validate professional content packages with one regeneration (obtain SHA with git log -1 / git rev-parse HEAD).
+- Current phase: continuation FAZ 5 Gemini quality — safe checkpoint complete. Required professional fields, three alternatives, deterministic validation, at most one quality regeneration, explicit source, safe telemetry and regenerated-source integration implemented. No later phase implemented or new final artifact built.
+- Latest targeted tests: backend content-quality 7/7; Flutter product_modules_smoke 15/15. Earlier completed phase regressions: backend 69/69, Flutter 79/79, analyze clean. A repeat full backend run after final small gate edits was interrupted on the user's request to conserve credit; do not call that an implementation failure or a completed rerun. No full build in this continuation.
+- Migrations: none. Runtime files/uploads/.env/secrets excluded; prior runtime changes remain unstaged. No deploy/main merge/force push/real ad creation or spending. No remote reconciliation or push in this continuation.
+- Exact next task: continuation FAZ 6 Hashtag Strategy Engine. Start with backend/src/content-quality.js, ai.js safeHashtags/normalizePack/generateContentPack; add a dedicated engine that groups broad/niche/local/branded/intent, deduplicates and filters competitor/spam tags, ranks relevant organic tags with controlled variation and supports minimal/balanced/discovery plus separate paid behavior. Pass actual selected context through server.js file/text routes and Flutter api.dart/v14_ai.dart. Keep current quality/source/WhatsApp safeguards. Test in isolated fixtures, update progress/handoff, separate commit.
+- Remaining: FAZ 7 dual content memory/original-final edits/retrieval/copy style and assisted→hybrid→AdVise-first; FAZ 8 actual performance/timing memory with null/unavailable provenance, confidence/sample sizes and organic/paid separation; FAZ 9 structured campaign recommendation and Studio details/alternatives UX; FAZ 10 additive idempotent migration preparation/rehearsal; FAZ 11 scheduler validation; FAZ 12 reviewed remote reconciliation, full regression/analyze and Android/Web/Windows builds. No final APK until all master phases complete.
+- Known limitations: new professional fields still need the FAZ 7 memory storage extension; supplied near-copy examples are checked but structured retrieval is not implemented. Retrieval telemetry count is null when unknown. Claim guard cannot independently verify every image fact. Real Gemini/Meta validation not performed; isolated fixtures do not prove live provider success. Uploaded-media fallback is not advertised as successful visual analysis.
+- Resume commands: git status; git branch --show-current; git rev-parse HEAD; git log --oneline -12. Targeted quality: from backend, node --test test/content-quality.test.js. Targeted Flutter: from mobile, flutter test --no-pub test/product_modules_smoke_test.dart. Do not start by re-auditing the whole repository or rerunning platform builds.
+
+Historical branding/theme checkpoint follows; its artifact links are older development builds, not completed master artifacts.
+
 - Current branch: `wip/codex-product-redesign-2026-10-05`.
 - Revision start: `d82ef4e49147142880bbced726f790698c2177cc`; last committed good source: `904aa1cd0d81c2cfd39fe6d107ca40bd90bc60eb` (themes). The following checkpoint only updates docs. Run `git rev-parse HEAD` for the authoritative current value.
 - Completed phases in this revision: FAZ 0, EK FAZ 1A/1B, FAZ 1 cover, FAZ 2 canonical branding, FAZ 3 themes (see progress and git log for phase SHA).

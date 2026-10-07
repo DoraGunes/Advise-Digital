@@ -192,7 +192,7 @@ class _AiContentStudioPageState extends State<AiContentStudioPage> {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(
-            data['source'] != 'GEMINI'
+            !const ['GEMINI', 'GEMINI_REGENERATED'].contains(data['source'])
                 ? 'Yerel içerik önerisi hazırlandı. Medya analizi doğrulanamadı.'
                 : image != null
                     ? 'Medya analizi ve içerik paketi hazırlandı.'
@@ -970,10 +970,10 @@ class _AiContentStudioPageState extends State<AiContentStudioPage> {
                   const SizedBox(height: 8),
                   if (source.isNotEmpty)
                     ProductStatusChip(
-                        label: source == 'GEMINI'
+                        label: const ['GEMINI', 'GEMINI_REGENERATED'].contains(source)
                             ? 'AI analizi tamamlandı'
                             : 'Yerel öneri • medya analizi doğrulanmadı',
-                        tone: source == 'GEMINI' ? 'success' : 'warning'),
+                        tone: const ['GEMINI', 'GEMINI_REGENERATED'].contains(source) ? 'success' : 'warning'),
                   if ((result?['error']?.toString() ?? '').trim().isNotEmpty)
                     _resultBox(
                       'AI bağlantısı',

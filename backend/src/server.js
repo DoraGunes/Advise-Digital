@@ -580,7 +580,7 @@ app.post('/api/ai/content-pack', async (req, res) => {
     const history=await getLogs(req.user.tenantId, 20);
     const result=await generateContentPack({...req.body, tone:req.body?.tone||settings.aiTone, goal:'WhatsApp mesajı', adTargeting:adTargetingPrompt(settings), language:req.body?.language||settings.aiLanguage, timezone:config.timezone, tenantId:req.user.tenantId, history});
     await addLog(req.user.tenantId,{type:'AI_CONTENT_GENERATED',source:result.source,mediaType:req.body?.mediaType||'AUTO'});
-    const generation = result.source === 'GEMINI'
+    const generation = ['GEMINI','GEMINI_REGENERATED'].includes(result.source)
       ? await learnFromGeneration(req.user.tenantId, result, {postId: String(req.body?.postId || '').trim(), mediaType: req.body?.mediaType || 'AUTO'})
       : null;
     res.json(generation ? {...result, memoryGenerationId: generation.id} : result);
@@ -651,7 +651,7 @@ app.post('/api/ai/content-pack-from-file', upload.single('image'), async (req, r
         : visionMime ? '' : 'Görsel dosyası kabul edildi; Gemini uygun medya tipini mümkün olduğunca kendisi analiz eder.'
     });
 
-    if (result.source !== 'GEMINI') {
+    if (!['GEMINI','GEMINI_REGENERATED'].includes(result.source)) {
       console.error('[AI MEDIA NOT GEMINI]', result.source, result.error || 'Gemini anahtarı/çağrısı kullanılamadı.');
       return res.status(502).json({
         error: result.error || 'Gemini görsel analizi çalışmadı.',
@@ -805,7 +805,7 @@ app.post('/api/posts', upload.single('image'), async (req, res) => {
     posts.unshift(post);
     await savePosts(tenantId,posts);
     await addLog(tenantId,{type:'POST_UPLOADED',postId:post.id,title:post.title,mediaType,aiGenerated:post.aiGenerated});
-    if (post.aiGenerated && memoryPack && memoryPack.source === 'GEMINI') await learnFromGeneration(tenantId, memoryPack, {postId:post.id});
+    if (post.aiGenerated && memoryPack && ['GEMINI','GEMINI_REGENERATED'].includes(memoryPack.source)) await learnFromGeneration(tenantId, memoryPack, {postId:post.id});
     else if (memoryGenerationId) await linkGenerationToPost(tenantId, memoryGenerationId, post.id, {caption:post.caption});
     res.status(201).json(post);
   } catch (e) { res.status(500).json({error:e.message}); }
@@ -913,7 +913,7 @@ app.post('/api/posts/bulk', upload.array('files', 20), async (req, res) => {
     for(const post of accepted) {
       const memoryPack = memoryPacks.get(post.id);
       await addLog(tenantId,{type:'POST_UPLOADED',postId:post.id,title:post.title,mediaType:post.mediaType,aiGenerated:post.aiGenerated,bulk:true});
-      if (post.aiGenerated && memoryPack && memoryPack.source === 'GEMINI') await learnFromGeneration(tenantId, memoryPack, {postId:post.id});
+      if (post.aiGenerated && memoryPack && ['GEMINI','GEMINI_REGENERATED'].includes(memoryPack.source)) await learnFromGeneration(tenantId, memoryPack, {postId:post.id});
     }
 
     res.status(201).json({

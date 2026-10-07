@@ -357,46 +357,49 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
-  testWidgets(
-      'mocked Studio media -> actual AI result -> scheduled Planner flow',
-      (tester) async {
-    final file = XFile.fromData(
-        Uint8List.fromList(base64Decode(
-            'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aFocAAAAASUVORK5CYII=')),
-        name: 'fixture.png',
-        mimeType: 'image/png');
-    await size(tester);
-    await tester.pumpWidget(host(
-        AiContentStudioPage(
-            mediaPicker: () async => file,
-            schedulePicker: () async =>
-                DateTime.now().add(const Duration(days: 1))),
-        withScope: true));
-    await tester.pumpAndSettle();
-    await scrollTo(tester, find.text('MEDYA SEÇ'));
-    await tester.tap(find.text('MEDYA SEÇ'));
-    await tester.pumpAndSettle();
-    await scrollTo(tester, find.text('AI ile medyayı analiz et'));
-    await tester.tap(find.text('AI ile medyayı analiz et'));
-    await tester.pumpAndSettle();
-    await scrollTo(tester, find.text('Saat seç • Kuyruğa al'));
-    await tester.tap(find.text('Saat seç • Kuyruğa al'));
-    await tester.pumpAndSettle();
-    expect(posts.single['publishStatus'], 'QUEUED');
-    expect(posts.single['nextPublishAt'], isNotNull);
-    expect(mutations.where((path) => path == 'POST /api/posts').length, 1);
-    expect(
-        mutations
-            .where((path) => path == 'POST /api/posts/fixture-post/queue')
-            .length,
-        1);
-    await tester.tap(find.text('Kuyruk'));
-    await tester.pumpAndSettle();
-    await scrollTo(
-        tester, find.byKey(const ValueKey('content-post-fixture-post')));
-    expect(find.text('PLANLANDI'), findsOneWidget);
-    expect(tester.takeException(), isNull);
-  });
+  for (final generatedSource in ['GEMINI', 'GEMINI_REGENERATED']) {
+    testWidgets(
+        '$generatedSource Studio media -> actual AI result -> scheduled Planner flow',
+        (tester) async {
+      source = generatedSource;
+      final file = XFile.fromData(
+          Uint8List.fromList(base64Decode(
+              'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aFocAAAAASUVORK5CYII=')),
+          name: 'fixture.png',
+          mimeType: 'image/png');
+      await size(tester);
+      await tester.pumpWidget(host(
+          AiContentStudioPage(
+              mediaPicker: () async => file,
+              schedulePicker: () async =>
+                  DateTime.now().add(const Duration(days: 1))),
+          withScope: true));
+      await tester.pumpAndSettle();
+      await scrollTo(tester, find.text('MEDYA SEÇ'));
+      await tester.tap(find.text('MEDYA SEÇ'));
+      await tester.pumpAndSettle();
+      await scrollTo(tester, find.text('AI ile medyayı analiz et'));
+      await tester.tap(find.text('AI ile medyayı analiz et'));
+      await tester.pumpAndSettle();
+      await scrollTo(tester, find.text('Saat seç • Kuyruğa al'));
+      await tester.tap(find.text('Saat seç • Kuyruğa al'));
+      await tester.pumpAndSettle();
+      expect(posts.single['publishStatus'], 'QUEUED');
+      expect(posts.single['nextPublishAt'], isNotNull);
+      expect(mutations.where((path) => path == 'POST /api/posts').length, 1);
+      expect(
+          mutations
+              .where((path) => path == 'POST /api/posts/fixture-post/queue')
+              .length,
+          1);
+      await tester.tap(find.text('Kuyruk'));
+      await tester.pumpAndSettle();
+      await scrollTo(
+          tester, find.byKey(const ValueKey('content-post-fixture-post')));
+      expect(find.text('PLANLANDI'), findsOneWidget);
+      expect(tester.takeException(), isNull);
+    });
+  }
 
   testWidgets('desktop login brand panel scrolls with large text',
       (tester) async {
