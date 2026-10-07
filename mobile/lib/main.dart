@@ -30,14 +30,16 @@ Widget _mainHomeLeading(BuildContext context) => IconButton(
 class AdviseDigitalApp extends StatelessWidget {
   const AdviseDigitalApp({super.key});
   @override
-  Widget build(BuildContext context) => ValueListenableBuilder<ThemeMode>(
+  Widget build(BuildContext context) => ValueListenableBuilder<ProductThemeMode>(
         valueListenable: ProductThemeController.mode,
         builder: (context, mode, _) => MaterialApp(
           debugShowCheckedModeBanner: false,
           title: AppConfig.appName,
-          theme: ProductTheme.light,
+          theme: mode == ProductThemeMode.colorful
+              ? ProductTheme.colorful
+              : ProductTheme.light,
           darkTheme: ProductTheme.dark,
-          themeMode: mode,
+          themeMode: mode.materialMode,
           home: const ProductSessionGate(),
         ),
       );
@@ -996,7 +998,7 @@ class _MetricCard extends StatelessWidget {
                     const TextStyle(fontSize: 26, fontWeight: FontWeight.w900)),
             Text(data.title,
                 style: TextStyle(
-                    color: Colors.grey.shade700, fontWeight: FontWeight.w600)),
+                    color: Theme.of(context).colorScheme.onSurfaceVariant, fontWeight: FontWeight.w600)),
           ]),
         ),
       );
@@ -1049,7 +1051,7 @@ class _CustomerCard extends StatelessWidget {
                             fontWeight: FontWeight.w800, fontSize: 16)),
                     Text(
                         '${user['username'] ?? '-'} • ${user['fullName'] ?? ''}',
-                        style: TextStyle(color: Colors.grey.shade700))
+                        style: TextStyle(color: Theme.of(context).colorScheme.onSurfaceVariant))
                   ])),
               _StatusBadge(
                   text: expired ? 'SÜRE DOLDU' : (active ? 'AKTİF' : 'PASİF'),
@@ -1220,7 +1222,7 @@ class _CustomerDashboardState extends State<CustomerDashboard> {
                         width: double.infinity,
                         alignment: Alignment.center,
                         decoration: BoxDecoration(
-                            color: const Color(0xFFF4F5FA),
+                            color: Theme.of(context).colorScheme.surfaceContainerHighest,
                             borderRadius: BorderRadius.circular(16)),
                         child: mode == 'VIDEO'
                             ? Column(
@@ -1555,7 +1557,7 @@ class _RuleLine extends StatelessWidget {
   Widget build(BuildContext context) => Padding(
       padding: const EdgeInsets.only(top: 10),
       child: Row(children: [
-        Icon(icon, size: 19, color: Colors.grey.shade700),
+        Icon(icon, size: 19, color: Theme.of(context).colorScheme.onSurfaceVariant),
         const SizedBox(width: 9),
         Expanded(child: Text(title)),
         Text(value, style: const TextStyle(fontWeight: FontWeight.w700))
@@ -1875,7 +1877,7 @@ class _StepRow extends StatelessWidget {
                 Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
           Text(title, style: const TextStyle(fontWeight: FontWeight.w800)),
           const SizedBox(height: 3),
-          Text(body, style: TextStyle(color: Colors.grey.shade700))
+          Text(body, style: TextStyle(color: Theme.of(context).colorScheme.onSurfaceVariant))
         ]))
       ]));
 }
@@ -2058,7 +2060,7 @@ class _PostCard extends StatelessWidget {
                         height: 150,
                         width: double.infinity,
                         decoration: BoxDecoration(
-                            color: const Color(0xFFF0F1F6),
+                            color: Theme.of(context).colorScheme.surfaceContainerHighest,
                             borderRadius: BorderRadius.circular(16)),
                         child: const Icon(Icons.image_outlined, size: 58)),
                     const SizedBox(height: 12),
@@ -2604,11 +2606,11 @@ class _SettingsPageState extends State<SettingsPage> {
                         : (v) => _saveToggle(
                             'autoPublish', v, (x) => autoPublish = x),
                   ),
-                  const Padding(
-                    padding: EdgeInsets.only(top: 4),
+                  Padding(
+                    padding: const EdgeInsets.only(top: 4),
                     child: Text(
                       'Aç/kapat değişiklikleri anında kaydedilir. Alt ayarlar için AYARLARI KAYDET düğmesini kullan.',
-                      style: TextStyle(fontSize: 12, color: Colors.grey),
+                      style: TextStyle(fontSize: 12, color: Theme.of(context).colorScheme.onSurfaceVariant),
                     ),
                   )
                 ]),
@@ -3071,7 +3073,7 @@ class _HelpSection extends StatelessWidget {
                       const SizedBox(height: 5),
                       Text(body,
                           style: TextStyle(
-                              color: Colors.grey.shade700, height: 1.45))
+                              color: Theme.of(context).colorScheme.onSurfaceVariant, height: 1.45))
                     ]))
               ]))));
 }
@@ -3091,7 +3093,7 @@ class _DashboardHero extends StatelessWidget {
           gradient: const LinearGradient(
             begin: Alignment.topLeft,
             end: Alignment.bottomRight,
-            colors: [Color(0xFF202143), Color(0xFF4A459C), Color(0xFF6B5BFF)],
+            colors: [Color(0xFF202143), Color(0xFF4A459C), Color(0xFF4F48AE)],
           ),
           borderRadius: BorderRadius.circular(20),
           boxShadow: const [
@@ -3268,14 +3270,14 @@ class _StatusBadge extends StatelessWidget {
   Widget build(BuildContext context) => Container(
       padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 6),
       decoration: BoxDecoration(
-          color: positive ? const Color(0xFFEAF8EE) : const Color(0xFFF1F2F5),
+          color: positive ? const Color(0xFFEAF8EE) : Theme.of(context).colorScheme.surfaceContainerHighest,
           borderRadius: BorderRadius.circular(30)),
       child: Text(text,
           style: TextStyle(
               fontSize: 10,
               fontWeight: FontWeight.w900,
               color:
-                  positive ? const Color(0xFF11753A) : Colors.grey.shade700)));
+                  positive ? const Color(0xFF11753A) : Theme.of(context).colorScheme.onSurfaceVariant)));
 }
 
 class _MiniPill extends StatelessWidget {
@@ -3286,9 +3288,9 @@ class _MiniPill extends StatelessWidget {
   Widget build(BuildContext context) => Container(
       padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 7),
       decoration: BoxDecoration(
-          color: const Color(0xFFF7F7FA),
+          color: Theme.of(context).colorScheme.surfaceContainerHighest,
           borderRadius: BorderRadius.circular(30),
-          border: Border.all(color: const Color(0xFFECECF2))),
+          border: Border.all(color: Theme.of(context).colorScheme.outlineVariant)),
       child: Row(mainAxisSize: MainAxisSize.min, children: [
         Icon(icon, size: 15),
         const SizedBox(width: 5),
@@ -3319,7 +3321,7 @@ class _InfoCard extends StatelessWidget {
                   const SizedBox(height: 5),
                   Text(body,
                       style:
-                          TextStyle(color: Colors.grey.shade700, height: 1.4))
+                          TextStyle(color: Theme.of(context).colorScheme.onSurfaceVariant, height: 1.4))
                 ]))
           ])));
 }
@@ -3334,7 +3336,7 @@ class _EmptyState extends StatelessWidget {
       child: Padding(
           padding: const EdgeInsets.all(24),
           child: Column(children: [
-            Icon(icon, size: 48, color: Colors.grey.shade500),
+            Icon(icon, size: 48, color: Theme.of(context).colorScheme.onSurfaceVariant),
             const SizedBox(height: 10),
             Text(title,
                 style:
@@ -3342,7 +3344,7 @@ class _EmptyState extends StatelessWidget {
             const SizedBox(height: 6),
             Text(subtitle,
                 textAlign: TextAlign.center,
-                style: TextStyle(color: Colors.grey.shade700, height: 1.4))
+                style: TextStyle(color: Theme.of(context).colorScheme.onSurfaceVariant, height: 1.4))
           ])));
 }
 
@@ -3352,7 +3354,7 @@ class _PoweredBy extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final c =
-        inverse ? Colors.white.withValues(alpha: .70) : Colors.grey.shade500;
+        inverse ? Colors.white.withValues(alpha: .70) : Theme.of(context).colorScheme.onSurfaceVariant;
     return Center(
         child: Opacity(
             opacity: .95,

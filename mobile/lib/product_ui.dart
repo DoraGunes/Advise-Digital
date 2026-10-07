@@ -28,20 +28,31 @@ abstract final class ProductSpacing {
 abstract final class ProductTheme {
   static ThemeData get light => _create(Brightness.light);
   static ThemeData get dark => _create(Brightness.dark);
+  static ThemeData get colorful => _create(Brightness.light, colorful: true);
 
-  static ThemeData _create(Brightness brightness) {
+  static ThemeData _create(Brightness brightness, {bool colorful = false}) {
     final dark = brightness == Brightness.dark;
     final scheme = ColorScheme.fromSeed(
       seedColor: ProductColors.indigo,
       brightness: brightness,
       surface: dark ? const Color(0xFF202639) : Colors.white,
+    ).copyWith(
+      onSurface: dark ? const Color(0xFFEAEAF3) : ProductColors.navy,
+      onSurfaceVariant:
+          dark ? const Color(0xFFC2C6D8) : const Color(0xFF50566A),
+      outline: dark ? const Color(0xFF929AAF) : const Color(0xFF747A8F),
+      outlineVariant: dark ? const Color(0xFF535D75) : const Color(0xFFB7BDCD),
+      secondary: colorful ? const Color(0xFF006B62) : null,
+      onSecondary: colorful ? Colors.white : null,
+      secondaryContainer: colorful ? const Color(0xFFB5F2E6) : null,
+      onSecondaryContainer: colorful ? const Color(0xFF003B34) : null,
+      tertiary: colorful ? const Color(0xFF952957) : null,
+      onTertiary: colorful ? Colors.white : null,
+      tertiaryContainer: colorful ? const Color(0xFFFFD9E7) : null,
+      onTertiaryContainer: colorful ? const Color(0xFF53052B) : null,
     );
     final base = ThemeData(useMaterial3: true, colorScheme: scheme);
     final text = base.textTheme
-        .apply(
-          bodyColor: dark ? const Color(0xFFEAEAF3) : ProductColors.navy,
-          displayColor: dark ? const Color(0xFFEAEAF3) : ProductColors.navy,
-        )
         .copyWith(
           headlineLarge: const TextStyle(
               fontSize: 34, fontWeight: FontWeight.w800, letterSpacing: -1),
@@ -55,18 +66,25 @@ abstract final class ProductTheme {
           bodyMedium: const TextStyle(fontSize: 14, height: 1.45),
           labelLarge:
               const TextStyle(fontSize: 14, fontWeight: FontWeight.w700),
-        );
-    final border = dark ? const Color(0xFF353B50) : ProductColors.border;
+        )
+        .apply(bodyColor: scheme.onSurface, displayColor: scheme.onSurface);
+    final border = scheme.outlineVariant;
+    final background = dark
+        ? const Color(0xFF151A29)
+        : colorful
+            ? const Color(0xFFFFF6D9)
+            : ProductColors.background;
     return base.copyWith(
       textTheme: text,
-      scaffoldBackgroundColor:
-          dark ? const Color(0xFF151A29) : ProductColors.background,
+      scaffoldBackgroundColor: background,
+      iconTheme: IconThemeData(color: scheme.onSurfaceVariant),
+      disabledColor: scheme.onSurfaceVariant,
       appBarTheme: AppBarTheme(
         centerTitle: false,
         elevation: 0,
         scrolledUnderElevation: 0,
-        backgroundColor:
-            dark ? const Color(0xFF151A29) : ProductColors.background,
+        backgroundColor: background,
+        foregroundColor: scheme.onSurface,
         titleTextStyle: text.titleLarge,
       ),
       cardTheme: CardThemeData(
@@ -81,14 +99,18 @@ abstract final class ProductTheme {
       inputDecorationTheme: InputDecorationTheme(
         filled: true,
         fillColor: scheme.surface,
+        labelStyle: TextStyle(color: scheme.onSurfaceVariant),
+        hintStyle: TextStyle(color: scheme.onSurfaceVariant),
+        helperStyle: TextStyle(color: scheme.onSurfaceVariant),
+        errorStyle: TextStyle(color: scheme.error),
         contentPadding:
             const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
         border: OutlineInputBorder(
             borderRadius: BorderRadius.circular(12),
-            borderSide: BorderSide(color: border)),
+            borderSide: BorderSide(color: scheme.outline)),
         enabledBorder: OutlineInputBorder(
             borderRadius: BorderRadius.circular(12),
-            borderSide: BorderSide(color: border)),
+            borderSide: BorderSide(color: scheme.outline)),
         focusedBorder: OutlineInputBorder(
             borderRadius: BorderRadius.circular(12),
             borderSide: BorderSide(color: scheme.primary, width: 1.5)),
@@ -100,6 +122,7 @@ abstract final class ProductTheme {
       )),
       outlinedButtonTheme: OutlinedButtonThemeData(
           style: OutlinedButton.styleFrom(
+        side: BorderSide(color: scheme.outline),
         minimumSize: const Size(48, ProductSpacing.controlHeight),
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
       )),
@@ -108,15 +131,42 @@ abstract final class ProductTheme {
         height: 72,
         backgroundColor: scheme.surface,
         indicatorColor: scheme.primaryContainer,
-        labelTextStyle: WidgetStatePropertyAll(text.labelSmall),
+        labelTextStyle: WidgetStateProperty.resolveWith((states) =>
+            text.labelSmall!.copyWith(
+                color: states.contains(WidgetState.selected)
+                    ? scheme.onSurface
+                    : scheme.onSurfaceVariant)),
+        iconTheme: WidgetStateProperty.resolveWith((states) => IconThemeData(
+            color: states.contains(WidgetState.selected)
+                ? scheme.onPrimaryContainer
+                : scheme.onSurfaceVariant)),
       ),
       navigationRailTheme: NavigationRailThemeData(
           backgroundColor: scheme.surface,
-          indicatorColor: scheme.primaryContainer),
+          indicatorColor: scheme.primaryContainer,
+          selectedIconTheme: IconThemeData(color: scheme.onPrimaryContainer),
+          unselectedIconTheme: IconThemeData(color: scheme.onSurfaceVariant),
+          selectedLabelTextStyle: TextStyle(color: scheme.onSurface),
+          unselectedLabelTextStyle: TextStyle(color: scheme.onSurfaceVariant)),
       dividerTheme: DividerThemeData(color: border, thickness: 1, space: 1),
-      snackBarTheme:
-          const SnackBarThemeData(behavior: SnackBarBehavior.floating),
+      snackBarTheme: SnackBarThemeData(
+          behavior: SnackBarBehavior.floating,
+          backgroundColor: scheme.inverseSurface,
+          contentTextStyle: TextStyle(color: scheme.onInverseSurface),
+          actionTextColor: scheme.inversePrimary),
+      tooltipTheme: TooltipThemeData(
+          decoration: BoxDecoration(
+              color: scheme.inverseSurface,
+              borderRadius: BorderRadius.circular(8)),
+          textStyle: TextStyle(color: scheme.onInverseSurface)),
+      dropdownMenuTheme: DropdownMenuThemeData(
+          textStyle: TextStyle(color: scheme.onSurface),
+          menuStyle: MenuStyle(
+              backgroundColor: WidgetStatePropertyAll(scheme.surface))),
       dialogTheme: DialogThemeData(
+          backgroundColor: scheme.surface,
+          titleTextStyle: text.titleLarge,
+          contentTextStyle: text.bodyMedium,
           shape:
               RoundedRectangleBorder(borderRadius: BorderRadius.circular(20))),
       pageTransitionsTheme: const PageTransitionsTheme(builders: {
@@ -131,25 +181,53 @@ abstract final class ProductTheme {
   }
 }
 
+enum ProductThemeMode {
+  system,
+  light,
+  dark,
+  colorful;
+
+  ThemeMode get materialMode => switch (this) {
+        ProductThemeMode.system => ThemeMode.system,
+        ProductThemeMode.dark => ThemeMode.dark,
+        _ => ThemeMode.light,
+      };
+}
+
 abstract final class ProductThemeController {
-  static final mode = ValueNotifier<ThemeMode>(ThemeMode.system);
+  static final mode = ValueNotifier<ProductThemeMode>(ProductThemeMode.system);
   static Future<void> load() async {
     final prefs = await SharedPreferences.getInstance();
     final stored = prefs.getString('productTheme');
-    mode.value = ThemeMode.values
-        .firstWhere((e) => e.name == stored, orElse: () => ThemeMode.system);
+    mode.value = ProductThemeMode.values.firstWhere((e) => e.name == stored,
+        orElse: () => ProductThemeMode.system);
   }
 
-  static Future<void> set(ThemeMode value) async {
-    mode.value = value;
+  static Future<void> set(ProductThemeMode value) async {
     final prefs = await SharedPreferences.getInstance();
-    await prefs.setString('productTheme', value.name);
+    if (!await prefs.setString('productTheme', value.name)) {
+      throw StateError('Görünüm tercihi kaydedilemedi.');
+    }
+    mode.value = value;
   }
 
-  static void toggle(BuildContext context) =>
-      set(Theme.of(context).brightness == Brightness.dark
-          ? ThemeMode.light
-          : ThemeMode.dark);
+  static Future<void> change(
+      BuildContext context, ProductThemeMode value) async {
+    try {
+      await set(value);
+    } catch (_) {
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+            content: Text('Görünüm tercihi kaydedilemedi. Tekrar deneyin.')));
+      }
+    }
+  }
+
+  static void toggle(BuildContext context) => change(
+      context,
+      Theme.of(context).brightness == Brightness.dark
+          ? ProductThemeMode.light
+          : ProductThemeMode.dark);
 }
 
 String productFriendlyError(Object? error) => AppError.message(error);
@@ -356,7 +434,8 @@ class ProductInsightCard extends StatelessWidget {
             decoration: BoxDecoration(
                 color: Theme.of(context).colorScheme.primaryContainer,
                 borderRadius: BorderRadius.circular(12)),
-            child: Icon(icon, color: Theme.of(context).colorScheme.primary)),
+            child: Icon(icon,
+                color: Theme.of(context).colorScheme.onPrimaryContainer)),
         const SizedBox(width: 14),
         Expanded(
             child:

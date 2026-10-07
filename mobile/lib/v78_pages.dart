@@ -174,7 +174,7 @@ class _HubCard extends StatelessWidget {
               Text(
                 item.subtitle,
                 style: TextStyle(
-                    color: Colors.grey.shade700, fontSize: 12, height: 1.3),
+                    color: Theme.of(context).colorScheme.onSurfaceVariant, fontSize: 12, height: 1.3),
               ),
             ],
           ),
@@ -435,7 +435,7 @@ class _InsightCard extends StatelessWidget {
           subtitle: Padding(
               padding: const EdgeInsets.only(top: 5),
               child: Text(_text(item['body']),
-                  style: TextStyle(color: Colors.grey.shade700, height: 1.35))),
+                  style: TextStyle(color: Theme.of(context).colorScheme.onSurfaceVariant, height: 1.35))),
           isThreeLine: true,
         ),
       ),
@@ -1008,7 +1008,7 @@ class _SecurityTile extends StatelessWidget {
               ...lines.map((line) => Padding(
                     padding: const EdgeInsets.only(top: 5),
                     child: Text(line,
-                        style: TextStyle(color: Colors.grey.shade700)),
+                        style: TextStyle(color: Theme.of(context).colorScheme.onSurfaceVariant)),
                   )),
             ],
           ),
@@ -1818,7 +1818,7 @@ class _AdminCustomerCard extends StatelessWidget {
                                 fontWeight: FontWeight.w900, fontSize: 17)),
                         Text(
                             '${_text(user['username'])} • ${_text(user['fullName'])}',
-                            style: TextStyle(color: Colors.grey.shade700)),
+                            style: TextStyle(color: Theme.of(context).colorScheme.onSurfaceVariant)),
                       ],
                     ),
                   ),
@@ -2636,7 +2636,7 @@ class _KpiGrid extends StatelessWidget {
                         fontSize: 22, fontWeight: FontWeight.w900)),
                 Text(item.title,
                     style: TextStyle(
-                        color: Colors.grey.shade700,
+                        color: Theme.of(context).colorScheme.onSurfaceVariant,
                         fontWeight: FontWeight.w600)),
               ],
             ),
@@ -2664,7 +2664,7 @@ class _InfoCard extends StatelessWidget {
                       fontSize: 16, fontWeight: FontWeight.w900)),
               const SizedBox(height: 7),
               Text(body,
-                  style: TextStyle(color: Colors.grey.shade700, height: 1.45)),
+                  style: TextStyle(color: Theme.of(context).colorScheme.onSurfaceVariant, height: 1.45)),
             ],
           ),
         ),
@@ -2684,7 +2684,7 @@ class _EmptyCard extends StatelessWidget {
           padding: const EdgeInsets.all(25),
           child: Column(
             children: [
-              Icon(icon, size: 48, color: Colors.grey.shade500),
+              Icon(icon, size: 48, color: Theme.of(context).colorScheme.onSurfaceVariant),
               const SizedBox(height: 10),
               Text(title,
                   style: const TextStyle(
@@ -2692,7 +2692,7 @@ class _EmptyCard extends StatelessWidget {
               const SizedBox(height: 6),
               Text(body,
                   textAlign: TextAlign.center,
-                  style: TextStyle(color: Colors.grey.shade700, height: 1.4)),
+                  style: TextStyle(color: Theme.of(context).colorScheme.onSurfaceVariant, height: 1.4)),
             ],
           ),
         ),
@@ -2715,7 +2715,7 @@ class _StatusBadge extends StatelessWidget {
   Widget build(BuildContext context) => Container(
         padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 6),
         decoration: BoxDecoration(
-          color: positive ? const Color(0xFFEAF8EE) : const Color(0xFFF1F2F5),
+          color: positive ? const Color(0xFFEAF8EE) : Theme.of(context).colorScheme.surfaceContainerHighest,
           borderRadius: BorderRadius.circular(30),
         ),
         child: Text(
@@ -2723,7 +2723,7 @@ class _StatusBadge extends StatelessWidget {
           style: TextStyle(
             fontSize: 10,
             fontWeight: FontWeight.w900,
-            color: positive ? const Color(0xFF11753A) : Colors.grey.shade700,
+            color: positive ? const Color(0xFF11753A) : Theme.of(context).colorScheme.onSurfaceVariant,
           ),
         ),
       );
@@ -2736,9 +2736,9 @@ class _Pill extends StatelessWidget {
   Widget build(BuildContext context) => Container(
         padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 7),
         decoration: BoxDecoration(
-          color: const Color(0xFFF7F7FA),
+          color: Theme.of(context).colorScheme.surfaceContainerHighest,
           borderRadius: BorderRadius.circular(30),
-          border: Border.all(color: const Color(0xFFECECF2)),
+          border: Border.all(color: Theme.of(context).colorScheme.outlineVariant),
         ),
         child: Text(text,
             style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w700)),
@@ -2759,7 +2759,7 @@ class _Line extends StatelessWidget {
                 width: 110,
                 child: Text(label,
                     style: TextStyle(
-                        color: Colors.grey.shade700,
+                        color: Theme.of(context).colorScheme.onSurfaceVariant,
                         fontWeight: FontWeight.w600))),
             Expanded(
                 child: Text(value,
@@ -2804,7 +2804,7 @@ class _PoweredBy extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final color = inverse ? const Color(0xD9FFFFFF) : Colors.grey.shade500;
+    final color = inverse ? const Color(0xD9FFFFFF) : Theme.of(context).colorScheme.onSurfaceVariant;
     return Center(
       child: Row(
         mainAxisSize: MainAxisSize.min,

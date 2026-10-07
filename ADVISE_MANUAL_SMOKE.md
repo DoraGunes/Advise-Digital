@@ -4,7 +4,7 @@ This is a development checkpoint, not completion of the entire master revision. 
 
 ## Completed automated evidence
 
-- Backend 62/62; Flutter 57/57; analyze clean.
+- Backend 62/62; Flutter 79/79; analyze clean.
 - Android APK, Windows release and Web release built locally.
 - Canonical PNG hashes match packaged outputs; Android launcher/adaptive/splash pixels and Windows embedded icon match; PWA manifest identity unchanged.
 - Public production health returned HTTP 200; new adCreateSaga/adsPreflight capabilities absent. Matching backend rollout requires separate authorization.
@@ -15,7 +15,7 @@ This is a development checkpoint, not completion of the entire master revision. 
 - [ ] Launcher/adaptive/splash/full logo display and aspect ratio.
 - [ ] Light theme and large text on the device.
 - [ ] Dark theme and dialogs/forms on the device.
-- [ ] Colorful theme (FAZ 3 implementation still pending).
+- [ ] Colorful theme: More > Görünüm > Renkli; restart and check selection/contrast on device.
 - [ ] AI Studio real image analysis with an authorized matching backend.
 - [ ] Caption quality (quality-contract phase pending).
 - [ ] Hashtag relevance/quantity (hashtag-engine phase pending).

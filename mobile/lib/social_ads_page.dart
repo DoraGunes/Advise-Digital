@@ -367,7 +367,7 @@ class _SocialAdsPageState extends State<SocialAdsPage> {
       return Container(
         height: height,
         alignment: Alignment.center,
-        color: const Color(0xFFF0F1F6),
+        color: Theme.of(context).colorScheme.surfaceContainerHighest,
         child: Icon(
             type == 'VIDEO'
                 ? Icons.video_library_outlined
@@ -383,7 +383,7 @@ class _SocialAdsPageState extends State<SocialAdsPage> {
       errorBuilder: (_, __, ___) => Container(
         height: height,
         alignment: Alignment.center,
-        color: const Color(0xFFF0F1F6),
+        color: Theme.of(context).colorScheme.surfaceContainerHighest,
         child: const Icon(Icons.broken_image_outlined, size: 52),
       ),
     );

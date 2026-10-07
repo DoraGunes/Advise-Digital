@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'package:advise_digital/api.dart';
 import 'package:advise_digital/app_error.dart';
 import 'package:advise_digital/social_ads_page.dart';
+import 'package:advise_digital/product_ui.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
@@ -71,7 +72,8 @@ void main() {
   });
   Future<void> openStrategy(
       WidgetTester tester, Future<http.Response> Function() action,
-      {Future<http.Response> Function(http.Request)? createAction}) async {
+      {Future<http.Response> Function(http.Request)? createAction,
+      ThemeData? theme}) async {
     Api.setHttpClientForTesting(MockClient((request) async {
       if (request.url.path == '/api/product/strategy') return action();
       if (request.url.path == '/api/ads/create' && createAction != null)
@@ -105,8 +107,9 @@ void main() {
     }));
     await tester.binding.setSurfaceSize(const Size(800, 1400));
     addTearDown(() => tester.binding.setSurfaceSize(null));
-    await tester.pumpWidget(
-        const MaterialApp(home: SocialAdsPage(initialMediaId: 'media-1')));
+    await tester.pumpWidget(MaterialApp(
+        theme: theme ?? ProductTheme.light,
+        home: const SocialAdsPage(initialMediaId: 'media-1')));
     await tester.pumpAndSettle();
     await tester.ensureVisible(find.text('AI önerisi'));
     await tester.tap(find.text('AI önerisi'));
@@ -117,38 +120,45 @@ void main() {
     await tester.pump();
   }
 
-  testWidgets('AI error clears loading and retry succeeds', (tester) async {
-    var calls = 0;
-    await openStrategy(tester, () async {
-      calls++;
-      return http.Response(
-          jsonEncode(calls == 1
-              ? {'code': 'ETIMEDOUT', 'stage': 'strategy'}
-              : {
-                  'available': true,
-                  'source': 'GEMINI',
-                  'strategy': {
-                    'hook': 'Özgün ürün açılışı',
-                    'budget': {},
-                    'creative': {},
-                    'audience': {},
-                    'schedule': {}
-                  }
-                }),
-          calls == 1 ? 504 : 200,
-          headers: {'content-type': 'application/json; charset=utf-8'});
+  for (final entry in {
+    'Light': ProductTheme.light,
+    'Dark': ProductTheme.dark,
+    'Colorful': ProductTheme.colorful
+  }.entries) {
+    testWidgets('${entry.key} AI error clears loading and retry succeeds',
+        (tester) async {
+      var calls = 0;
+      await openStrategy(tester, () async {
+        calls++;
+        return http.Response(
+            jsonEncode(calls == 1
+                ? {'code': 'ETIMEDOUT', 'stage': 'strategy'}
+                : {
+                    'available': true,
+                    'source': 'GEMINI',
+                    'strategy': {
+                      'hook': 'Özgün ürün açılışı',
+                      'budget': {},
+                      'creative': {},
+                      'audience': {},
+                      'schedule': {}
+                    }
+                  }),
+            calls == 1 ? 504 : 200,
+            headers: {'content-type': 'application/json; charset=utf-8'});
+      }, theme: entry.value);
+      await tester.pumpAndSettle();
+      expect(find.text('Hazırlanıyor…'), findsNothing);
+      expect(calls, 1);
+      final retry = find.text('AI kampanya önerisi al');
+      await tester.ensureVisible(retry);
+      await tester.tap(retry);
+      await tester.pumpAndSettle();
+      expect(calls, 2);
+      expect(find.textContaining('Özgün ürün açılışı'), findsOneWidget);
+      expect(tester.takeException(), isNull);
     });
-    await tester.pumpAndSettle();
-    expect(find.text('Hazırlanıyor…'), findsNothing);
-    expect(calls, 1);
-    final retry = find.text('AI kampanya önerisi al');
-    await tester.ensureVisible(retry);
-    await tester.tap(retry);
-    await tester.pumpAndSettle();
-    expect(calls, 2);
-    expect(find.textContaining('Özgün ürün açılışı'), findsOneWidget);
-    expect(tester.takeException(), isNull);
-  });
+  }
   testWidgets('disposed AI widget does not update state after delayed response',
       (tester) async {
     final response = Completer<http.Response>();

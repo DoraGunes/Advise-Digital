@@ -81,7 +81,7 @@ class _ProTile extends StatelessWidget {
               const SizedBox(height: 9),
               Text(item.title, style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 15)),
               const SizedBox(height: 4),
-              Text(item.subtitle, maxLines: 3, overflow: TextOverflow.ellipsis, style: TextStyle(fontSize: 11.5, color: Colors.grey.shade700, height: 1.35)),
+              Text(item.subtitle, maxLines: 3, overflow: TextOverflow.ellipsis, style: TextStyle(fontSize: 11.5, color: Theme.of(context).colorScheme.onSurfaceVariant, height: 1.35)),
             ]),
           ),
         ),
@@ -92,7 +92,7 @@ class _ProCard extends StatelessWidget {
   final Widget child;
   const _ProCard({required this.child});
   @override
-  Widget build(BuildContext context) => Container(decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(20), border: Border.all(color: const Color(0xFFE8EAF1))), child: child);
+  Widget build(BuildContext context) => Container(decoration: BoxDecoration(color: Theme.of(context).colorScheme.surface, borderRadius: BorderRadius.circular(20), border: Border.all(color: Theme.of(context).colorScheme.outlineVariant)), child: child);
 }
 
 class _ProHero extends StatelessWidget {
@@ -138,7 +138,7 @@ class _AiAdvisorPageState extends State<AiAdvisorPage>{Map<String,dynamic>? data
 
 class ProPerformancePage extends StatefulWidget { const ProPerformancePage({super.key}); @override State<ProPerformancePage> createState()=>_ProPerformancePageState(); }
 class _ProPerformancePageState extends State<ProPerformancePage>{Map<String,dynamic>? data;bool loading=true;@override void initState(){super.initState();_load();}Future<void> _load()async{try{final x=await Api.proPerformance();if(mounted)setState(()=>data=x);}catch(e){if(mounted)ScaffoldMessenger.of(context).showSnackBar(SnackBar(content:Text(AppError.message(e))));}finally{if(mounted)setState(()=>loading=false);}}@override Widget build(BuildContext context){final d=data??{};return _ProFrame(title:'Performans',loading:loading,onRefresh:_load,children:[const _ProHero(title:'Reklam sağlığı',subtitle:'Kayıtlı operasyon verilerinin hızlı özeti.',badge:'PERFORMANCE',icon:Icons.insights_rounded),const SizedBox(height:14),GridView.count(crossAxisCount:2,shrinkWrap:true,physics:const NeverScrollableScrollPhysics(),crossAxisSpacing:10,mainAxisSpacing:10,childAspectRatio:1.4,children:[_Kpi('İçerik','${d['posts']??0}',Icons.photo_library_outlined),_Kpi('İşlem','${d['logCount']??0}',Icons.receipt_long_outlined),_Kpi('Durdurulan','${d['paused']??0}',Icons.pause_circle_outline),_Kpi('Bütçe değişimi','${d['budgetChanges']??0}',Icons.account_balance_wallet_outlined)]),const SizedBox(height:14),_ProInfo(text:'Gerçek Meta KPI kartları için hesap bağlandığında mevcut Insights akışı bu merkeze eklenebilir.'),const SizedBox(height:14),const _ProPoweredBy()] );}}
-class _Kpi extends StatelessWidget{final String title,value;final IconData icon;const _Kpi(this.title,this.value,this.icon);@override Widget build(BuildContext context)=>_ProCard(child:Padding(padding:const EdgeInsets.all(14),child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[Icon(icon,size:22,color:Theme.of(context).colorScheme.primary),const Spacer(),Text(value,style:const TextStyle(fontSize:26,fontWeight:FontWeight.w900)),Text(title,style:TextStyle(color:Colors.grey.shade700,fontWeight:FontWeight.w700))])));}
+class _Kpi extends StatelessWidget{final String title,value;final IconData icon;const _Kpi(this.title,this.value,this.icon);@override Widget build(BuildContext context)=>_ProCard(child:Padding(padding:const EdgeInsets.all(14),child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[Icon(icon,size:22,color:Theme.of(context).colorScheme.primary),const Spacer(),Text(value,style:const TextStyle(fontSize:26,fontWeight:FontWeight.w900)),Text(title,style:TextStyle(color:Theme.of(context).colorScheme.onSurfaceVariant,fontWeight:FontWeight.w700))])));}
 
 class BudgetSimulatorPage extends StatefulWidget {
   const BudgetSimulatorPage({super.key});
@@ -285,7 +285,7 @@ class _BudgetRow extends StatelessWidget {
         margin: const EdgeInsets.only(bottom: 8),
         padding: const EdgeInsets.all(10),
         decoration: BoxDecoration(
-          color: const Color(0xFFF7F7FA),
+          color: Theme.of(context).colorScheme.surfaceContainerHighest,
           borderRadius: BorderRadius.circular(14),
         ),
         child: Column(
@@ -1177,7 +1177,7 @@ class AgencyOverviewPage extends StatelessWidget {
                 const SizedBox(height: 10),
                 Text(
                   'Tenant geçişi ve gerçek müşteri listesi mevcut admin panelindeki müşteri merkezinden yönetilir.',
-                  style: TextStyle(color: Colors.grey.shade700),
+                  style: TextStyle(color: Theme.of(context).colorScheme.onSurfaceVariant),
                 ),
               ],
             ),
@@ -1330,7 +1330,7 @@ class _ProInfo extends StatelessWidget {
             children: [
               const Icon(Icons.info_outline_rounded),
               const SizedBox(width: 9),
-              Expanded(child: Text(text, style: TextStyle(color: Colors.grey.shade700, height: 1.4))),
+              Expanded(child: Text(text, style: TextStyle(color: Theme.of(context).colorScheme.onSurfaceVariant, height: 1.4))),
             ],
           ),
         ),
@@ -1362,7 +1362,7 @@ class _ProPoweredBy extends StatelessWidget {
   Widget build(BuildContext context) => Center(
         child: Text(
           'Powered by AdVise AI',
-          style: TextStyle(fontSize: 11, fontWeight: FontWeight.w800, color: Colors.grey.shade500),
+          style: TextStyle(fontSize: 11, fontWeight: FontWeight.w800, color: Theme.of(context).colorScheme.onSurfaceVariant),
         ),
       );
 }

@@ -2,7 +2,7 @@
 
 Current branch: `wip/codex-product-redesign-2026-10-05`
 Current HEAD at revision start: `d82ef4e49147142880bbced726f790698c2177cc`
-Current tested source checkpoint: `19ceb7795211ed726f3ead3a579f04938d116391` (cover phase).
+Current committed source checkpoint: `ceec0715bfbd3f0b7d8bee73bf71146d4c59389f` (canonical branding phase). Theme phase commit follows its passing release builds below; run git rev-parse HEAD for current HEAD.
 Last good baseline commit: `a12ca3e` (revision baseline docs and required media test fixture).
 Binding request: `C:/Users/ANL/Downloads/ADVISE_CODEX_MASTER_FINAL_REVISION_2026-10-07.txt`
 
@@ -14,7 +14,7 @@ Canonical branding: `icon.jpeg` = APP ICON; `logo.jpeg` = FULL LOGO. New revisio
 - EK FAZ 1A/1B Ads / AI strategy / preflight: ✅
 - FAZ 1 Reels Cover: ✅
 - FAZ 2 Branding: ✅
-- FAZ 3 Theme Contrast: ⬜
+- FAZ 3 Theme Contrast: ✅
 - Gemini quality / hashtag engine: ⬜
 - FAZ 4 Scheduler: ⬜
 - FAZ 5 Dual Memory Palace / Copy Style / Performance: ⬜
@@ -28,7 +28,7 @@ Canonical branding: `icon.jpeg` = APP ICON; `logo.jpeg` = FULL LOGO. New revisio
 
 - Status: baseline regression passed; implementation next is EK FAZ 1A/1B.
 - Files changed: this progress file, handoff and rollout documents; existing untracked source-only test helpers must be included explicitly where required by baseline tests.
-- Commit: pending green baseline.
+- Commit: `a12ca3e`.
 - Tests: backend 41/41 and Flutter 48/48 passed; Flutter analyze: no issues.
 - Working architecture: Express/JSON tenant persistence, Graph/Interactions, Flutter shared Android/Web/Windows, durable publish phases, tenant/account file locks.
 - Source findings: Gemini has per-attempt timeout but no overall budget; strategy includes several unbounded aggregate Graph reads before generation. Tenant write lock may wait up to 10 minutes. Sequential ad creation + cleanup can exceed the 90s client timeout. No persisted ad creation idempotency/saga state. Provider 502 errors are reduced to generic AppError text. UI finally exists for create but strategy cleanup is not in finally.
@@ -41,7 +41,7 @@ Canonical branding: `icon.jpeg` = APP ICON; `logo.jpeg` = FULL LOGO. New revisio
 
 - Status: implemented and regression verified. Provider fixture tests only; no live ads or spending.
 - Files changed: backend src operation-budget.js, ad-operations.js, persistence.js, automation-safety.js, meta.js, ai.js, product.js, server.js; mobile lib api.dart, app_error.dart, social_ads_page.dart; backend/test/ad-operations.test.js, mobile/test/ads_flow_test.dart.
-- Commit: phase commit `fix(ads): bound strategy requests and persist preflighted creation saga` (resolve with git log).
+- Commit: `fa6c333e74d80853342e84f33e7482770ec0555d` — `fix(ads): bound strategy requests and persist preflighted creation saga`.
 - Tests: backend 52/52; new targeted backend 11/11; Flutter 53/53 (including new 5/5); Flutter analyze no issues.
 - Root causes fixed: no Gemini aggregate deadline, optional report latency, long tenant lock waits, long sequential cleanup after a create failure, missing persisted partial IDs/idempotency, success loading retained while dialog open, strategy cleanup outside finally, generic provider 502 handling.
 - Contracts: strategy 55s total/40s maximum Gemini/8s optional reporting, client 65s; create 70s provider budget, HTTP tenant/account waits 5s each, client 90s. Meta transports inherit remaining budget. Strategy no longer occupies the tenant write lock during read-only generation.
@@ -59,7 +59,7 @@ Canonical branding: `icon.jpeg` = APP ICON; `logo.jpeg` = FULL LOGO. New revisio
 - Implementation: dedicated 10 MB cover upload; actual JPEG/PNG/WebP magic + sharp pixel decode with 40M pixel cap; EXIF rotate, alpha flatten, proportional resize, strip metadata, true JPEG encode and .jpg URL. Ignore misleading filename/MIME, normalize to actual bytes. Persist new cover before removing old cover. Rejection keeps the prior cover unchanged.
 - Frontend: XFile bytes on all platforms, magic-derived multipart MIME/extension, size/read/format errors, timeout includes response body. Server error codes map to readable cover messages.
 - Tests: targeted backend 18/18 (incl progressive JPEG, alpha, corrupt/truncated, EXIF, HTTP jpg/jpeg/uppercase/extensionless/wrong MIME/WebP/PNG/size); full backend 59/59; Flutter targeted 16/16 and full 54/54; analyze no issues. package/lock dependency equality verified.
-- Commit: phase commit `fix(media): decode and normalize Reels cover uploads` (resolve with git log).
+- Commit: `19ceb7795211ed726f3ead3a579f04938d116391` — `fix(media): decode and normalize Reels cover uploads`.
 - Build: `flutter build web --release --no-pub` succeeded (267.5s). Wasm dry run succeeded. Build emitted a Cupertino font-family warning; direct source contains no CupertinoIcons references, no missing-font visual claim is made.
 - Known issues: physical Android/Windows file chooser and installed PWA picker require later manual smoke. CI needs sharp's platform native optional packages. npm install reported 2 moderate vulnerabilities; no forced upgrade performed.
 - Push: normal WIP push rejected non-fast-forward; remote commits preserved, no force push or blind merge. Local phase commits remain safe.
@@ -73,8 +73,23 @@ Canonical branding: `icon.jpeg` = APP ICON; `logo.jpeg` = FULL LOGO. New revisio
 - Identity: mobile/web/manifest.json unchanged byte-for-byte (id/start_url remain '.', scope absent), Android application ID/Windows identity unchanged.
 - Tests: backend validates actual PNG dimensions/encoding, exact canonical source hashes, ICO frame offsets/decoding, Android/adaptive resource references, manifest hash. Windows System.Drawing.Icon also opened ICO successfully.
 - Test repairs: larger login logo initially exposed 2.4px overflow at 320px/1.4 text scale; fixed by constraining brand text. PNG decode fixture required tester.runAsync to avoid fake-clock hang; only owned test sessions interrupted and rerun.
-- Commit: phase commit `feat(branding): apply canonical AdVise logo and platform icons` (resolve with git log).
+- Commit: `ceec0715bfbd3f0b7d8bee73bf71146d4c59389f` — `feat(branding): apply canonical AdVise logo and platform icons`.
 - Builds: Android release APK succeeded 508.5s, 58.9 MB; Windows release succeeded 155.3s; Web release succeeded 115.8s with --no-wasm-dry-run (cover-phase Wasm dry run had passed). APK Flutter PNG hashes and all launcher density/adaptive/splash pixel matches verified. Windows EXE icon pixels and bundled PNG hashes match. Web manifest, PWA/favicon and bundled PNG hashes match. Existing Cupertino font warning recorded for theme-phase follow-up.
 - APK delivery: C:/Users/ANL/Downloads/AdVise-Digital-2026-10-07-branding.apk; SHA-256 494C4C197E5F368A982B82B8CE163BE235AECB4D04057B7EF29CF7467673B48C. Uses existing debug signing configuration; no signing/keystore secrets changed.
 - Next exact task: FAZ 3 semantic theme tokens and Light/Dark/Colorful persistence/contrast tests. Then Gemini quality/hashtags, scheduler, dual memory/copy style/performance/timing, independence, scalable DB, AI Studio UX and final regression/manual rollout readiness. Those phases are NOT complete.
 - Live health read only: configured API domain returned HTTP 200 / version 16.0.0, old build marker, new ads capabilities absent. Cloudflare-routed API remains reachable; this does not claim Wrangler login or a live backend upgrade.
+
+## FAZ 3 — semantic theme contrast
+
+- Status: implemented; backend 62/62, Flutter 79/79 and analyze clean. Android release passed 340.6s / 59.0 MB; Web release passed 157.1s; Windows release passed 156.1s; no provider/runtime/production changes.
+- Files changed: mobile product_ui.dart, main.dart, product_more.dart, social_ads_page.dart, v14_ai.dart, content_queue_page.dart, v13_pro.dart, v78_pages.dart; contrast, real-module smoke and ads-flow tests.
+- Root causes: fixed light-colored preview/card/pill backgrounds remained in dark mode; fixed grey secondary labels became unreadable on dark surfaces. Some textTheme styles replaced applied foreground colors. Two promotional gradient stops/alpha combinations did not meet 4.5:1 text contrast.
+- Implementation: shared ColorScheme text/surface/control/navigation/dialog/dropdown/tooltip/snackbar colors; preserve text foreground after typography overrides. Form outlines at least 3:1, active text/control pairs at least 4.5:1. Keep intentionally dark promotional panels and verify their translucent text at the lightest stop.
+- Renkli/Colorful: warm yellow canvas, white cards, indigo primary, teal secondary and rose tertiary; light semantic mode with readable foregrounds. New ProductThemeMode retains existing productTheme system/light/dark values and adds colorful; selection persists across restart. Failed preference write preserves old mode and shows a safe error.
+- Tests: 27 contrast/persistence/form/dropdown/dialog/snackbar/gradient tests; real Studio/Ads Center/Queue/Memory/Reports across all three themes; campaign generation error/retry in all three themes. Full Flutter 79/79; backend 62/62; analyze no issues. Tests use isolated fixtures; no live provider success inferred.
+- Commit: `fix(theme): normalize contrast and persist colorful appearance` (resolve exact SHA with git log; source checkpoint recorded in the following docs commit).
+- APK: C:/Users/ANL/Downloads/AdVise-Digital-2026-10-07-theme.apk; SHA-256 4BC1DB282EE61465240B7201A63868882192249937D6CDD8E2A8A9063DC6FEAD. Packaged canonical PNG hashes/all five launcher density/adaptive/splash pixel matches verified. Existing signing configuration preserved. Requires matching backend for secure ad creation; not a production deployment.
+- Web: mobile/build/web, main.dart.js SHA-256 e00ebabef587929752f03750c2f5e23436a38e369b4e5d5d64eff22ab5ba87a8. Source/output manifest/PWA/favicon/canonical bundled PNG hashes match. --no-wasm-dry-run used; prior cover-phase Wasm dry run remains the latest Wasm evidence.
+- Windows: mobile/build/windows/x64/runner/Release, 156.1s build; canonical bundled PNG hashes and embedded EXE icon pixels match. Deliver the whole folder, including updated data/app.so; native EXE hash remains unchanged when only Dart/UI changes.
+- Known limits: installed Android/PWA/Windows visual smoke remains manual. Existing Web Cupertino font-family warning is recorded; no missing glyph observed or claimed. Colorful quick-toggle switches to dark; use More > Görünüm > Renkli to select colorful explicitly.
+- Next exact task: EK FAZ 5A/5B/5C professional content package schema, deterministic quality gate with one bounded regeneration, relevant grouped hashtag engine and safe response telemetry; preserve WhatsApp destination, tenant isolation and truthful fallback source. Start with ai.js generateContentPack/normalizePack/OUTPUT_SCHEMA, server content-pack input/output, v14_ai.dart editor and existing isolated AI tests. Memory/scheduler/DB phases remain incomplete.

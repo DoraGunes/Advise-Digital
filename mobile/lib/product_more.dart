@@ -141,17 +141,22 @@ class ProductMorePage extends StatelessWidget {
           const Icon(Icons.palette_outlined),
           const SizedBox(width: 12),
           const Expanded(child: Text('Görünüm')),
-          DropdownButton<ThemeMode>(
+          DropdownButton<ProductThemeMode>(
               value: ProductThemeController.mode.value,
               underline: const SizedBox.shrink(),
               items: const [
                 DropdownMenuItem(
-                    value: ThemeMode.system, child: Text('Sistem')),
-                DropdownMenuItem(value: ThemeMode.light, child: Text('Açık')),
-                DropdownMenuItem(value: ThemeMode.dark, child: Text('Koyu'))
+                    value: ProductThemeMode.system, child: Text('Sistem')),
+                DropdownMenuItem(
+                    value: ProductThemeMode.light, child: Text('Açık')),
+                DropdownMenuItem(
+                    value: ProductThemeMode.dark, child: Text('Koyu')),
+                DropdownMenuItem(
+                    value: ProductThemeMode.colorful, child: Text('Renkli'))
               ],
               onChanged: (value) {
-                if (value != null) ProductThemeController.set(value);
+                if (value != null)
+                  ProductThemeController.change(context, value);
               })
         ])),
         const SizedBox(height: 16),

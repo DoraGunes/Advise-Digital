@@ -158,7 +158,10 @@ void main() {
   });
 
   Widget host(Widget child,
-      {bool dark = false, double scale = 1, bool withScope = false}) {
+      {bool dark = false,
+      double scale = 1,
+      bool withScope = false,
+      ThemeData? theme}) {
     final content = withScope
         ? ProductNavigation(
             user: {'role': role},
@@ -169,7 +172,7 @@ void main() {
             child: child)
         : child;
     return MaterialApp(
-        theme: dark ? ProductTheme.dark : ProductTheme.light,
+        theme: theme ?? (dark ? ProductTheme.dark : ProductTheme.light),
         home: MediaQuery(
             data: MediaQueryData(
                 size: const Size(390, 844),
@@ -187,6 +190,41 @@ void main() {
     await tester.scrollUntilVisible(target, 350,
         scrollable: find.byType(Scrollable).first, maxScrolls: 20);
     await tester.pumpAndSettle();
+  }
+
+  for (final entry in {
+    'Light': ProductTheme.light,
+    'Dark': ProductTheme.dark,
+    'Colorful': ProductTheme.colorful
+  }.entries) {
+    testWidgets(
+        '${entry.key} Studio ads queue memory and reports render safely',
+        (tester) async {
+      await size(tester, width: 390, height: 1100);
+      for (final page in [
+        const AiContentStudioPage(),
+        const AdsCenterPage(),
+        const ContentQueuePage(),
+        const MemoryInsightsPage(),
+        const ProductReportsPage()
+      ]) {
+        await tester
+            .pumpWidget(host(page, theme: entry.value, withScope: true));
+        await tester.pumpAndSettle();
+        expect(tester.takeException(), isNull,
+            reason: '${page.runtimeType} ${entry.key}');
+        // Check the actual inherited default for text in each real module.
+        final text = find.byType(Text).first;
+        final color = DefaultTextStyle.of(tester.element(text)).style.color!;
+        final a = color.computeLuminance();
+        final b = entry.value.colorScheme.surface.computeLuminance();
+        expect(((a > b ? a : b) + .05) / ((a < b ? a : b) + .05),
+            greaterThanOrEqualTo(4.5));
+        await tester.pumpWidget(const SizedBox());
+        await tester.pumpAndSettle();
+      }
+      expect(mutations, isEmpty);
+    });
   }
 
   testWidgets(

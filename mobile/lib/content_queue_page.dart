@@ -279,7 +279,7 @@ class _ContentQueuePageState extends State<ContentQueuePage> {
         height: 160,
         width: double.infinity,
         decoration: BoxDecoration(
-            color: const Color(0xFFF0F1F6),
+            color: Theme.of(context).colorScheme.surfaceContainerHighest,
             borderRadius: BorderRadius.circular(14)),
         child: const Icon(Icons.video_library_outlined, size: 46),
       );
@@ -527,7 +527,7 @@ class _ContentQueuePageState extends State<ContentQueuePage> {
                         fit: BoxFit.cover,
                         errorBuilder: (_, __, ___) => _mediaPlaceholder())
                     : Container(
-                        color: const Color(0xFFF0F1F6),
+                        color: Theme.of(context).colorScheme.surfaceContainerHighest,
                         child: Icon(
                             isReel
                                 ? Icons.play_circle_outline_rounded

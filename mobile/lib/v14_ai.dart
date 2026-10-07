@@ -298,7 +298,7 @@ class _AiContentStudioPageState extends State<AiContentStudioPage> {
                       height: 120,
                       width: double.infinity,
                       decoration: BoxDecoration(
-                          color: const Color(0xFFF0F1F6),
+                          color: Theme.of(context).colorScheme.surfaceContainerHighest,
                           borderRadius: BorderRadius.circular(14)),
                       child:
                           const Icon(Icons.video_library_outlined, size: 46)),
@@ -761,7 +761,7 @@ class _AiContentStudioPageState extends State<AiContentStudioPage> {
                                       ? 'AI bağlantısı tanımlı. Analiz sonucu ayrıca doğrulanır.'
                                       : 'AI bağlantısı kapalı. Yerel metin önerisi hazırlanabilir.',
                           style: TextStyle(
-                              color: Colors.white.withValues(alpha: .76),
+                              color: Colors.white.withValues(alpha: .84),
                               fontSize: 12)),
                     ])),
                 IconButton(
@@ -1260,10 +1260,10 @@ class _AiContentStudioPageState extends State<AiContentStudioPage> {
             ),
           ],
           const SizedBox(height: 18),
-          const Center(
+          Center(
             child: Text(
               'Powered by AdVise AI',
-              style: TextStyle(fontWeight: FontWeight.w700, color: Colors.grey),
+              style: TextStyle(fontWeight: FontWeight.w700, color: Theme.of(context).colorScheme.onSurfaceVariant),
             ),
           ),
         ],

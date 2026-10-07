@@ -3,6 +3,15 @@
 Source branch: `wip/codex-product-redesign-2026-10-05`.
 Exact release source commit: pending completed phase/build evidence; do not deploy revision start `d82ef4e` as the completed new revision.
 
+This is a partial development checkpoint: ads/strategy/preflight, decoded Reels covers, canonical branding and themes are implemented. Gemini content quality/hashtags, new dual memory/copy style/performance/timing, independence, scale and final UX/readiness gates remain pending. Do not treat passing current regression tests as completion of the master revision.
+
+## Latest development artifacts
+
+- Android theme APK: `C:/Users/ANL/Downloads/AdVise-Digital-2026-10-07-theme.apk`, SHA-256 `4BC1DB282EE61465240B7201A63868882192249937D6CDD8E2A8A9063DC6FEAD`; 59.0 MB, 340.6s build. Packaged canonical PNG hashes/launcher/adaptive/splash pixels verified. Existing debug signing retained; not a newly configured production signing release.
+- Web theme build: `mobile/build/web`, 157.1s; main.dart.js SHA-256 `e00ebabef587929752f03750c2f5e23436a38e369b4e5d5d64eff22ab5ba87a8`; manifest/PWA/favicon/canonical image hashes match. Prior Wasm dry run passed; this rebuild uses --no-wasm-dry-run. Existing Cupertino font warning/manual glyph smoke remains noted.
+- Colorful is stored in the existing productTheme preference; legacy system/light/dark values remain valid. Unknown preference values safely select system. No backend settings or runtime migration required for themes.
+- Production health remains the older build without adCreateSaga/adsPreflight. Secure creation in the new APK requires a separately authorized matching backend rollout. No real Meta permission success or real Gemini quality acceptance claimed.
+
 ## Added runtime contracts — 7 October revision
 
 - `ad_operations.json` is runtime state, not source. Back it up with runtime data; retain STARTED, partial Meta IDs and RECONCILE states on upgrade and rollback. Deleting it could permit duplicate remote creation.
