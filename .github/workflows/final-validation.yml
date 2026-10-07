@@ -1,0 +1,151 @@
+name: AdVise Final Validation
+
+on:
+  push:
+    branches:
+      - wip/advise-final-completion-2026-10-07
+
+permissions:
+  contents: read
+
+concurrency:
+  group: advise-final-validation-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  ADVISE_API_URL: https://advisedigital.poyrazteknikservis.com.tr
+  SOURCE_CHECKPOINT: 8d09bb2db0749f1177747635aae6f7418c4632b1
+
+jobs:
+  repository-safety:
+    name: Repository safety checks
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Git diff check
+        run: git diff --check "$SOURCE_CHECKPOINT"...HEAD
+      - name: Worktree and index must be clean
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -z "$(git status --porcelain)"
+          test -z "$(git diff --cached --name-only)"
+      - name: Runtime and secret paths must stay outside branch diff
+        shell: bash
+        run: |
+          set -euo pipefail
+          changed="$(git diff --name-only "$SOURCE_CHECKPOINT"...HEAD)"
+          printf '%s
+' "$changed"
+          if printf '%s
+' "$changed" | grep -E '^(backend/data/|backend/uploads/|\.env($|\.)|.*(^|/)(secret|secrets|token|tokens)(/|$))' ; then
+            echo "Unsafe runtime/secret path detected in branch diff."
+            exit 1
+          fi
+
+  backend-full:
+    name: Full backend test suite
+    needs: repository-safety
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: backend/package-lock.json
+      - run: npm ci
+      - name: Full backend tests
+        run: npm test
+
+  flutter-full:
+    name: Full Flutter test suite and analyze
+    needs: backend-full
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: mobile
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+      - run: flutter --version
+      - run: flutter pub get
+      - name: Full Flutter tests
+        run: flutter test
+      - name: Flutter analyze
+        run: flutter analyze
+
+  android-web:
+    name: Android release and Web PWA build
+    needs: flutter-full
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: mobile
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+      - run: flutter pub get
+      - name: PWA worker validation
+        run: node tool/check_pwa_worker.cjs
+      - name: Android release APK
+        run: flutter build apk --release --dart-define=ADVISE_API_URL="$ADVISE_API_URL"
+      - name: Web PWA release
+        run: flutter build web --release --dart-define=ADVISE_API_URL="$ADVISE_API_URL"
+      - name: Rename APK
+        shell: bash
+        run: cp build/app/outputs/flutter-apk/app-release.apk "build/AdVise-Digital-${GITHUB_SHA::8}-android-release.apk"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: advise-final-android-${{ github.sha }}
+          path: mobile/build/AdVise-Digital-*-android-release.apk
+          if-no-files-found: error
+      - uses: actions/upload-artifact@v4
+        with:
+          name: advise-final-web-pwa-${{ github.sha }}
+          path: mobile/build/web
+          if-no-files-found: error
+
+  windows:
+    name: Windows release build
+    needs: flutter-full
+    runs-on: windows-latest
+    defaults:
+      run:
+        working-directory: mobile
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+      - run: flutter config --enable-windows-desktop
+      - run: flutter pub get
+      - name: Windows release
+        run: flutter build windows --release --dart-define=ADVISE_API_URL="$env:ADVISE_API_URL"
+      - name: Package Windows release
+        shell: pwsh
+        run: |
+          $short = $env:GITHUB_SHA.Substring(0,8)
+          $dest = "build\AdVise-Digital-$short-windows-release.zip"
+          Compress-Archive -Path "build\windows\x64\runner\Release\*" -DestinationPath $dest -Force
+      - uses: actions/upload-artifact@v4
+        with:
+          name: advise-final-windows-${{ github.sha }}
+          path: mobile/build/AdVise-Digital-*-windows-release.zip
+          if-no-files-found: error
