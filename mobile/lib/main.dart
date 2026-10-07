@@ -264,12 +264,12 @@ class _LoginPageState extends State<LoginPage> {
       );
 
   Widget _brand(BuildContext context, {bool inverse = false}) => Row(children: [
-        ClipRRect(
-            borderRadius: BorderRadius.circular(12),
-            child: Image.asset('assets/advise_logo.jpg',
-                width: 48, height: 48, fit: BoxFit.cover)),
+        Image.asset('assets/branding/advise_full_logo.png',
+            width: 80, height: 80, fit: BoxFit.contain),
         const SizedBox(width: 12),
-        Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        Expanded(
+            child:
+                Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
           Text('AdVise',
               style: Theme.of(context)
                   .textTheme
@@ -283,7 +283,7 @@ class _LoginPageState extends State<LoginPage> {
                   letterSpacing: 2.4,
                   fontSize: 10,
                   fontWeight: FontWeight.w600)),
-        ]),
+        ])),
       ]);
 
   Widget _brandPanel(BuildContext context) => Container(
@@ -2952,7 +2952,7 @@ class _MainDrawer extends StatelessWidget {
           child: Row(children: [
             ClipRRect(
                 borderRadius: BorderRadius.circular(12),
-                child: Image.asset('assets/advise_logo.jpg',
+                child: Image.asset('assets/branding/advise_full_logo.png',
                     width: 44, height: 44)),
             const SizedBox(width: 12),
             Text('AdVise Digital',

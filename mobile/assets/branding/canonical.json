@@ -1,0 +1,15 @@
+{
+  "appIcon": {
+    "source": "icon.jpeg",
+    "sha256": "cedd67071b32416eeb33466586b850b2086922d0bc8c511f014ea7798a2f85d7",
+    "width": 1254,
+    "height": 1254
+  },
+  "fullLogo": {
+    "source": "logo.jpeg",
+    "sha256": "f1e79e053df7ebf3cdd58ee2a9c50f0e89e350ed6d59e7196d8978252c83d59a",
+    "width": 1254,
+    "height": 1254
+  },
+  "manifestSha256": "bad626ce81d7c822fc879eaad4fab452ea884b2c3e6010160e2d3dea1406f6d3"
+}

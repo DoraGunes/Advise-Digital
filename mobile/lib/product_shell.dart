@@ -240,7 +240,7 @@ class _ProductShellState extends State<ProductShell> {
 
   Widget _logo(double size) => ClipRRect(
       borderRadius: BorderRadius.circular(12),
-      child: Image.asset('assets/advise_logo.jpg',
+      child: Image.asset('assets/branding/advise_app_icon.png',
           width: size, height: size, fit: BoxFit.cover));
 
   Widget _sidebar(BuildContext context) => SizedBox(

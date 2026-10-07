@@ -2,7 +2,7 @@
 
 Current branch: `wip/codex-product-redesign-2026-10-05`
 Current HEAD at revision start: `d82ef4e49147142880bbced726f790698c2177cc`
-Current tested source checkpoint: `fa6c333e74d80853342e84f33e7482770ec0555d` (ads phase).
+Current tested source checkpoint: `19ceb7795211ed726f3ead3a579f04938d116391` (cover phase).
 Last good baseline commit: `a12ca3e` (revision baseline docs and required media test fixture).
 Binding request: `C:/Users/ANL/Downloads/ADVISE_CODEX_MASTER_FINAL_REVISION_2026-10-07.txt`
 
@@ -13,7 +13,7 @@ Canonical branding: `icon.jpeg` = APP ICON; `logo.jpeg` = FULL LOGO. New revisio
 - FAZ 0 Audit: ✅
 - EK FAZ 1A/1B Ads / AI strategy / preflight: ✅
 - FAZ 1 Reels Cover: ✅
-- FAZ 2 Branding: ⬜
+- FAZ 2 Branding: ✅
 - FAZ 3 Theme Contrast: ⬜
 - Gemini quality / hashtag engine: ⬜
 - FAZ 4 Scheduler: ⬜
@@ -64,3 +64,17 @@ Canonical branding: `icon.jpeg` = APP ICON; `logo.jpeg` = FULL LOGO. New revisio
 - Known issues: physical Android/Windows file chooser and installed PWA picker require later manual smoke. CI needs sharp's platform native optional packages. npm install reported 2 moderate vulnerabilities; no forced upgrade performed.
 - Push: normal WIP push rejected non-fast-forward; remote commits preserved, no force push or blind merge. Local phase commits remain safe.
 - Next exact task: canonical branding conversion and platform icons; preserve manifest identity and test/build before commit.
+
+## FAZ 2 — canonical branding
+
+- Status: source assets, true PNG/ICO derivatives and all platform builds passed; targeted backend 3/3, full backend 62/62, targeted Flutter 8/8 and full Flutter 57/57 passed; analyze no issues.
+- Files changed: backend/scripts/generate-branding.mjs, backend/test/branding.test.js; mobile/assets/branding canonical JPEG/PNG/hash metadata and compatibility JPEG, Android density/adaptive/splash assets, PWA icons/favicon, Windows ICO, Flutter main/product_shell branding, pubspec assets, branding widget tests.
+- Canonical: Downloads icon.jpeg = APP ICON; logo.jpeg = FULL LOGO. Source SHA-256 values preserved in assets/branding/canonical.json. Logo proportion retained; no stretching/cropping. Main login uses full logo, navigation uses app icon. Existing compatibility JPEG contains canonical full logo for media fixtures.
+- Identity: mobile/web/manifest.json unchanged byte-for-byte (id/start_url remain '.', scope absent), Android application ID/Windows identity unchanged.
+- Tests: backend validates actual PNG dimensions/encoding, exact canonical source hashes, ICO frame offsets/decoding, Android/adaptive resource references, manifest hash. Windows System.Drawing.Icon also opened ICO successfully.
+- Test repairs: larger login logo initially exposed 2.4px overflow at 320px/1.4 text scale; fixed by constraining brand text. PNG decode fixture required tester.runAsync to avoid fake-clock hang; only owned test sessions interrupted and rerun.
+- Commit: phase commit `feat(branding): apply canonical AdVise logo and platform icons` (resolve with git log).
+- Builds: Android release APK succeeded 508.5s, 58.9 MB; Windows release succeeded 155.3s; Web release succeeded 115.8s with --no-wasm-dry-run (cover-phase Wasm dry run had passed). APK Flutter PNG hashes and all launcher density/adaptive/splash pixel matches verified. Windows EXE icon pixels and bundled PNG hashes match. Web manifest, PWA/favicon and bundled PNG hashes match. Existing Cupertino font warning recorded for theme-phase follow-up.
+- APK delivery: C:/Users/ANL/Downloads/AdVise-Digital-2026-10-07-branding.apk; SHA-256 494C4C197E5F368A982B82B8CE163BE235AECB4D04057B7EF29CF7467673B48C. Uses existing debug signing configuration; no signing/keystore secrets changed.
+- Next exact task: FAZ 3 semantic theme tokens and Light/Dark/Colorful persistence/contrast tests. Then Gemini quality/hashtags, scheduler, dual memory/copy style/performance/timing, independence, scalable DB, AI Studio UX and final regression/manual rollout readiness. Those phases are NOT complete.
+- Live health read only: configured API domain returned HTTP 200 / version 16.0.0, old build marker, new ads capabilities absent. Cloudflare-routed API remains reachable; this does not claim Wrangler login or a live backend upgrade.

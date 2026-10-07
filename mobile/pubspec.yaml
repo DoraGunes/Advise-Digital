@@ -23,4 +23,5 @@ dev_dependencies:
 flutter:
   uses-material-design: true
   assets:
-    - assets/advise_logo.jpg
+    - assets/branding/advise_full_logo.png
+    - assets/branding/advise_app_icon.png

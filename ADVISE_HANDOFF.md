@@ -3,15 +3,19 @@
 Revision: 7 October 2026. Binding user TXT: `C:/Users/ANL/Downloads/ADVISE_CODEX_MASTER_FINAL_REVISION_2026-10-07.txt`.
 
 - Current branch: `wip/codex-product-redesign-2026-10-05`.
-- Revision start: `d82ef4e49147142880bbced726f790698c2177cc`; last committed good source: `fa6c333e74d80853342e84f33e7482770ec0555d`. Run `git rev-parse HEAD` for the authoritative current value.
-- Completed phases in this revision: FAZ 0, EK FAZ 1A/1B, FAZ 1 cover (see progress and git log for phase SHA).
-- Partial phase: none; next FAZ 2 canonical branding.
+- Revision start: `d82ef4e49147142880bbced726f790698c2177cc`; last committed good source: `19ceb7795211ed726f3ead3a579f04938d116391`. Run `git rev-parse HEAD` for the authoritative current value.
+- Completed phases in this revision: FAZ 0, EK FAZ 1A/1B, FAZ 1 cover, FAZ 2 canonical branding (see progress and git log for phase SHA).
+- Partial phase: none. Remaining FAZ 3 and later master phases have not been implemented in this revision.
 - Files being worked on: progress/handoff/rollout docs; next EK FAZ 1A/1B targeted files are backend `server.js`, `meta.js`, `ai.js`, `product.js`, `persistence.js` and new ad operation/preflight helpers; Flutter `api.dart`, `app_error.dart`, `social_ads_page.dart`.
 - Migrations created: none.
-- Backend tests: 59/59; targeted cover/ads 18/18, isolated Graph/SDK/HTTP fixtures (no real provider writes).
-- Flutter tests: 54/54 including ads/multipart/cover detection tests.
-- Analyze/build: Flutter analyze no issues; Web release build succeeded 267.5s including Wasm dry run. Cupertino font warning recorded in progress. Android/Windows builds pending.
-- Exact next task: FAZ 2 canonical branding from restored Downloads icon.jpeg/logo.jpeg, true PNG/ICO conversion, manifest id/scope/start_url unchanged, platform tests/builds. Then FAZ 3 themes and later master phases.
+- Backend tests: 62/62; targeted branding 3/3, cover/ads 18/18, isolated Graph/SDK/HTTP fixtures (no real provider writes).
+- Flutter tests: 57/57; targeted branding/layout 8/8.
+- Analyze/build: analyze no issues. Android release 508.5s / 58.9 MB; Windows release 155.3s; Web release 115.8s (prior cover Wasm dry run passed). Bundled image hashes/PWA manifest identity/Android launcher pixels/Windows EXE icon pixels verified. Cupertino font warning remains for theme-phase follow-up.
+- Exact next task: FAZ 3 tokens + Light/Dark/Colorful persistence and contrast. Then all remaining master phases in TXT order. Read focused files mobile/lib/product_ui.dart, main.dart, product_more.dart, product_contrast_test.dart first; no broad repo re-audit.
+
+APK: C:/Users/ANL/Downloads/AdVise-Digital-2026-10-07-branding.apk; SHA256 494C4C197E5F368A982B82B8CE163BE235AECB4D04057B7EF29CF7467673B48C. Existing debug signing preserved. Matching new backend required for secure ad creation. Web: mobile/build/web. Windows: mobile/build/windows/x64/runner/Release (copy the whole folder, not EXE alone).
+
+Branding generator: `node backend/scripts/generate-branding.mjs --icon "C:/Users/ANL/Downloads/icon.jpeg" --logo "C:/Users/ANL/Downloads/logo.jpeg"`. Canonical copies also exist in mobile/assets/branding if Downloads files are missing later. Do not replace them with old A/globe artwork.
 
 ## Commands to continue
 
@@ -35,3 +39,4 @@ Read ADVISE_PROGRESS.md for phase acceptance and SHA history. Never add all file
 - Canonical APP ICON is the user's `icon.jpeg`; canonical FULL LOGO is `logo.jpeg`. Preserve originals, use real PNG/ICO encoding for platform derivatives.
 - Production/runtime/main/Cloudflare are untouched by this revision. .env is never displayed, edited or staged. No deployment or real spending.
 - Manual verification still needed: physical Android picker, PWA visual smoke when browser tools are available, native Windows visual smoke without altering an existing production session, genuine Meta permissions and controlled test-account creation after later authorization.
+- Live public health read-only check: https://advisedigital.poyrazteknikservis.com.tr/health returned 200, version 16.0.0 / ADVISE_PRODUCT_V16_2026_10_05. It does not advertise adCreateSaga/adsPreflight yet. New APK will explicitly require matching backend for secure ad creation; no production backend upgrade performed.
