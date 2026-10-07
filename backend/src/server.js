@@ -249,8 +249,8 @@ app.post('/api/product/strategy',allowRoles('ADMIN','CUSTOMER_ADMIN','MANAGER','
   const correlationId=crypto.randomUUID();
   try {
     const result=await productStrategy(req.user.tenantId,req.body||{},{actorId:req.user.id});
-    res.json({...result,ok:result.available===true,code:result.available?null:`GEMINI_${result.errorCategory||'UNAVAILABLE'}`,stage:'strategy',retryable:['TIMEOUT','NETWORK_ERROR','PROVIDER_ERROR'].includes(result.errorCategory),userMessage:result.error||null,correlationId});
-  } catch(error){res.status(error.code==='ETIMEDOUT'?504:400).json(operationFailure(error,'strategy',correlationId));}
+    res.json({...result,ok:result.available===true,code:result.available?null:`GEMINI_${result.errorCategory||'UNAVAILABLE'}`,stage:result.available?'CLIENT_RESPONSE':(result.failureStage||'CAMPAIGN_STRATEGY_BUILD'),httpStatus:result.errorStatus||null,retryable:['TIMEOUT','NETWORK_ERROR','PROVIDER_ERROR','INVALID_OUTPUT','RECOMMENDATION_VALIDATION'].includes(result.errorCategory),userMessage:result.error||null,correlationId});
+  } catch(error){res.status(error.code==='ETIMEDOUT'?504:400).json(operationFailure(error,error.stage||'TENANT_CONTEXT',correlationId));}
 });
 app.get('/api/product/onboarding',async(req,res)=>{try{res.json(await onboardingStatus(req.user.tenantId));}catch(error){res.status(503).json({error:'Kurulum bilgileri alınamadı.'});}});
 app.put('/api/product/onboarding',allowRoles('ADMIN','CUSTOMER_ADMIN'),async(req,res)=>{try{

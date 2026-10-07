@@ -260,6 +260,41 @@ void main() {
     expect(healthRequests, 3);
   });
 
+  test('campaign strategy surfaces typed quality-gate failure from a 200 response',
+      () async {
+    Api.setHttpClientForTesting(MockClient((request) async {
+      if (request.url.path == '/health') {
+        return http.Response(jsonEncode({
+          'ok': true,
+          'version': '16.0.0',
+          'capabilities': {
+            'productExperience': true,
+            'campaignStrategy': true
+          }
+        }), 200);
+      }
+      expect(request.url.path, '/api/product/strategy');
+      return http.Response(jsonEncode({
+        'available': false,
+        'code': 'GEMINI_RECOMMENDATION_VALIDATION',
+        'stage': 'QUALITY_GATE',
+        'retryable': true,
+        'correlationId': 'campaign-fixture',
+        'userMessage': 'Gemini cevabı alındı ancak kampanya önerisi doğrulama kurallarından geçmedi.'
+      }), 200);
+    }));
+    try {
+      await Api.productStrategy({'dailyBudget': 100});
+      fail('expected typed campaign AI failure');
+    } on ApiException catch (error) {
+      expect(error.code, 'GEMINI_RECOMMENDATION_VALIDATION');
+      expect(error.stage, 'QUALITY_GATE');
+      expect(error.correlationId, 'campaign-fixture');
+      expect(error.retryable, isTrue);
+      expect(error.userMessage, contains('kalite kontrolünden geçmedi'));
+    }
+  });
+
   test('post caption edits use PATCH without retry', () async {
     Api.setHttpClientForTesting(MockClient((request) async {
       expect(request.method, 'PATCH');

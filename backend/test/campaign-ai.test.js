@@ -39,14 +39,43 @@ test('campaign AI returns structured recommendation and legacy aliases',()=>{
   assert.ok(strategy.missingPrerequisites.includes('Yeterli ölçülmüş kampanya sonucu'));
 });
 
-test('campaign AI rejects invalid budget ranges and unsupported time values',()=>{
+test('campaign AI normalizes harmless provider formatting and still rejects impossible values',()=>{
   const base={
     objective:'OUTCOME_ENGAGEMENT',optimizationGoal:'CONVERSATIONS',destination:'WHATSAPP',
     audienceHypothesis:'Hipotez',placements:['Instagram Feed'],dailyBudgetMin:200,dailyBudgetMax:100,
     testDurationDays:7,recommendedCreativeFormat:'POST',primaryTextAngle:'Açı',headline:'Başlık',
-    cta:'WhatsApp üzerinden bize yazın.',recommendedTime:'19:00',scheduleReason:'Test',
+    cta:'WhatsApp üzerinden bize yazın.',recommendedTime:'19.00',scheduleReason:'Test',
     rationaleSummary:'Gerekçe',confidence:40,assumptions:[],missingPrerequisites:[]
   };
-  assert.throws(()=>ai.normalizeCampaignStrategy(base,{budgetLimit:300,reportAvailable:true,memoryOutcomeCount:2}));
+  const normalized=ai.normalizeCampaignStrategy(base,{budgetLimit:300,reportAvailable:true,memoryOutcomeCount:2});
+  assert.equal(normalized.dailyBudgetRange.min,100);
+  assert.equal(normalized.dailyBudgetRange.max,200);
+  assert.equal(normalized.timing.recommendedTime,'19:00');
+  assert.ok(normalized.warnings.some(row=>row.includes('normalleştirildi')));
+  assert.throws(()=>ai.normalizeCampaignStrategy({...base,dailyBudgetMin:-1,dailyBudgetMax:150},{budgetLimit:300,reportAvailable:true,memoryOutcomeCount:2}));
   assert.throws(()=>ai.normalizeCampaignStrategy({...base,dailyBudgetMin:100,dailyBudgetMax:150,recommendedTime:'25:99'},{budgetLimit:300,reportAvailable:true,memoryOutcomeCount:2}));
+});
+
+test('campaign AI separates provider success from recommendation quality failure',async()=>{
+  const result=await ai.generateCampaignStrategy({budgetLimit:150},{
+    request:async()=>({model:'fixture-gemini',parsed:{
+      objective:'OUTCOME_ENGAGEMENT',optimizationGoal:'CONVERSATIONS',destination:'WHATSAPP',
+      audienceHypothesis:'',placements:['Instagram Feed'],dailyBudgetMin:100,dailyBudgetMax:150,
+      testDurationDays:7,recommendedCreativeFormat:'POST',primaryTextAngle:'Açı',headline:'Başlık',
+      cta:'WhatsApp üzerinden bize yazın.',recommendedTime:'19:00',scheduleReason:'Test',
+      rationaleSummary:'Gerekçe',confidence:40,assumptions:[],missingPrerequisites:[]
+    }})
+  });
+  assert.equal(result.available,false);
+  assert.equal(result.providerSucceeded,true);
+  assert.equal(result.model,'fixture-gemini');
+  assert.equal(result.errorCategory,'RECOMMENDATION_VALIDATION');
+  assert.equal(result.failureStage,'QUALITY_GATE');
+});
+
+test('Gemini HTTP 400 is classified as request validation, not connectivity',()=>{
+  const error=Object.assign(new Error('INVALID_ARGUMENT'),{status:400});
+  const safe=ai.safeGeminiError(error);
+  assert.equal(safe.category,'REQUEST_VALIDATION_ERROR');
+  assert.equal(safe.status,400);
 });

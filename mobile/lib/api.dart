@@ -74,6 +74,26 @@ class ApiException implements Exception, UserFacingFailure {
           'Kapak görseli açılamadı veya bozuk. Başka bir görsel seçin.',
       'COVER_UPLOAD_FAILED':
           'Kapak yüklenemedi. Dosyayı yeniden seçip deneyin.',
+      'GEMINI_UNCONFIGURED':
+          'Gemini API anahtarı production backend içinde hazır değil.',
+      'GEMINI_AUTHENTICATION_ERROR':
+          'Gemini API yetkisi doğrulanamadı. Production bağlantı ayarını kontrol edin.',
+      'GEMINI_QUOTA_OR_RATE_LIMIT':
+          'Gemini kota veya hız sınırına ulaştı. Biraz sonra yeniden deneyin.',
+      'GEMINI_REQUEST_VALIDATION_ERROR':
+          'Campaign AI isteği Gemini tarafından geçersiz bulundu. İstek şeması kontrol edilmeli.',
+      'GEMINI_MODEL_UNAVAILABLE':
+          'Seçili Gemini modeli şu anda kullanılamıyor.',
+      'GEMINI_NETWORK_ERROR':
+          'Backend Gemini servisine bağlanamadı. Biraz sonra yeniden deneyin.',
+      'GEMINI_TIMEOUT':
+          'Gemini yanıtı zamanında tamamlanamadı. Biraz sonra yeniden deneyin.',
+      'GEMINI_INVALID_OUTPUT':
+          'Gemini cevap verdi ancak structured JSON doğrulanamadı. Tekrar deneyin.',
+      'GEMINI_RECOMMENDATION_VALIDATION':
+          'Gemini cevap verdi ancak kampanya önerisi kalite kontrolünden geçmedi. Tekrar deneyin.',
+      'GEMINI_PROVIDER_ERROR':
+          'Gemini sağlayıcısı isteği tamamlayamadı. Biraz sonra yeniden deneyin.',
     };
     final safe = known[code];
     if (safe != null) {
@@ -85,6 +105,16 @@ class ApiException implements Exception, UserFacingFailure {
         'ad': 'reklam',
         'activation': 'etkinleştirme',
         'strategy': 'AI önerisi',
+        'CLIENT_REQUEST': 'istemci isteği',
+        'BACKEND_ROUTE': 'backend route',
+        'TENANT_CONTEXT': 'hesap bağlamı',
+        'GEMINI_CLIENT_INIT': 'Gemini istemci kurulumu',
+        'GEMINI_CONNECTION': 'Gemini bağlantısı',
+        'GEMINI_GENERATION': 'Gemini üretimi',
+        'STRUCTURED_PARSE': 'structured JSON ayrıştırma',
+        'QUALITY_GATE': 'kampanya kalite kontrolü',
+        'CAMPAIGN_STRATEGY_BUILD': 'kampanya önerisi oluşturma',
+        'CLIENT_RESPONSE': 'istemci cevabı',
         'lock': 'hesap kilidi'
       };
       final label = stages[stage];
@@ -397,9 +427,20 @@ class Api {
       Map<String, dynamic> values) async {
     await _requireCapability('campaignStrategy',
         feature: 'AI kampanya önerisi');
-    return Map<String, dynamic>.from(await _request(
+    final data = Map<String, dynamic>.from(await _request(
         'POST', '/api/product/strategy',
         body: values, timeout: const Duration(seconds: 65)));
+    if (data['available'] == false && data['code'] != null) {
+      throw ApiException(
+        (data['userMessage'] ?? data['error'] ?? 'AI kampanya önerisi hazırlanamadı.').toString(),
+        statusCode: data['httpStatus'] is int ? data['httpStatus'] as int : null,
+        code: data['code']?.toString(),
+        stage: data['stage']?.toString(),
+        correlationId: data['correlationId']?.toString(),
+        retryable: data['retryable'] == true,
+      );
+    }
+    return data;
   }
 
   static Future<Map<String, dynamic>> productReport(
