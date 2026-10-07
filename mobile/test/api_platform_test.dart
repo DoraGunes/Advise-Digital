@@ -151,13 +151,22 @@ void main() {
   test('multipart uploads use bytes and selected filename on every platform',
       () async {
     var uploads = 0;
-    final file = XFile.fromData(Uint8List.fromList([1, 2, 3]),
-        path: 'chosen.png', name: 'chosen.png', mimeType: 'image/png');
+    final file = XFile.fromData(
+        Uint8List.fromList([137, 80, 78, 71, 13, 10, 26, 10, 1, 2, 3]),
+        path: 'chosen.png',
+        name: 'chosen.png',
+        mimeType: 'image/png');
     Api.setHttpClientForTesting(MockClient((request) async {
       uploads++;
       final body = latin1.decode(request.bodyBytes);
       expect(request.headers['content-type'], contains('multipart/form-data'));
-      expect(body, contains('filename="chosen.png"'));
+      expect(
+          body,
+          contains(request.url.path.endsWith('/cover')
+              ? 'filename="cover.png"'
+              : 'filename="chosen.png"'));
+      if (request.url.path.endsWith('/cover'))
+        expect(body, contains('content-type: image/png'));
       expect(body, contains(String.fromCharCodes([1, 2, 3])));
       return http.Response('{"id":"fixture-post"}', 200);
     }));

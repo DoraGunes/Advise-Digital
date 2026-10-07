@@ -2,6 +2,7 @@
 
 Current branch: `wip/codex-product-redesign-2026-10-05`
 Current HEAD at revision start: `d82ef4e49147142880bbced726f790698c2177cc`
+Current tested source checkpoint: `fa6c333e74d80853342e84f33e7482770ec0555d` (ads phase).
 Last good baseline commit: `a12ca3e` (revision baseline docs and required media test fixture).
 Binding request: `C:/Users/ANL/Downloads/ADVISE_CODEX_MASTER_FINAL_REVISION_2026-10-07.txt`
 
@@ -11,7 +12,7 @@ Canonical branding: `icon.jpeg` = APP ICON; `logo.jpeg` = FULL LOGO. New revisio
 
 - FAZ 0 Audit: ✅
 - EK FAZ 1A/1B Ads / AI strategy / preflight: ✅
-- FAZ 1 Reels Cover: ⬜
+- FAZ 1 Reels Cover: ✅
 - FAZ 2 Branding: ⬜
 - FAZ 3 Theme Contrast: ⬜
 - Gemini quality / hashtag engine: ⬜
@@ -49,3 +50,17 @@ Canonical branding: `icon.jpeg` = APP ICON; `logo.jpeg` = FULL LOGO. New revisio
 - UI: finally cleanup, actionable safe stage errors, preflight check action, persisted request identity scoped to API/account/payload, operation status lookup, duplicate create disabled after success. No raw provider JSON in API exceptions.
 - Known limits: true Meta account permissions/WhatsApp support still need read-only smoke with authorized credentials; RECONCILE requires manual remote ID verification before any new creation; partial activation may need manual pause. JSON persistence scales in a later phase. No new release build claimed yet.
 - Next exact task: FAZ 1 cover bytes/decoder validation and multipart consistency, then canonical branding, themes, quality and memory in the master order.
+
+## FAZ 1 — Reels cover
+
+- Status: implementation, regressions and Web release build passed.
+- Files changed: backend cover-image.js and server.js, sharp dependency plus synchronized package-lock.json; backend cover-image.test.js and HTTP cover tests; Flutter api.dart/media_access.dart, explicit http_parser dependency/lock, media/API tests.
+- Root cause: http.MultipartFile without Content-Type produces application/octet-stream; backend cover route rejected it despite a valid filename/image. Shared generic fileFilter also rejected extensionless browser blobs before byte validation.
+- Implementation: dedicated 10 MB cover upload; actual JPEG/PNG/WebP magic + sharp pixel decode with 40M pixel cap; EXIF rotate, alpha flatten, proportional resize, strip metadata, true JPEG encode and .jpg URL. Ignore misleading filename/MIME, normalize to actual bytes. Persist new cover before removing old cover. Rejection keeps the prior cover unchanged.
+- Frontend: XFile bytes on all platforms, magic-derived multipart MIME/extension, size/read/format errors, timeout includes response body. Server error codes map to readable cover messages.
+- Tests: targeted backend 18/18 (incl progressive JPEG, alpha, corrupt/truncated, EXIF, HTTP jpg/jpeg/uppercase/extensionless/wrong MIME/WebP/PNG/size); full backend 59/59; Flutter targeted 16/16 and full 54/54; analyze no issues. package/lock dependency equality verified.
+- Commit: phase commit `fix(media): decode and normalize Reels cover uploads` (resolve with git log).
+- Build: `flutter build web --release --no-pub` succeeded (267.5s). Wasm dry run succeeded. Build emitted a Cupertino font-family warning; direct source contains no CupertinoIcons references, no missing-font visual claim is made.
+- Known issues: physical Android/Windows file chooser and installed PWA picker require later manual smoke. CI needs sharp's platform native optional packages. npm install reported 2 moderate vulnerabilities; no forced upgrade performed.
+- Push: normal WIP push rejected non-fast-forward; remote commits preserved, no force push or blind merge. Local phase commits remain safe.
+- Next exact task: canonical branding conversion and platform icons; preserve manifest identity and test/build before commit.

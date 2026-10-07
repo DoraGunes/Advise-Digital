@@ -3,6 +3,14 @@
 Source branch: `wip/codex-product-redesign-2026-10-05`.
 Exact release source commit: pending completed phase/build evidence; do not deploy revision start `d82ef4e` as the completed new revision.
 
+## Added runtime contracts — 7 October revision
+
+- `ad_operations.json` is runtime state, not source. Back it up with runtime data; retain STARTED, partial Meta IDs and RECONCILE states on upgrade and rollback. Deleting it could permit duplicate remote creation.
+- New client ad creation requires `adCreateSaga` and `adsPreflight` health capabilities. Upgrade backend/client together. Old clients without a request ID receive REQUEST_ID_REQUIRED.
+- Preflight reads actual scopes/account tasks/Page/IG/WhatsApp evidence and fails closed. Verify authorized token type in read-only smoke before claiming readiness. No live Meta permissions checked in this development run.
+- Cover processing requires sharp and its native platform package. Run clean `npm ci` on the deployment OS and decode JPEG/PNG/WebP before switching traffic. Dependency/lock synchronization verified locally.
+- Reconcile failed activation before retry: the ad activates last; campaign/adset ancestors may already be active. Never blindly replay an ambiguous create/activation.
+
 ## Preconditions
 
 Human production authorization is mandatory. This task only prepares source, tests, local build artifacts and this plan; no production/main/Cloudflare change is authorized.

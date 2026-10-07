@@ -3,6 +3,8 @@ import 'dart:convert';
 
 import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
+import 'package:http_parser/http_parser.dart';
+import 'media_access.dart' show MediaAccess;
 import 'package:image_picker/image_picker.dart' show XFile;
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -65,6 +67,13 @@ class ApiException implements Exception, UserFacingFailure {
           'Seçilen Instagram gönderisi bağlı hesaba ait değil.',
       'REQUEST_ID_REQUIRED':
           'Güvenli reklam oluşturma için uygulamayı güncelleyin.',
+      'COVER_EMPTY': 'Kapak dosyası okunamadı veya boş.',
+      'COVER_TOO_LARGE': 'Kapak görseli en fazla 10 MB olabilir.',
+      'COVER_UNSUPPORTED': 'Reels kapağı JPEG, PNG veya WebP olmalı.',
+      'COVER_CORRUPT':
+          'Kapak görseli açılamadı veya bozuk. Başka bir görsel seçin.',
+      'COVER_UPLOAD_FAILED':
+          'Kapak yüklenemedi. Dosyayı yeniden seçip deneyin.',
     };
     final safe = known[code];
     if (safe != null) {
@@ -434,7 +443,8 @@ class Api {
       authExpired.value = true;
     }
     throw ApiException(_error(data),
-        statusCode: response.statusCode, details: response.body);
+        statusCode: response.statusCode,
+        code: data is Map ? data['code']?.toString() : null);
   }
 
   static Future<Map<String, dynamic>> login(String username, String password,
@@ -776,11 +786,31 @@ class Api {
     request.headers['Accept'] = 'application/json';
     if (authToken.isNotEmpty)
       request.headers['Authorization'] = 'Bearer $authToken';
-    request.files.add(await _mediaPart('cover', path, file: mediaFile));
     try {
-      final streamed =
-          await _client.send(request).timeout(const Duration(seconds: 60));
-      final response = await http.Response.fromStream(streamed);
+      final selected = mediaFile ?? XFile(path);
+      late final List<int> bytes;
+      try {
+        if (await selected.length() > 10 * 1024 * 1024)
+          throw const ApiException('Kapak görseli en fazla 10 MB olabilir.',
+              code: 'COVER_TOO_LARGE');
+        bytes = await selected.readAsBytes();
+      } on ApiException {
+        rethrow;
+      } catch (_) {
+        throw const ApiException('Kapak dosyası okunamadı. Yeniden seçin.');
+      }
+      final mime = MediaAccess.coverMime(Uint8List.fromList(bytes));
+      if (mime == null)
+        throw const ApiException('Reels kapağı JPEG, PNG veya WebP olmalı.',
+            code: 'COVER_UNSUPPORTED');
+      final extension =
+          {'image/jpeg': 'jpg', 'image/png': 'png', 'image/webp': 'webp'}[mime];
+      request.files.add(http.MultipartFile.fromBytes('cover', bytes,
+          filename: 'cover.$extension', contentType: MediaType.parse(mime)));
+      final response = await _client
+          .send(request)
+          .then(http.Response.fromStream)
+          .timeout(const Duration(seconds: 60));
       final data = _decode(response.body);
       _checkUploadResponse(response, data, authToken);
       return Map<String, dynamic>.from(data as Map);

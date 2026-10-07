@@ -72,6 +72,22 @@ class MediaAccess {
       '.tiff',
     ].any(name.endsWith);
   }
+
+  static String? coverMime(Uint8List bytes) {
+    if (bytes.length >= 3 &&
+        bytes[0] == 255 &&
+        bytes[1] == 216 &&
+        bytes[2] == 255) return 'image/jpeg';
+    const png = [137, 80, 78, 71, 13, 10, 26, 10];
+    if (bytes.length >= 8 &&
+        List.generate(8, (i) => bytes[i] == png[i]).every((value) => value))
+      return 'image/png';
+    if (bytes.length >= 12 &&
+        String.fromCharCodes(bytes.sublist(0, 4)) == 'RIFF' &&
+        String.fromCharCodes(bytes.sublist(8, 12)) == 'WEBP')
+      return 'image/webp';
+    return null;
+  }
 }
 
 class MediaSelectionException implements Exception {

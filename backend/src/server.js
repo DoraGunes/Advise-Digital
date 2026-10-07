@@ -1,4 +1,5 @@
 import {withOperationBudget} from './operation-budget.js';
+import {normalizeCover,MAX_COVER_BYTES} from './cover-image.js';
 import {runAdOperation,getAdOperation,operationFailure} from './ad-operations.js';
 import express from 'express';
 import cors from 'cors';
@@ -103,6 +104,10 @@ const upload = multer({
     cb(null, true);
   }
 });
+
+// Cover-specific limits and decoder validation permit extensionless browser
+// blobs without trusting their filename or multipart Content-Type.
+const coverUpload=multer({storage,limits:{fileSize:MAX_COVER_BYTES,files:1,fields:5,parts:6}});
 
 function hasMetaCredentials(credentials = {}) {
   return metaReady(credentials);
@@ -1007,7 +1012,7 @@ app.post('/api/automation/publish-due', async (req, res) => {
   try { res.json(await publishDuePosts(req.user.tenantId)); } catch (e) { res.status(502).json({error: e.message}); }
 });
 
-app.post('/api/posts/:id/cover', upload.single('cover'), async (req,res) => {
+app.post('/api/posts/:id/cover', coverUpload.single('cover'), async (req,res) => {
   try {
     const postId=req.params.id;
     const tenantId=req.user.tenantId;
@@ -1020,21 +1025,24 @@ app.post('/api/posts/:id/cover', upload.single('cover'), async (req,res) => {
       return res.status(400).json({error:'Özel kapak yalnızca Reels için kullanılabilir.'});
     }
     if(!req.file) return res.status(400).json({error:'Kapak görseli gerekli.'});
-    if(!String(req.file.mimetype||'').startsWith('image/')) {
-      await fs.rm(req.file.path,{force:true});
-      return res.status(400).json({error:'Reels kapağı JPEG, PNG veya WebP olmalı.'});
-    }
-
-    if(post.coverPath && post.coverPath!==req.file.path) await fs.rm(post.coverPath,{force:true}).catch(()=>{});
+    const normalized=await normalizeCover(await fs.readFile(req.file.path));
+    const originalPath=req.file.path,filename=`${crypto.randomUUID()}.jpg`,normalizedPath=path.join(uploadDir,filename);
+    await fs.writeFile(normalizedPath,normalized.bytes,{flag:'wx'});
+    req.file.path=normalizedPath;req.file.filename=filename;
+    await fs.rm(originalPath,{force:true});
+    const oldCover=post.coverPath;
     post.coverPath=req.file.path;
     post.coverPublicUrl=`${publicBaseUrlForRequest(req)}/uploads/${encodeURIComponent(req.file.filename)}`;
     post.coverUpdatedAt=new Date().toISOString();
     post.coverThumbOffset=null;
+    post.coverMime='image/jpeg';
+    post.coverInputMime=normalized.inputMime;
     await savePosts(tenantId,postList);
+    if(oldCover&&oldCover!==post.coverPath)await fs.rm(oldCover,{force:true}).catch(()=>{});
     res.json({post});
   } catch(e) {
     if(req.file?.path) await fs.rm(req.file.path,{force:true}).catch(()=>{});
-    res.status(500).json({error:e.message});
+    res.status(e.code?.startsWith('COVER_')?400:500).json({error:e.code?.startsWith('COVER_')?e.message:'Kapak yüklenemedi. Dosyayı yeniden seçip deneyin.',code:e.code?.startsWith('COVER_')?e.code:'COVER_UPLOAD_FAILED'});
   }
 });
 
@@ -1150,6 +1158,7 @@ app.post('/api/admin/licenses/:licenseId/assign', allowRoles('ADMIN'), async (re
 app.use((err, _req, res, _next) => {
   const message = err?.message || 'Request error';
   if (err instanceof multer.MulterError) {
+    if(/^\/api\/posts\/[^/]+\/cover$/.test(_req.path))return res.status(err.code==='LIMIT_FILE_SIZE'?413:400).json({error:err.code==='LIMIT_FILE_SIZE'?'Kapak görseli en fazla 10 MB olabilir.':'Kapak yüklenemedi. Tek görsel seçip yeniden deneyin.',code:err.code==='LIMIT_FILE_SIZE'?'COVER_TOO_LARGE':'COVER_UPLOAD_FAILED'});
     console.error('[UPLOAD] multer error:', err.code, message);
     return res.status(400).json({error: message, code: err.code});
   }

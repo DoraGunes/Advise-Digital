@@ -13,6 +13,19 @@ void main() {
     expect(MediaAccess.isImage(XFile('fixture.mp4')), isFalse);
   });
 
+  test('cover sniff accepts bytes regardless of filename, path and MIME alias',
+      () {
+    expect(MediaAccess.coverMime(Uint8List.fromList([255, 216, 255, 0])),
+        'image/jpeg');
+    expect(
+        MediaAccess.coverMime(
+            Uint8List.fromList([137, 80, 78, 71, 13, 10, 26, 10])),
+        'image/png');
+    expect(MediaAccess.coverMime(Uint8List.fromList('RIFF0000WEBP'.codeUnits)),
+        'image/webp');
+    expect(MediaAccess.coverMime(Uint8List.fromList([1, 2, 3])), isNull);
+  });
+
   testWidgets('video preview never reads a platform file path', (tester) async {
     await tester.pumpWidget(MaterialApp(
         home: MediaPreview(

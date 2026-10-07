@@ -114,3 +114,27 @@ test('authenticated HTTP create passes preflight, resumes rejection and returns 
     const health=await native(`${base}/health`).then(response=>response.json());assert.equal(health.capabilities.adCreateSaga,true);
   } finally {global.fetch=native;listener.closeAllConnections();await new Promise(resolve=>listener.close(resolve));}
 });
+
+test('HTTP Reels covers use decoded bytes for JPEG/PNG/WebP/blob/mismatched MIME and preserve old cover on rejection',async()=>{
+  const sharp=(await import('sharp')).default,store=await import('../src/store.js'),auth=await import('../src/auth.js');
+  const tenant=await store.createTenant({companyName:'Cover fixture',plan:'AGENCY'});
+  await auth.createTenantUser({tenantId:tenant.id,username:'fixture-cover-manager',password:'fixture-manager-password',role:'MANAGER'});
+  const session=await auth.login('fixture-cover-manager','fixture-manager-password');
+  await store.savePosts(tenant.id,[{id:'cover-post',mediaType:'REELS',publishStatus:'MANUAL',caption:'Fixture'}]);
+  const {app}=await import('../src/server.js');const listener=app.listen(0,'127.0.0.1');await new Promise(resolve=>listener.once('listening',resolve));
+  const url=`http://127.0.0.1:${listener.address().port}/api/posts/cover-post/cover`,headers={authorization:`Bearer ${session.token}`};
+  const send=(bytes,name,type)=>{const form=new FormData();form.append('cover',new Blob([bytes],{type}),name);return fetch(url,{method:'POST',headers,body:form});};
+  try {
+    for(const [format,name,type]of [['jpeg','cover.jpg','image/jpeg'],['jpeg','cover.jpeg','image/jpg'],['jpeg','COVER.JPEG','application/octet-stream'],['jpeg','blob','application/octet-stream'],['png','cover.png','image/jpeg'],['webp','cover.webp','image/webp']]) {
+      const bytes=await sharp({create:{width:32,height:48,channels:4,background:'#123456'}}).toFormat(format).toBuffer();
+      const response=await send(bytes,name,type);assert.equal(response.status,200,`${name} ${type}`);
+      const {post}=await response.json();assert.equal(post.coverMime,'image/jpeg');assert.ok(post.coverPublicUrl.endsWith('.jpg'));
+      const normalized=await sharp(await fs.readFile(post.coverPath)).metadata();assert.equal(normalized.format,'jpeg');assert.equal(normalized.width,32);assert.equal(normalized.height,48);
+    }
+    const before=(await store.getPosts(tenant.id))[0],savedBytes=await fs.readFile(before.coverPath);
+    const corrupt=await send(Buffer.from([255,216,255,0]),'valid.JPG','image/jpeg');assert.equal(corrupt.status,400);assert.equal((await corrupt.json()).code,'COVER_CORRUPT');
+    assert.deepEqual((await store.getPosts(tenant.id))[0],before);assert.deepEqual(await fs.readFile(before.coverPath),savedBytes);
+    assert.equal((await send(Buffer.from('%PDF-fixture'),'cover.jpg','image/jpeg')).status,400);
+    const tooBig=await send(Buffer.alloc(10*1024*1024+1),'cover.jpg','image/jpeg');assert.equal(tooBig.status,413);assert.equal((await tooBig.json()).code,'COVER_TOO_LARGE');
+  } finally {listener.closeAllConnections();await new Promise(resolve=>listener.close(resolve));}
+});
