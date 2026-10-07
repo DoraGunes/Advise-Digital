@@ -3,14 +3,14 @@
 Revision: 7 October 2026. Binding user TXT: `C:/Users/ANL/Downloads/ADVISE_CODEX_MASTER_FINAL_REVISION_2026-10-07.txt`.
 
 - Current branch: `wip/codex-product-redesign-2026-10-05`.
-- Revision start: `d82ef4e49147142880bbced726f790698c2177cc`; last committed good source: `ceec0715bfbd3f0b7d8bee73bf71146d4c59389f`. Run `git rev-parse HEAD` for the authoritative current value.
+- Revision start: `d82ef4e49147142880bbced726f790698c2177cc`; last committed good source: `904aa1cd0d81c2cfd39fe6d107ca40bd90bc60eb` (themes). The following checkpoint only updates docs. Run `git rev-parse HEAD` for the authoritative current value.
 - Completed phases in this revision: FAZ 0, EK FAZ 1A/1B, FAZ 1 cover, FAZ 2 canonical branding, FAZ 3 themes (see progress and git log for phase SHA).
 - Partial phase: none. Remaining Gemini quality/hashtags and later master phases have not been implemented in this revision.
 - Files being worked on: checkpoint docs only. Theme source, tests and all three platform builds are green; remaining dirty runtime JSON/uploads and untracked fixture/evidence files predate this revision and remain unstaged.
 - Migrations created: none.
 - Backend tests: 62/62; targeted branding 3/3, cover/ads 18/18, isolated Graph/SDK/HTTP fixtures (no real provider writes).
 - Flutter tests: 79/79; targeted branding/layout 8/8 in branding phase; contrast/persistence 27 tests plus all-three-theme module and campaign retry coverage in theme phase.
-- Analyze/build: analyze no issues. Android release 508.5s / 58.9 MB; Windows release 155.3s; Web release 115.8s (prior cover Wasm dry run passed). Bundled image hashes/PWA manifest identity/Android launcher pixels/Windows EXE icon pixels verified. Cupertino font warning remains for theme-phase follow-up.
+- Analyze/build: analyze no issues. Latest theme Android release 340.6s / 59.0 MB; Windows release 156.1s; Web release 157.1s (prior cover Wasm dry run passed). Bundled image hashes/PWA manifest identity/Android launcher pixels/Windows EXE icon pixels verified. Windows AOT data/app.so SHA256 6BD6551F8B67AE4F40FF58327251779AAFCB8FE3DC522DD32E1AA5DEB3953D43. Existing Cupertino font warning remains a manual glyph-smoke limitation, not a build failure.
 - Exact next task: EK FAZ 5A/5B/5C professional content schema + deterministic validation/one bounded regeneration + relevant grouped hashtag engine + safe telemetry. Focus backend/src/ai.js OUTPUT_SCHEMA, generateContentPack, normalizePack; server content-pack inputs, mobile v14_ai.dart editor, isolated AI tests. Preserve WhatsApp destination and truthful fallback source. Then scheduler, dual memory/copy style/performance/timing, independence, DB and UX in TXT order; no broad repo re-audit.
 
 APK: C:/Users/ANL/Downloads/AdVise-Digital-2026-10-07-branding.apk; SHA256 494C4C197E5F368A982B82B8CE163BE235AECB4D04057B7EF29CF7467673B48C. Existing debug signing preserved. Matching new backend required for secure ad creation. Web: mobile/build/web. Windows: mobile/build/windows/x64/runner/Release (copy the whole folder, not EXE alone).
@@ -32,7 +32,7 @@ Read ADVISE_PROGRESS.md for phase acceptance and SHA history. Never add all file
 ## Known risks / constraints
 
 - Local and origin/WIP histories diverge: the remote had four additional reference commits and local has this revision's separate phase commits. No automatic merge/reset/force push; inspect before any integration. Commit authority is now explicit, replacing previous no-commit instructions.
-- Normal push was attempted and rejected non-fast-forward; no remote mutation occurred. Continue on local source-of-truth; integration must be reviewed separately.
+- Normal push was attempted again after theme source 904aa1c and rejected non-fast-forward; no remote mutation occurred. All phase commits remain local. Continue on local source-of-truth; integration must be reviewed separately.
 - Ads now use a bounded, tenant/account-locked saga in runtime ad_operations.json. Keep its partial IDs and STARTED checkpoints on rollout/rollback. Never blindly replay RECONCILE. Failed activation may leave active remote ancestors; inspect/pause on the provider before reconciliation.
 - Preflight fails closed on unavailable permission/asset evidence. System-user tokens that cannot report /me/permissions may need a separately verified token-debug path in future; do not silently bypass permission checks.
 - Identical ads payload on the same API/account reuses the saved local request ID after app restart. Intentionally creating another identical ad will need an explicit new-operation UX; never auto-clear a pending key.

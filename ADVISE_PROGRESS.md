@@ -2,8 +2,8 @@
 
 Current branch: `wip/codex-product-redesign-2026-10-05`
 Current HEAD at revision start: `d82ef4e49147142880bbced726f790698c2177cc`
-Current committed source checkpoint: `ceec0715bfbd3f0b7d8bee73bf71146d4c59389f` (canonical branding phase). Theme phase commit follows its passing release builds below; run git rev-parse HEAD for current HEAD.
-Last good baseline commit: `a12ca3e` (revision baseline docs and required media test fixture).
+Current tested source checkpoint: `904aa1cd0d81c2cfd39fe6d107ca40bd90bc60eb` (theme phase). A documentation-only checkpoint follows; run git rev-parse HEAD for current HEAD.
+Last good source commit: `904aa1cd0d81c2cfd39fe6d107ca40bd90bc60eb` (baseline documentation/fixture commit remains `a12ca3e`).
 Binding request: `C:/Users/ANL/Downloads/ADVISE_CODEX_MASTER_FINAL_REVISION_2026-10-07.txt`
 
 Canonical branding: `icon.jpeg` = APP ICON; `logo.jpeg` = FULL LOGO. New revision overrides older branding descriptions and older no-commit instructions. Phases are tested and committed separately; no production deploy/main merge/live Meta spending.
@@ -87,9 +87,11 @@ Canonical branding: `icon.jpeg` = APP ICON; `logo.jpeg` = FULL LOGO. New revisio
 - Implementation: shared ColorScheme text/surface/control/navigation/dialog/dropdown/tooltip/snackbar colors; preserve text foreground after typography overrides. Form outlines at least 3:1, active text/control pairs at least 4.5:1. Keep intentionally dark promotional panels and verify their translucent text at the lightest stop.
 - Renkli/Colorful: warm yellow canvas, white cards, indigo primary, teal secondary and rose tertiary; light semantic mode with readable foregrounds. New ProductThemeMode retains existing productTheme system/light/dark values and adds colorful; selection persists across restart. Failed preference write preserves old mode and shows a safe error.
 - Tests: 27 contrast/persistence/form/dropdown/dialog/snackbar/gradient tests; real Studio/Ads Center/Queue/Memory/Reports across all three themes; campaign generation error/retry in all three themes. Full Flutter 79/79; backend 62/62; analyze no issues. Tests use isolated fixtures; no live provider success inferred.
-- Commit: `fix(theme): normalize contrast and persist colorful appearance` (resolve exact SHA with git log; source checkpoint recorded in the following docs commit).
+- Commit: `904aa1cd0d81c2cfd39fe6d107ca40bd90bc60eb` — `fix(theme): normalize contrast and persist colorful appearance`.
 - APK: C:/Users/ANL/Downloads/AdVise-Digital-2026-10-07-theme.apk; SHA-256 4BC1DB282EE61465240B7201A63868882192249937D6CDD8E2A8A9063DC6FEAD. Packaged canonical PNG hashes/all five launcher density/adaptive/splash pixel matches verified. Existing signing configuration preserved. Requires matching backend for secure ad creation; not a production deployment.
 - Web: mobile/build/web, main.dart.js SHA-256 e00ebabef587929752f03750c2f5e23436a38e369b4e5d5d64eff22ab5ba87a8. Source/output manifest/PWA/favicon/canonical bundled PNG hashes match. --no-wasm-dry-run used; prior cover-phase Wasm dry run remains the latest Wasm evidence.
 - Windows: mobile/build/windows/x64/runner/Release, 156.1s build; canonical bundled PNG hashes and embedded EXE icon pixels match. Deliver the whole folder, including updated data/app.so; native EXE hash remains unchanged when only Dart/UI changes.
+- Windows AOT data/app.so SHA-256: 6BD6551F8B67AE4F40FF58327251779AAFCB8FE3DC522DD32E1AA5DEB3953D43.
+- Push: attempted normal WIP push after 904aa1c; rejected non-fast-forward. Phase commits remain local. Remote work preserved; no force push or blind merge.
 - Known limits: installed Android/PWA/Windows visual smoke remains manual. Existing Web Cupertino font-family warning is recorded; no missing glyph observed or claimed. Colorful quick-toggle switches to dark; use More > Görünüm > Renkli to select colorful explicitly.
 - Next exact task: EK FAZ 5A/5B/5C professional content package schema, deterministic quality gate with one bounded regeneration, relevant grouped hashtag engine and safe response telemetry; preserve WhatsApp destination, tenant isolation and truthful fallback source. Start with ai.js generateContentPack/normalizePack/OUTPUT_SCHEMA, server content-pack input/output, v14_ai.dart editor and existing isolated AI tests. Memory/scheduler/DB phases remain incomplete.

@@ -1,7 +1,7 @@
 # AdVise Digital — production rollout plan (not executed)
 
 Source branch: `wip/codex-product-redesign-2026-10-05`.
-Exact release source commit: pending completed phase/build evidence; do not deploy revision start `d82ef4e` as the completed new revision.
+Exact tested development source commit: `904aa1cd0d81c2cfd39fe6d107ca40bd90bc60eb`. The following commit only updates checkpoint docs. Exact final release source commit remains pending the unimplemented master phases and readiness gates; do not deploy revision start `d82ef4e` or this partial checkpoint as a completed master revision.
 
 This is a partial development checkpoint: ads/strategy/preflight, decoded Reels covers, canonical branding and themes are implemented. Gemini content quality/hashtags, new dual memory/copy style/performance/timing, independence, scale and final UX/readiness gates remain pending. Do not treat passing current regression tests as completion of the master revision.
 
@@ -9,6 +9,7 @@ This is a partial development checkpoint: ads/strategy/preflight, decoded Reels 
 
 - Android theme APK: `C:/Users/ANL/Downloads/AdVise-Digital-2026-10-07-theme.apk`, SHA-256 `4BC1DB282EE61465240B7201A63868882192249937D6CDD8E2A8A9063DC6FEAD`; 59.0 MB, 340.6s build. Packaged canonical PNG hashes/launcher/adaptive/splash pixels verified. Existing debug signing retained; not a newly configured production signing release.
 - Web theme build: `mobile/build/web`, 157.1s; main.dart.js SHA-256 `e00ebabef587929752f03750c2f5e23436a38e369b4e5d5d64eff22ab5ba87a8`; manifest/PWA/favicon/canonical image hashes match. Prior Wasm dry run passed; this rebuild uses --no-wasm-dry-run. Existing Cupertino font warning/manual glyph smoke remains noted.
+- Windows theme build: `mobile/build/windows/x64/runner/Release`, 156.1s; deliver the entire directory. Updated data/app.so SHA-256 `6BD6551F8B67AE4F40FF58327251779AAFCB8FE3DC522DD32E1AA5DEB3953D43`; native EXE SHA-256 `8D3281736168CF0AA0165C60159418FDAA0833686C05753ACEFE85EA276F77FC` is unchanged. Canonical bundled PNGs and embedded EXE icon pixels verified without launching the app.
 - Colorful is stored in the existing productTheme preference; legacy system/light/dark values remain valid. Unknown preference values safely select system. No backend settings or runtime migration required for themes.
 - Production health remains the older build without adCreateSaga/adsPreflight. Secure creation in the new APK requires a separately authorized matching backend rollout. No real Meta permission success or real Gemini quality acceptance claimed.
 
