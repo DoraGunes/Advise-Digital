@@ -262,7 +262,9 @@ void main() {
 
   test('campaign strategy surfaces typed quality-gate failure from a 200 response',
       () async {
+    final seen = <String>[];
     Api.setHttpClientForTesting(MockClient((request) async {
+      seen.add('${request.method} ${request.url.path}');
       if (request.url.path == '/health') {
         return http.Response(jsonEncode({
           'ok': true,
@@ -287,7 +289,8 @@ void main() {
       await Api.productStrategy({'dailyBudget': 100});
       fail('expected typed campaign AI failure');
     } on ApiException catch (error) {
-      expect(error.code, 'GEMINI_RECOMMENDATION_VALIDATION');
+      expect(error.code, 'GEMINI_RECOMMENDATION_VALIDATION',
+          reason: 'message=${error.message}; stage=${error.stage}; requests=${seen.join(', ')}');
       expect(error.stage, 'QUALITY_GATE');
       expect(error.correlationId, 'campaign-fixture');
       expect(error.retryable, isTrue);
