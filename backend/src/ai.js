@@ -1,4 +1,5 @@
 import {config} from './config.js';
+import {boundedRead} from './operation-budget.js';
 import {GoogleGenAI} from '@google/genai';
 import fs from 'node:fs/promises';
 import {buildMemoryContext} from './ai-memory.js';
@@ -151,7 +152,7 @@ export async function generateCampaignStrategy(input={}, {request=null}={}) {
         'Son 7 gün gerçek raporu: '+JSON.stringify(input.performance||{available:false}),
         'Hafıza Sarayı: '+clean(input.memoryContext,12000)
       ].join('\n'),
-      mediaParts:[],schema:CAMPAIGN_STRATEGY_SCHEMA,maxOutputTokens:4096
+      mediaParts:[],schema:CAMPAIGN_STRATEGY_SCHEMA,maxOutputTokens:4096,overallTimeoutMs:input.overallTimeoutMs||40000
     });
     if(!result?.model)throw new Error('Model bilgisi doğrulanamadı.');
     return {available:true,source:'GEMINI',model:result.model,strategy:normalizeCampaignStrategy(result.parsed,input),requiresApproval:true,published:false,created:false,generatedAt:new Date().toISOString()};
@@ -369,11 +370,14 @@ export async function callGemini(options, {client:providedClient=null}={}) {
   var models = Array.from(new Set([MODEL, FALLBACK_MODEL, RESCUE_MODEL].filter(Boolean)));
   var configuredTimeout = Number(process.env.GEMINI_REQUEST_TIMEOUT_MS || 60000);
   var timeoutMs = Number.isFinite(configuredTimeout) ? Math.max(15000, Math.min(90000, configuredTimeout)) : 60000;
+  const deadline=Date.now()+Math.max(1,Math.min(105000,Number(options.overallTimeoutMs)||105000));
   var lastError = null;
   for (var modelIndex = 0; modelIndex < models.length; modelIndex++) {
     var model = models[modelIndex];
     var maxAttempts = 3;
     for (var attempt = 1; attempt <= maxAttempts; attempt++) {
+      const remaining=deadline-Date.now();
+      if(remaining<=0)throw Object.assign(new Error('Gemini operation timeout.'),{code:'ETIMEDOUT'});
       try {
         console.log('[AI GEMINI INTERACTIONS REQUEST]', {
           model: model,
@@ -381,7 +385,7 @@ export async function callGemini(options, {client:providedClient=null}={}) {
           hasMedia: (options.mediaParts || []).length > 0
         });
 
-        var interaction = await client.interactions.create({
+        var interaction = await boundedRead(signal=>client.interactions.create({
           model: model,
           input: (options.mediaParts || []).filter(Boolean).concat([{type: 'text', text: options.prompt}]),
           system_instruction: options.systemInstruction || undefined,
@@ -392,7 +396,7 @@ export async function callGemini(options, {client:providedClient=null}={}) {
           },
           generation_config: {max_output_tokens: options.maxOutputTokens || 8192, thinking_level: 'low'},
           store: false
-        }, {timeout: timeoutMs, maxRetries: 0});
+        }, {timeout: Math.min(timeoutMs,remaining), maxRetries: 0, signal}),Math.min(timeoutMs,remaining),'gemini');
         var status = String(interaction && interaction.status || '').toLowerCase();
         var outputText = String(interaction && interaction.output_text || '').trim();
         console.log('[AI GEMINI INTERACTIONS RESPONSE]', {model: model, attempt: attempt, status: ['completed','incomplete','failed','in_progress','cancelled'].includes(status)?status:'unknown', hasOutput: Boolean(outputText)});
@@ -411,9 +415,10 @@ export async function callGemini(options, {client:providedClient=null}={}) {
       } catch (error) {
         lastError = error;
         console.error('[AI GEMINI INTERACTIONS ERROR]', {model: model, attempt: attempt, ...safeGeminiError(error)});
+        if(Date.now()>=deadline)throw Object.assign(new Error('Gemini operation timeout.'),{code:'ETIMEDOUT'});
         if (!retryableError(error) || attempt === maxAttempts) break;
         var waitMs = 1000 * Math.pow(2, attempt - 1);
-        await new Promise(function(resolve) { setTimeout(resolve, waitMs); });
+        await new Promise(function(resolve) { setTimeout(resolve, Math.min(waitMs,Math.max(0,deadline-Date.now()))); });
       }
     }
     if (models[modelIndex + 1]) {

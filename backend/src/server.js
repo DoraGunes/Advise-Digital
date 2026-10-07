@@ -1,3 +1,5 @@
+import {withOperationBudget} from './operation-budget.js';
+import {runAdOperation,getAdOperation,operationFailure} from './ad-operations.js';
 import express from 'express';
 import cors from 'cors';
 import multer from 'multer';
@@ -12,7 +14,7 @@ import {
   getTenant, updateTenant, getCustomerSummaries, adminStats, getUsersForTenant, getUserById, saveUser, publicUser,
   createLicense, getLicenses, assignLicense, deleteTenantCascade
 } from './store.js';
-import {getCampaigns, getAdSets, getAds, insights, setStatus, updateAdSetBudget, metaHealth, getInstagramMedia, createCampaign, createAdSet, createAdCreativeFromInstagramMedia, createAd, resolveAdGeoTargeting,resolveCredentials} from './meta.js';
+import {getCampaigns, getAdSets, getAds, insights, setStatus, updateAdSetBudget, metaHealth, getInstagramMedia, createCampaign, createAdSet, createAdCreativeFromInstagramMedia, createAd, resolveAdGeoTargeting,resolveCredentials,adsPreflight} from './meta.js';
 import {AD_CITIES, AD_REGIONS, provinceNamesForTargeting} from './ad-targeting.js';
 import {optimizeAds} from './optimizer.js';
 import {startScheduler, scheduleUploadedPost, scheduleUploadedPosts, publishDuePosts,publishPost} from './scheduler.js';
@@ -152,7 +154,7 @@ app.get('/health', (_req, res) => res.json({
   version: config.appVersion,
   apiVersion:16,
   minClientVersion:'14.0.0',
-  capabilities:{productExperience:true,productOverview:true,productReporting:true,onboarding:true,scheduledPublishing:true,geminiAdReview:true,safeAutomationV16:true,campaignStrategy:true},
+  capabilities:{productExperience:true,productOverview:true,productReporting:true,onboarding:true,scheduledPublishing:true,geminiAdReview:true,safeAutomationV16:true,campaignStrategy:true,adCreateSaga:true,adsPreflight:true},
   buildMarker: 'ADVISE_PRODUCT_V16_2026_10_05',
   uploadMode: 'EXTENSION_AWARE',
   aiImageMode: 'GEMINI_INTERACTIONS_MULTIMODAL'
@@ -199,6 +201,8 @@ app.use('/api', (req,res,next)=>{
   if(['GET','HEAD','OPTIONS'].includes(req.method))return next();
   const personal=req.path==='/profile/password'||/^\/pro\/alerts\/[^/]+\/read$/.test(req.path);
   if(!personal&&!['ADMIN','CUSTOMER_ADMIN','MANAGER','OPERATOR'].includes(req.user.role))return res.status(403).json({error:'Bu işlem için yetkiniz bulunmuyor.'});
+  // Strategy is a read-only provider action; its short audit write locks itself.
+  if(req.path==='/product/strategy')return next();
   const operation={pending:new Set()};requestMutations.set(req,operation);
   const finish=()=>new Promise(resolve=>{
     let finishing=false;
@@ -213,7 +217,7 @@ app.use('/api', (req,res,next)=>{
     if(res.writableEnded||res.destroyed)void completed();
   });
   const financial=/^\/(ads\/create|ads\/gemini-apply|status\/|budget\/|automation\/run)/.test(req.path);
-  withTenantLock(req.user.tenantId,()=>financial?withAdAccountLock(req.user.tenantId,finish):finish()).catch(error=>{if(!res.headersSent)res.status(409).json({error:error.message});});
+  withTenantLock(req.user.tenantId,()=>financial?withAdAccountLock(req.user.tenantId,finish,{timeoutMs:5000}):finish(),{timeoutMs:5000}).catch(error=>{if(!res.headersSent)res.status(409).json(operationFailure(error,'lock',crypto.randomUUID()));});
 });
 
 app.get('/api/system/health', async (_req, res) => {
@@ -227,7 +231,13 @@ app.get('/api/me', async (req, res) => {
 
 app.get('/api/product/overview',async(req,res)=>{try{res.json(await productOverview(req.user.tenantId,req.user));}catch{res.status(503).json({error:'Ana sayfa verileri alınamadı. Yeniden deneyin.'});}});
 app.get('/api/product/report',async(req,res)=>{try{res.json(await productReport(req.user.tenantId,req.query));}catch(error){res.status(400).json({error:error.message});}});
-app.post('/api/product/strategy',allowRoles('ADMIN','CUSTOMER_ADMIN','MANAGER','OPERATOR'),async(req,res)=>{try{res.json(await productStrategy(req.user.tenantId,req.body||{},{actorId:req.user.id}));}catch(error){res.status(400).json({error:error.message});}});
+app.post('/api/product/strategy',allowRoles('ADMIN','CUSTOMER_ADMIN','MANAGER','OPERATOR'),async(req,res)=>{
+  const correlationId=crypto.randomUUID();
+  try {
+    const result=await productStrategy(req.user.tenantId,req.body||{},{actorId:req.user.id});
+    res.json({...result,ok:result.available===true,code:result.available?null:`GEMINI_${result.errorCategory||'UNAVAILABLE'}`,stage:'strategy',retryable:['TIMEOUT','NETWORK_ERROR','PROVIDER_ERROR'].includes(result.errorCategory),userMessage:result.error||null,correlationId});
+  } catch(error){res.status(error.code==='ETIMEDOUT'?504:400).json(operationFailure(error,'strategy',correlationId));}
+});
 app.get('/api/product/onboarding',async(req,res)=>{try{res.json(await onboardingStatus(req.user.tenantId));}catch(error){res.status(503).json({error:'Kurulum bilgileri alınamadı.'});}});
 app.put('/api/product/onboarding',allowRoles('ADMIN','CUSTOMER_ADMIN'),async(req,res)=>{try{
   const result=await saveOnboarding(req.user.tenantId,req.body);
@@ -386,152 +396,67 @@ app.put('/api/ads/targeting-preferences', allowRoles('ADMIN','CUSTOMER_ADMIN','M
   } catch (e) { res.status(400).json({error:e.message}); }
 });
 
-app.post('/api/ads/create', allowRoles('ADMIN','CUSTOMER_ADMIN','MANAGER','OPERATOR'), async (req, res) => {
-  let stage = 'validation';
-  let createdCampaignId = '';
-  let createdAdSetId = '';
-  let createdCreativeId = '';
-  let createdAdId = '';
+app.get('/api/ads/preflight',allowRoles('ADMIN','CUSTOMER_ADMIN','MANAGER','OPERATOR'),async(req,res)=>{
+  const correlationId=crypto.randomUUID();
+  try {const credentials=tenantCredentials(req.user.tenantId,await getTenant(req.user.tenantId));res.json(await withOperationBudget(15000,()=>adsPreflight(credentials)));}
+  catch(error){res.status(422).json(operationFailure(error,'preflight',correlationId));}
+});
+app.get('/api/ads/operations/:id',allowRoles('ADMIN','CUSTOMER_ADMIN','MANAGER','OPERATOR'),async(req,res)=>{
+  try {const operation=await getAdOperation(req.user.tenantId,req.params.id);if(!operation)return res.status(404).json({error:'İşlem bulunamadı.'});const {requestId,status,stage,ids,failure,result,correlationId}=operation;res.json({requestId,status,stage,ids,failure,result,correlationId});}
+  catch{res.status(500).json({error:'İşlem kaydı okunamadı.'});}
+});
+app.post('/api/ads/create',allowRoles('ADMIN','CUSTOMER_ADMIN','MANAGER','OPERATOR'),async(req,res)=>{
+  const tenantId=req.user.tenantId;
+  const requestId=String(req.body?.requestId||'');
+  const correlationId=crypto.randomUUID();
   try {
-    const tenantId = req.user.tenantId;
-    const tenant = await getTenant(tenantId);
-    const credentials = tenantId === 'system' ? {systemAccount:true} : (tenant?.meta || {});
-    const savedSettings = await getSettings(tenantId);
-    const locationMode = String(req.body?.locationMode || savedSettings.adTargetingMode || 'COUNTRY').toUpperCase();
-    const rawLocations = Array.isArray(req.body?.locations) ? req.body.locations : savedSettings.adTargetingLocations;
-    const locations = [...new Set(rawLocations.map(x => String(x || '').trim()).filter(Boolean))];
-    const mediaId = String(req.body?.instagramMediaId || '').trim();
-    const dailyBudget = Number(req.body?.dailyBudget);
-    if (!mediaId) return res.status(400).json({error: 'Instagram gönderisi seçmelisin.'});
-    if (!Number.isFinite(dailyBudget) || dailyBudget < 1) return res.status(400).json({error: 'Günlük bütçe en az 1 TL olmalı.'});
-
-    const campaignName = String(req.body?.campaignName || 'AdVise AI Kampanyası').trim().slice(0, 120);
-    const adSetName = String(req.body?.adSetName || 'AdVise AI Ad Set').trim().slice(0, 120);
-    const adName = String(req.body?.adName || 'AdVise AI Reklamı').trim().slice(0, 120);
-    const activate = req.body?.activate !== false;
-    await budgetGuard(credentials,savedSettings,{nextBudget:dailyBudget,creating:true});
-    const media=await getInstagramMedia(credentials,100);
-    if(!(media.data||[]).some(row=>String(row.id)===mediaId))throw new Error('Seçilen Instagram gönderisi bu hesaba ait değil.');
-    const existingAds=await getAds(credentials);
-    if((existingAds.data||[]).length>=Number(req.tenant.limits?.maxAds||0))throw new Error('Paketinizin reklam limitine ulaşıldı.');
-
-    console.log(`[ADS CREATE] start media=${mediaId} budget=${dailyBudget} activate=${activate}`);
-
-    stage = 'targeting';
-    const audience = await resolveAdGeoTargeting(locationMode, locations, credentials);
-    await saveSettings(tenantId, {
-      adTargetingMode: locationMode,
-      adTargetingLocations: locationMode === 'COUNTRY' ? [] : locations
-    });
-
-    stage = 'campaign';
-    const campaign = await createCampaign({
-      name: campaignName,
-      objective: 'OUTCOME_ENGAGEMENT',
-      status: 'PAUSED',
-      credentials
-    });
-    createdCampaignId = String(campaign?.id || '');
-    console.log(`[ADS CREATE] campaign=${campaign?.id || '-'}`);
-
-    stage = 'adset';
-    const adSet = await createAdSet({
-      name: adSetName,
-      campaignId: campaign.id,
-      dailyBudget,
-      optimizationGoal: 'CONVERSATIONS',
-      billingEvent: 'IMPRESSIONS',
-      destinationType: 'WHATSAPP',
-      targeting: {geo_locations:audience.geo_locations},
-      credentials
-    });
-    createdAdSetId = String(adSet?.id || '');
-    console.log(`[ADS CREATE] adset=${adSet?.id || '-'}`);
-
-    stage = 'creative';
-    const creative = await createAdCreativeFromInstagramMedia({
-      name: adName,
-      instagramMediaId: mediaId,
-      instagramUserId: tenantId === 'system'
-        ? String(config.instagramUserId || '').trim()
-        : String(tenant?.meta?.instagramUserId || '').trim(),
-      pageId: tenantId === 'system'
-        ? String(config.metaPageId || '').trim()
-        : String(tenant?.meta?.pageId || '').trim(),
-      credentials: {
-        ...credentials,
-        instagramUserId: tenantId === 'system'
-          ? String(config.instagramUserId || '').trim()
-          : String(tenant?.meta?.instagramUserId || '').trim(),
-        instagramUsername: tenantId === 'system'
-          ? String(config.instagramUsername || '').trim()
-          : String(tenant?.meta?.instagramUsername || '').trim()
+    const tenant=await getTenant(tenantId),credentials=tenantCredentials(tenantId,tenant),settings=await getSettings(tenantId);
+    const mediaId=String(req.body?.instagramMediaId||'').trim(),dailyBudget=Number(req.body?.dailyBudget);
+    if(!mediaId||!Number.isFinite(dailyBudget)||dailyBudget<1)throw Object.assign(new Error('Instagram gönderisi ve geçerli günlük bütçe gerekli.'),{code:'VALIDATION_FAILED'});
+    const locationMode=String(req.body?.locationMode||settings.adTargetingMode||'COUNTRY').toUpperCase();
+    const raw=req.body?.locations??settings.adTargetingLocations??[];
+    const locations=[...new Set((Array.isArray(raw)?raw:[]).map(String))].sort();
+    if(!['COUNTRY','CITY','REGION'].includes(locationMode))throw Object.assign(new Error('Geçerli hedefleme türü seçin.'),{code:'VALIDATION_FAILED'});
+    if(locationMode!=='COUNTRY')provinceNamesForTargeting(locationMode,locations);
+    const campaignName=String(req.body?.campaignName||'AdVise AI Kampanyası').trim().slice(0,120),adSetName=String(req.body?.adSetName||'AdVise AI Ad Set').trim().slice(0,120),adName=String(req.body?.adName||'AdVise AI Reklamı').trim().slice(0,120);
+    const activate=req.body?.activate===true;
+    const payload={mediaId,dailyBudget,locationMode,locations,campaignName,adSetName,adName,activate,adAccountId:resolveCredentials(credentials).adAccountId,pageId:resolveCredentials(credentials).pageId,instagramId:resolveCredentials(credentials).metaInstagramUserId||resolveCredentials(credentials).instagramUserId};
+    const steps=[
+      ['campaign',()=>createCampaign({name:campaignName,objective:'OUTCOME_ENGAGEMENT',status:'PAUSED',credentials})],
+      ['adset',(ids,audience)=>createAdSet({name:adSetName,campaignId:ids.campaign,dailyBudget,optimizationGoal:'CONVERSATIONS',billingEvent:'IMPRESSIONS',destinationType:'WHATSAPP',targeting:{geo_locations:audience.geo_locations},credentials})],
+      ['creative',()=>createAdCreativeFromInstagramMedia({name:adName,instagramMediaId:mediaId,instagramUserId:resolveCredentials(credentials).metaInstagramUserId||resolveCredentials(credentials).instagramUserId,pageId:resolveCredentials(credentials).pageId,credentials})],
+      ['ad',ids=>createAd({name:adName,adsetId:ids.adset,creativeId:ids.creative,status:'PAUSED',credentials})]
+    ];
+    if(activate)steps.push(['activation',async ids=>{
+      // Enable the ad last so a campaign/adset rejection cannot start delivery.
+      // Await every concurrent write before releasing the shared account lock.
+      const results=await Promise.allSettled([ids.campaign,ids.adset].map(id=>setStatus(id,'ACTIVE',credentials)));
+      const failure=results.find(result=>result.status==='rejected');
+      if(failure)throw failure.reason;
+      await setStatus(ids.ad,'ACTIVE',credentials);
+      return {id:ids.ad};
+    }]);
+    const result=await withOperationBudget(70000,()=>runAdOperation({tenantId,requestId,payload,steps,
+      prepare:async operation=>{
+        await adsPreflight(credentials);
+        await budgetGuard(credentials,settings,{nextBudget:dailyBudget,creating:true});
+        const media=await getInstagramMedia(credentials,100);
+        if(!(media.data||[]).some(row=>String(row.id)===mediaId))throw Object.assign(new Error('Seçilen Instagram gönderisi bu hesaba ait değil.'),{code:'META_MEDIA_MISMATCH'});
+        const ads=await getAds(credentials);
+        if(!operation.ids.ad&&(ads.data||[]).length>=Number(req.tenant.limits?.maxAds||0))throw Object.assign(new Error('Paketinizin reklam limitine ulaşıldı.'),{code:'AD_LIMIT_REACHED'});
+        return resolveAdGeoTargeting(locationMode,locations,credentials);
+      },
+      complete:async(operation,audience)=>{
+        await saveSettings(tenantId,{adTargetingMode:locationMode,adTargetingLocations:locationMode==='COUNTRY'?[]:locations});
+        await addLog(tenantId,{type:'WEEKLY_LAUNCH',source:'APP_AD_CREATE',actorId:req.user.id,adId:operation.ids.ad,adSetId:operation.ids.adset,campaignId:operation.ids.campaign,instagramMediaId:mediaId,requestId,correlationId:operation.correlationId,launchAt:new Date().toISOString(),selectionScore:1});
+        return {ok:true,requestId,correlationId:operation.correlationId,campaign:{id:operation.ids.campaign},adset:{id:operation.ids.adset},creative:{id:operation.ids.creative},ad:{id:operation.ids.ad,status:activate?'ACTIVE':'PAUSED'},activated:activate,contactChannel:'WHATSAPP',targeting:{mode:audience.locationMode,locations:audience.locations}};
       }
-    });
-    createdCreativeId = String(creative?.id || '');
-    console.log(`[ADS CREATE] creative=${creative?.id || '-'}`);
-
-    stage = 'ad';
-    const ad = await createAd({
-      name: adName,
-      adsetId: adSet.id,
-      creativeId: creative.id,
-      status: 'PAUSED',
-      credentials
-    });
-    createdAdId = String(ad?.id || '');
-    console.log(`[ADS CREATE] ad=${ad?.id || '-'}`);
-
-    if (activate) {
-      stage = 'activation';
-      await Promise.all([
-        setStatus(campaign.id, 'ACTIVE', credentials),
-        setStatus(adSet.id, 'ACTIVE', credentials),
-        setStatus(ad.id, 'ACTIVE', credentials)
-      ]);
-      console.log('[ADS CREATE] activated');
-    }
-
-    await addLog(tenantId, {
-      type: 'WEEKLY_LAUNCH',
-      source: 'APP_AD_CREATE',
-      adId: ad.id,
-      adSetId: adSet.id,
-      campaignId: campaign.id,
-      instagramMediaId: mediaId,
-      launchAt: new Date().toISOString(),
-      selectionScore: 1
-    });
-
-    res.status(201).json({
-      campaign,
-      adset: adSet,
-      creative,
-      ad: {...ad, status: activate ? 'ACTIVE' : 'PAUSED'},
-      activated: activate,
-      contactChannel: 'WHATSAPP',
-      targeting: {mode: audience.locationMode, locations: audience.locations}
-    });
-  } catch (e) {
-    console.error(`[ADS CREATE] failed stage=${stage}:`, e.message);
-
-    // A failed test should not leave half-created campaigns/ad sets in the account.
-    for (const [kind, id] of [
-      ['ad', createdAdId],
-      ['creative', createdCreativeId],
-      ['adset', createdAdSetId],
-      ['campaign', createdCampaignId]
-    ]) {
-      if (!id) continue;
-      try {
-        if(kind!=='creative') await setStatus(id,'PAUSED',tenantCredentials(req.user.tenantId,await getTenant(req.user.tenantId)));
-        console.log(`[ADS CREATE] cleanup ${kind}=${id}`);
-      } catch (cleanupError) {
-        console.error(`[ADS CREATE] cleanup ${kind}=${id} failed:`, cleanupError.message);
-      }
-    }
-
-    res.status(502).json({error: e.message, operation: 'ads_create', stage});
+    }));
+    res.status(201).json(result);
+  } catch(error) {
+    const failure=error.failure||operationFailure(error,'validation',correlationId);
+    console.error('[ADS CREATE ERROR]',{code:failure.code,stage:failure.stage,correlationId:failure.correlationId});
+    res.status(failure.code==='AD_RECONCILE_REQUIRED'||failure.code==='IDEMPOTENCY_CONFLICT'?409:failure.stage==='validation'?400:502).json({...failure,requestId});
   }
 });
 

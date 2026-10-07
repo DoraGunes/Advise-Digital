@@ -14,11 +14,11 @@ export function metaReady(credentials) {
 
 // Separate tenants may legitimately authorize the same external ad account.
 // Their local writes stay independent, while financial mutations share one account gate.
-export async function withAdAccountLock(tenantId,task) {
+export async function withAdAccountLock(tenantId,task,options={}) {
   const tenant=await getTenant(tenantId);
   const credentials=resolveCredentials(tenantCredentials(tenantId,tenant));
   if(!credentials.adAccountId)return task();
-  return withTenantLock(`meta-account:${credentials.adAccountId}`,task);
+  return withTenantLock(`meta-account:${credentials.adAccountId}`,task,options);
 }
 export async function budgetGuard(credentials,settings,{adSetId='',nextBudget=0,activate=false,creating=false}={}) {
   const [sets,campaigns,account]=await Promise.all([getAdSets(credentials),getCampaigns(credentials),getMetaAccount(credentials)]);

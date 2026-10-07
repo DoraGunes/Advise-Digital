@@ -1,3 +1,7 @@
+abstract interface class UserFacingFailure {
+  String get userMessage;
+}
+
 /// User-facing errors are kept separate from diagnostics and upstream payloads.
 class AppError {
   AppError._();
@@ -6,6 +10,7 @@ class AppError {
       message(error, statusCode: statusCode);
 
   static String message(Object? error, {int? statusCode}) {
+    if (error is UserFacingFailure) return error.userMessage;
     final raw = error?.toString().trim() ?? '';
     final lower = raw.toLowerCase();
     if (lower.contains('kullanıcı adı veya şifre') ||

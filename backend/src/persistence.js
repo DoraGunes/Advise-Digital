@@ -48,9 +48,8 @@ function tenantLockPath(tenantId) {
   return path.join(dataRoot,`.advise-tenant-lock-${hash}`);
 }
 
-async function acquireTenantFileLock(lockDir) {
+async function acquireTenantFileLock(lockDir,deadline) {
   await fs.mkdir(dataRoot,{recursive:true});
-  const deadline=Date.now()+600000;
   while(true) {
     try {
       await fs.mkdir(lockDir);
@@ -71,13 +70,13 @@ async function acquireTenantFileLock(lockDir) {
         await fs.rm(lockDir,{recursive:true,force:true});
         continue;
       }
-      if(Date.now()>deadline)throw new Error('Bu hesapta başka bir işlem devam ediyor. Lütfen biraz sonra tekrar deneyin.');
+      if(Date.now()>deadline)throw Object.assign(new Error('Bu hesapta başka bir işlem devam ediyor. Lütfen biraz sonra tekrar deneyin.'),{code:'OPERATION_BUSY'});
       await new Promise(resolve=>setTimeout(resolve,50));
     }
   }
 }
 
-export async function withTenantLock(tenantId,task) {
+export async function withTenantLock(tenantId,task,{timeoutMs=600000}={}) {
   const key=String(tenantId||'system');
   const held=tenantContext.getStore();
   if(held?.has(key))return task();
@@ -87,20 +86,25 @@ export async function withTenantLock(tenantId,task) {
   const gate=new Promise(resolve=>{releaseTurn=resolve;});
   const turn=previous.catch(()=>{}).then(()=>gate);
   tenantQueues.set(key,turn);
-  await previous.catch(()=>{});
-
   const lockDir=tenantLockPath(key);
   let fileLocked=false;
+  let timer;
+  const deadline=Date.now()+timeoutMs;
   try {
-    await acquireTenantFileLock(lockDir);
+    await Promise.race([previous.catch(()=>{}),new Promise((_,reject)=>{timer=setTimeout(()=>reject(Object.assign(new Error('Bu hesapta başka bir işlem devam ediyor. Lütfen biraz sonra tekrar deneyin.'),{code:'OPERATION_BUSY'})),timeoutMs);})]);
+    clearTimeout(timer);
+    await acquireTenantFileLock(lockDir,deadline);
     fileLocked=true;
     const nextHeld=new Set(held||[]);
     nextHeld.add(key);
     return await tenantContext.run(nextHeld,task);
   } finally {
+    clearTimeout(timer);
     if(fileLocked)await fs.rm(lockDir,{recursive:true,force:true}).catch(()=>{});
     releaseTurn();
-    if(tenantQueues.get(key)===turn)tenantQueues.delete(key);
+    // A cancelled waiter must remain chained to its predecessor. Otherwise a
+    // new waiter could overtake a still-running operation after the timeout.
+    void turn.then(()=>{if(tenantQueues.get(key)===turn)tenantQueues.delete(key);});
   }
 }
 

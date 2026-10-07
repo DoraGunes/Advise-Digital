@@ -1,4 +1,5 @@
 import {config} from './config.js';
+import {remainingMs} from './operation-budget.js';
 import {normalizeLocationName, provinceNamesForTargeting} from './ad-targeting.js';
 
 const base=`https://graph.facebook.com/${config.metaApiVersion}`;
@@ -40,7 +41,7 @@ async function request(path,{method='GET',query={},body={},credentials={},timeou
   for(const [k,v] of Object.entries(params)) if(v!==undefined&&v!==null) url.searchParams.set(k,String(v));
 
   const controller=new AbortController();
-  const timeout=setTimeout(()=>controller.abort(),Math.max(5000,Math.min(30000,Number(timeoutMs)||30000)));
+  const timeout=setTimeout(()=>controller.abort(),remainingMs(Math.max(1,Math.min(30000,Number(timeoutMs)||30000))));
   try {
     const options={method,signal:controller.signal,headers:{accept:'application/json'}};
     if(method!=='GET'){
@@ -54,20 +55,14 @@ async function request(path,{method='GET',query={},body={},credentials={},timeou
     const data=parse(await r.text());
     if(!r.ok||data.error) {
       const err=data?.error||{};
-      const detail=[
-        err.message,
-        err.error_user_title,
-        err.error_user_msg,
-        err.error_subcode ? `subcode=${err.error_subcode}` : '',
-        err.error_data ? `error_data=${typeof err.error_data==='string' ? err.error_data : JSON.stringify(err.error_data)}` : '',
-        err.fbtrace_id ? `fbtrace_id=${err.fbtrace_id}` : ''
-      ].filter(Boolean).join(' | ');
-      throw new Error(`Meta API ${r.status}: ${detail||JSON.stringify(data)}`);
+      const code=Number(err.code)===190?'META_SESSION_EXPIRED':r.status===403||[10,200].includes(Number(err.code))?'META_PERMISSION_DENIED':r.status===429||[4,17,32,613].includes(Number(err.code))?'META_RATE_LIMIT':'META_REJECTED';
+      const messages={META_SESSION_EXPIRED:'Meta bağlantısının süresi dolmuş. Bağlantılar ekranından yeniden bağlayın.',META_PERMISSION_DENIED:'Meta bu işlem için izin vermedi. Reklam hesabı ve Sayfa yetkilerini kontrol edin.',META_RATE_LIMIT:'Meta işlem sınırına ulaşıldı. Biraz sonra yeniden deneyin.',META_REJECTED:'Meta reklam isteğini kabul etmedi. Hesap, hedefleme ve WhatsApp bağlantısını kontrol edin.'};
+      throw Object.assign(new Error(messages[code]),{code,status:r.status,providerCode:Number(err.code)||null,providerSubcode:Number(err.error_subcode)||null,providerTrace:/^[a-zA-Z0-9_-]{1,120}$/.test(err.fbtrace_id||'')?err.fbtrace_id:null,retryable:code==='META_RATE_LIMIT'||r.status>=500});
     }
     if(data.paging)data.paging={cursors:data.paging.cursors||{},hasNext:Boolean(data.paging.next)};
     return data;
   } catch(e) {
-    if(e.name==='AbortError') throw new Error('Meta API timeout.');
+    if(e.name==='AbortError') throw Object.assign(new Error('Meta yanıtı zamanında tamamlanamadı.'),{code:'ETIMEDOUT',retryable:false});
     throw e;
   } finally { clearTimeout(timeout); }
 }
@@ -115,6 +110,31 @@ export async function assertMetaOwnership(id,credentials={}) {
 export async function getMetaAccount(credentials={}) {
   const c=requireMeta(credentials);
   return request(`act_${c.adAccountId}`,{credentials:c,query:{fields:'id,account_id,name,currency,account_status'}});
+}
+
+// No success is inferred from locally stored credentials. Unknown prerequisite
+// fields fail closed, and every create/resume runs fresh provider checks.
+export async function adsPreflight(credentials={}) {
+  const c=requireMeta(credentials);
+  const fail=(code,message)=>{throw Object.assign(new Error(message),{code,retryable:false});};
+  if(!c.pageId||!c.metaInstagramUserId&&!c.instagramUserId)fail('META_ASSETS_MISSING','Reklam oluşturmadan önce Sayfa ve Instagram hesabını bağlayın.');
+  const [account,permissions,page]=await Promise.all([
+    request(`act_${c.adAccountId}`,{credentials:c,query:{fields:'id,account_id,currency,account_status,disable_reason,timezone_name,user_tasks'}}),
+    request('me/permissions',{credentials:c}),
+    request(c.pageId,{credentials:c,query:{fields:'id,instagram_business_account,connected_instagram_account,has_whatsapp_business_number,has_whatsapp_number,is_published'}})
+  ]);
+  if(String(account.account_id)!==c.adAccountId)fail('META_ACCOUNT_MISMATCH','Reklam hesabı bağlantısını yeniden seçin.');
+  if(Number(account.account_status)!==1||Number(account.disable_reason||0)!==0)fail('META_ACCOUNT_RESTRICTED','Meta reklam hesabı etkin değil veya kısıtlı. Meta hesap durumunu kontrol edin.');
+  if(account.currency!=='TRY')fail('META_CURRENCY_UNSUPPORTED','Bu reklam akışı TRY para birimindeki hesapları destekliyor.');
+  if(!account.timezone_name)fail('META_PREFLIGHT_UNAVAILABLE','Reklam hesabının saat dilimi doğrulanamadı. Bağlantıyı kontrol edin.');
+  const granted=new Set((permissions.data||[]).filter(row=>row.status==='granted').map(row=>row.permission));
+  if(!granted.has('ads_management')||!granted.has('pages_read_engagement'))fail('META_PERMISSION_DENIED','Reklam yönetimi ve Sayfa erişim izinlerini yeniden verin.');
+  if(!Array.isArray(account.user_tasks)||!account.user_tasks.some(task=>['ADVERTISE','MANAGE'].includes(task)))fail('META_PERMISSION_DENIED','Seçili reklam hesabında reklam oluşturma yetkisi doğrulanamadı.');
+  if(String(page.id)!==c.pageId||page.is_published!==true)fail('META_PAGE_UNAVAILABLE','Bağlı Sayfa erişimi veya yayın durumu doğrulanamadı.');
+  const linked=String(page.instagram_business_account?.id||page.connected_instagram_account?.id||'');
+  if(!linked||linked!==String(c.metaInstagramUserId||c.instagramUserId))fail('META_INSTAGRAM_MISMATCH','Sayfaya bağlı Instagram hesabını Bağlantılar ekranından yeniden seçin.');
+  if(page.has_whatsapp_business_number!==true&&page.has_whatsapp_number!==true)fail('META_WHATSAPP_MISSING','Reklam oluşturmadan önce Meta Sayfanıza WhatsApp numaranızı bağlayın.');
+  return {ok:true,accountId:c.adAccountId,pageId:c.pageId,instagramId:linked,currency:account.currency,timezone:account.timezone_name,objective:'OUTCOME_ENGAGEMENT',optimizationGoal:'CONVERSATIONS',destination:'WHATSAPP',checkedAt:new Date().toISOString(),limitations:['Meta yaratım sırasında ek işletme, ödeme veya içerik kısıtlaması bildirebilir.']};
 }
 
 export async function accountInsights(credentials={}, {since,until,timeIncrement,level='account'}={}) {
@@ -268,7 +288,7 @@ async function instagramRequest(path,{method='GET',body={},accessToken,api='INST
   for(const [k,v] of Object.entries(body||{})) if(v!==undefined&&v!==null) params.set(k,typeof v==='object'?JSON.stringify(v):String(v));
   if(method==='GET') url.search = params.toString();
   const controller=new AbortController();
-  const timeout=setTimeout(()=>controller.abort(),30000);
+  const timeout=setTimeout(()=>controller.abort(),remainingMs(30000));
   try {
     const response=await fetch(url,{method,body:method==='GET'?undefined:params,headers:{accept:'application/json'},signal:controller.signal});
     const data=parse(await response.text());

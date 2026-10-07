@@ -2,7 +2,7 @@
 
 Current branch: `wip/codex-product-redesign-2026-10-05`
 Current HEAD at revision start: `d82ef4e49147142880bbced726f790698c2177cc`
-Last good commit: `d82ef4e49147142880bbced726f790698c2177cc`
+Last good baseline commit: `a12ca3e` (revision baseline docs and required media test fixture).
 Binding request: `C:/Users/ANL/Downloads/ADVISE_CODEX_MASTER_FINAL_REVISION_2026-10-07.txt`
 
 Canonical branding: `icon.jpeg` = APP ICON; `logo.jpeg` = FULL LOGO. New revision overrides older branding descriptions and older no-commit instructions. Phases are tested and committed separately; no production deploy/main merge/live Meta spending.
@@ -10,7 +10,7 @@ Canonical branding: `icon.jpeg` = APP ICON; `logo.jpeg` = FULL LOGO. New revisio
 ## Phase status
 
 - FAZ 0 Audit: ✅
-- EK FAZ 1A/1B Ads / AI strategy / preflight: ⬜
+- EK FAZ 1A/1B Ads / AI strategy / preflight: ✅
 - FAZ 1 Reels Cover: ⬜
 - FAZ 2 Branding: ⬜
 - FAZ 3 Theme Contrast: ⬜
@@ -35,3 +35,17 @@ Canonical branding: `icon.jpeg` = APP ICON; `logo.jpeg` = FULL LOGO. New revisio
 - Remote reference: origin/WIP has four additional commits; inspected names/diff, not merged. Current local HEAD remains the baseline. No force push.
 - Rollback: use phase source commits to revert source on this WIP branch; never restore/reset runtime files. Production rollout requires separate human authorization.
 - Next exact task: add bounded operation/error contracts, a single Meta preflight and persisted staged ad creation with stable client request IDs; test failure/partial/retry/timeout/disposal.
+
+## EK FAZ 1A/1B — ads and strategy root causes
+
+- Status: implemented and regression verified. Provider fixture tests only; no live ads or spending.
+- Files changed: backend src operation-budget.js, ad-operations.js, persistence.js, automation-safety.js, meta.js, ai.js, product.js, server.js; mobile lib api.dart, app_error.dart, social_ads_page.dart; backend/test/ad-operations.test.js, mobile/test/ads_flow_test.dart.
+- Commit: phase commit `fix(ads): bound strategy requests and persist preflighted creation saga` (resolve with git log).
+- Tests: backend 52/52; new targeted backend 11/11; Flutter 53/53 (including new 5/5); Flutter analyze no issues.
+- Root causes fixed: no Gemini aggregate deadline, optional report latency, long tenant lock waits, long sequential cleanup after a create failure, missing persisted partial IDs/idempotency, success loading retained while dialog open, strategy cleanup outside finally, generic provider 502 handling.
+- Contracts: strategy 55s total/40s maximum Gemini/8s optional reporting, client 65s; create 70s provider budget, HTTP tenant/account waits 5s each, client 90s. Meta transports inherit remaining budget. Strategy no longer occupies the tenant write lock during read-only generation.
+- Durable saga: ad_operations.json is runtime-only and tenant scoped. Persist STARTED and each returned ID; known rejection can resume without recreating earlier entities. Timeout/network/crash/partial activation requires RECONCILE and cannot blindly retry. Successful duplicate returns the same result. Default status PAUSED; ad activated last only on explicit true.
+- Preflight: fresh account status/currency/timezone/task permission, granted scopes, Page publication/access, linked Instagram and WhatsApp evidence; unknown prerequisites fail closed. Based on Meta's official SDK Page and AdAccount field definitions. No fake permissions or actual production check claimed.
+- UI: finally cleanup, actionable safe stage errors, preflight check action, persisted request identity scoped to API/account/payload, operation status lookup, duplicate create disabled after success. No raw provider JSON in API exceptions.
+- Known limits: true Meta account permissions/WhatsApp support still need read-only smoke with authorized credentials; RECONCILE requires manual remote ID verification before any new creation; partial activation may need manual pause. JSON persistence scales in a later phase. No new release build claimed yet.
+- Next exact task: FAZ 1 cover bytes/decoder validation and multipart consistency, then canonical branding, themes, quality and memory in the master order.

@@ -7,6 +7,7 @@ import {generateCampaignStrategy} from './ai.js';
 import {config} from './config.js';
 import {AD_CITIES,AD_REGIONS,provinceNamesForTargeting} from './ad-targeting.js';
 import {withDataLock} from './persistence.js';
+import {boundedRead,withOperationBudget,remainingMs} from './operation-budget.js';
 
 const number=value=>Number.isFinite(Number(value))?Number(value):0;
 const emptyMetrics=()=>({spend:null,messages:null,cpa:null,ctr:null,reach:null,impressions:null,activeAds:null});
@@ -181,9 +182,12 @@ export async function saveOnboarding(tenantId,input={}) {
   });
 }
 
-export async function productStrategy(tenantId,input={}, {actorId='',request=null}={}) {
-  const [tenant,settings,onboarding,posts,memory,report]=await Promise.all([
-    getTenant(tenantId),getSettings(tenantId),onboardingStatus(tenantId),getPosts(tenantId),getMemorySummary(tenantId),productReport(tenantId,{range:'7d'})
+export async function productStrategy(tenantId,input={}, options={}) {
+  return boundedRead(()=>withOperationBudget(55000,()=>buildProductStrategy(tenantId,input,options)),55000,'strategy');
+}
+async function buildProductStrategy(tenantId,input={}, {actorId='',request=null}={}) {
+  const [tenant,settings,onboarding,posts,memory]=await Promise.all([
+    getTenant(tenantId),getSettings(tenantId),onboardingStatus(tenantId),getPosts(tenantId),getMemorySummary(tenantId)
   ]);
   if(settings.aiEnabled===false)throw new Error('AI modu kapalı. Hesap ayarlarından etkinleştirin.');
   const text=(value,max)=>String(value||'').trim().slice(0,max);
@@ -213,6 +217,7 @@ export async function productStrategy(tenantId,input={}, {actorId='',request=nul
     if(!selected)throw new Error('Seçilen Instagram gönderisi bu bağlı hesaba ait listede bulunamadı.');
     media={instagramMediaId:String(selected.id),caption:text(selected.caption,2200),format:text(selected.media_type,40),evidence:'INSTAGRAM_CAPTION_ONLY'};
   }
+  const report=await boundedRead(()=>withOperationBudget(8000,()=>productReport(tenantId,{range:'7d'})),8000,'performance').catch(()=>({available:false,...reportRange({range:'7d'}),currency:null,metrics:null,campaigns:[]}));
   if(report.available&&report.currency&&String(report.currency).toUpperCase()!=='TRY')return {available:false,source:'UNAVAILABLE',model:null,strategy:null,error:'Kampanya bütçesi önerisi şu anda TRY hesapları için destekleniyor.',requiresApproval:true,published:false,created:false};
   const accountDailyCap=Number(settings.geminiAdsDailyCap)||0;
   const budgetLimit=Math.min(requestedBudget,Number(settings.maxDailyBudget)||requestedBudget,accountDailyCap>0?accountDailyCap:requestedBudget);
@@ -221,7 +226,7 @@ export async function productStrategy(tenantId,input={}, {actorId='',request=nul
     profile:{businessName,industry,goal:'WhatsApp mesajı',media},locationMode,locations,budgetLimit,accountDailyCap,
     timezone:config.timezone,memoryOutcomeCount:memory.outcomeCount,reportAvailable:report.available,
     performance:{available:report.available,period:{since:report.since,until:report.until},currency:report.currency||null,metrics:report.available?report.metrics:null,campaigns:report.campaigns.slice(0,20)},
-    memoryContext:context
+    memoryContext:context,overallTimeoutMs:Math.max(1,remainingMs(40000)-500)
   },{request});
   if(result.available)await addLog(tenantId,{type:'AI_CAMPAIGN_STRATEGY_GENERATED',source:result.source,model:result.model,actorId,postId:selectedPostId,dailyBudget:result.strategy.budget.dailyBudget,requiresApproval:true});
   if(result.available&&accountDailyCap<=0)result.strategy.warnings.push('Reklamı etkinleştirmeden önce hesap günlük bütçe sınırını kaydedin.');

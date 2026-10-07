@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'dart:math';
 
 import 'api.dart';
 import 'app_error.dart';
@@ -26,6 +27,12 @@ class _SocialAdsPageState extends State<SocialAdsPage> {
   bool strategyLoading = false;
   bool canOperate = false;
   Map<String, dynamic>? strategyReport;
+  String? _adRequestId;
+  bool _created = false;
+  String? _adFailure;
+  String _accountScope = '';
+  bool _preflightLoading = false;
+  String? _preflightMessage;
 
   final campaignName =
       TextEditingController(text: 'WhatsApp müşteri kampanyası');
@@ -57,6 +64,9 @@ class _SocialAdsPageState extends State<SocialAdsPage> {
     try {
       final x = await Api.instagramMedia(limit: 50);
       final me = await Api.me();
+      if (!mounted) return;
+      _accountScope =
+          '${(me['tenant'] as Map?)?['id'] ?? ''}:${(me['user'] as Map?)?['id'] ?? ''}';
       canOperate = ['ADMIN', 'CUSTOMER_ADMIN', 'MANAGER', 'OPERATOR']
           .contains((me['user'] as Map?)?['role']);
       Map<String, dynamic> targeting = {};
@@ -248,7 +258,7 @@ class _SocialAdsPageState extends State<SocialAdsPage> {
   }
 
   Future<void> _createAd() async {
-    if (!canOperate || creating) return;
+    if (!canOperate || creating || _created) return;
     final post = selected;
     if (post == null) {
       _snack('Önce reklam vereceğin Instagram gönderisini seç.');
@@ -261,8 +271,30 @@ class _SocialAdsPageState extends State<SocialAdsPage> {
     }
 
     setState(() => creating = true);
+    _adRequestId ??= List.generate(
+            24,
+            (_) =>
+                Random.secure().nextInt(256).toRadixString(16).padLeft(2, '0'))
+        .join();
     try {
+      _adRequestId = await Api.stableAdRequestId(
+          _accountScope,
+          {
+            'media': post['id'],
+            'budget': dailyBudget,
+            'campaign': campaignName.text.trim(),
+            'adset': adSetName.text.trim(),
+            'ad': adName.text.trim(),
+            'activate': activateAd,
+            'mode': locationMode,
+            'locations': selectedLocations.toList()..sort(),
+          },
+          _adRequestId!);
+      if (!mounted) return;
+      // A resumed request checks provider prerequisites again on the server.
+      // Keeping the same key across UI retries prevents duplicate remote writes.
       final result = await Api.createAdFromInstagramPost(
+        requestId: _adRequestId!,
         instagramMediaId: post['id'].toString(),
         campaignName: campaignName.text.trim(),
         adSetName: adSetName.text.trim(),
@@ -273,6 +305,10 @@ class _SocialAdsPageState extends State<SocialAdsPage> {
         locations: selectedLocations.toList(),
       );
       if (!mounted) return;
+      setState(() {
+        creating = false;
+        _created = true;
+      });
       await showDialog<void>(
         context: context,
         builder: (ctx) => AlertDialog(
@@ -292,7 +328,10 @@ class _SocialAdsPageState extends State<SocialAdsPage> {
         ),
       );
     } catch (e) {
-      if (mounted) _snack(AppError.message(e));
+      if (mounted) {
+        setState(() => _adFailure = AppError.message(e));
+        _snack(_adFailure!);
+      }
     } finally {
       if (mounted) setState(() => creating = false);
     }
@@ -372,7 +411,9 @@ class _SocialAdsPageState extends State<SocialAdsPage> {
                               onStepTapped: creating
                                   ? null
                                   : (i) => setState(() => _step = i),
-                              onStepContinue: creating || !canOperate
+                              onStepContinue: creating ||
+                                      !canOperate ||
+                                      _created
                                   ? null
                                   : () {
                                       if (_step == 1 && selected == null) {
@@ -403,18 +444,57 @@ class _SocialAdsPageState extends State<SocialAdsPage> {
                                       spacing: 12,
                                       runSpacing: 8,
                                       children: [
+                                        if (_adRequestId != null)
+                                          OutlinedButton.icon(
+                                            onPressed: creating
+                                                ? null
+                                                : () async {
+                                                    try {
+                                                      final operation =
+                                                          await Api.adOperation(
+                                                              _adRequestId!);
+                                                      if (!mounted) return;
+                                                      if (operation['status'] ==
+                                                          'SUCCEEDED') {
+                                                        setState(() {
+                                                          _created = true;
+                                                          _adFailure = null;
+                                                        });
+                                                        _snack(
+                                                            'Reklam oluşturuldu.');
+                                                      } else {
+                                                        _snack(operation[
+                                                                    'status'] ==
+                                                                'RECONCILE'
+                                                            ? 'Meta sonucu belirsiz. Yeni reklam oluşturmadan önce Meta kayıtlarını kontrol edin.'
+                                                            : 'İşlem durumu: ${operation['status']}');
+                                                      }
+                                                    } catch (e) {
+                                                      if (mounted)
+                                                        _snack(AppError.message(
+                                                            e));
+                                                    }
+                                                  },
+                                            icon: const Icon(Icons.sync),
+                                            label: const Text(
+                                                'İşlem durumunu kontrol et'),
+                                          ),
+                                        if (_adFailure != null)
+                                          Text(_adFailure!),
                                         FilledButton.icon(
                                             onPressed: details.onStepContinue,
                                             icon: Icon(_step == 4
                                                 ? Icons.check
                                                 : Icons.arrow_forward),
-                                            label: Text(creating
-                                                ? 'Oluşturuluyor…'
-                                                : _step == 4
-                                                    ? activateAd
-                                                        ? 'Onayla ve yayınla'
-                                                        : 'Onayla ve reklamı oluştur'
-                                                    : 'Devam et')),
+                                            label: Text(_created
+                                                ? 'Reklam oluşturuldu'
+                                                : creating
+                                                    ? 'Oluşturuluyor…'
+                                                    : _step == 4
+                                                        ? activateAd
+                                                            ? 'Onayla ve yayınla'
+                                                            : 'Onayla ve reklamı oluştur'
+                                                        : 'Devam et')),
                                         if (_step > 0)
                                           TextButton(
                                               onPressed: details.onStepCancel,
@@ -652,7 +732,10 @@ class _SocialAdsPageState extends State<SocialAdsPage> {
       _snack('Önce reklam için bir gönderi seç.');
       return;
     }
-    setState(() => strategyLoading = true);
+    setState(() {
+      strategyLoading = true;
+      strategyReport = null;
+    });
     try {
       final response = await Api.productStrategy({
         'instagramMediaId': selected!['id'],
@@ -668,8 +751,28 @@ class _SocialAdsPageState extends State<SocialAdsPage> {
               'available': false,
               'error': AppError.message(e)
             });
+    } finally {
+      if (mounted) setState(() => strategyLoading = false);
     }
-    if (mounted) setState(() => strategyLoading = false);
+  }
+
+  Future<void> _checkMeta() async {
+    if (_preflightLoading || creating || !canOperate) return;
+    setState(() {
+      _preflightLoading = true;
+      _preflightMessage = null;
+    });
+    try {
+      final result = await Api.adsPreflight();
+      if (mounted)
+        setState(() => _preflightMessage = result['ok'] == true
+            ? 'Meta bağlantıları doğrulandı. ${result['currency']} · ${result['timezone']} · WhatsApp'
+            : 'Meta bağlantısı doğrulanamadı.');
+    } catch (error) {
+      if (mounted) setState(() => _preflightMessage = AppError.message(error));
+    } finally {
+      if (mounted) setState(() => _preflightLoading = false);
+    }
   }
 
   Widget _strategyCard() {
@@ -687,6 +790,17 @@ class _SocialAdsPageState extends State<SocialAdsPage> {
     final schedule =
         strategy['schedule'] is Map ? strategy['schedule'] as Map : {};
     return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+      OutlinedButton.icon(
+          onPressed:
+              _preflightLoading || creating || !canOperate ? null : _checkMeta,
+          icon: const Icon(Icons.verified_user_outlined),
+          label: Text(_preflightLoading
+              ? 'Bağlantı kontrol ediliyor…'
+              : 'Meta bağlantısını kontrol et')),
+      if (_preflightMessage != null)
+        Padding(
+            padding: const EdgeInsets.symmetric(vertical: 12),
+            child: Text(_preflightMessage!)),
       const ProductInsightCard(
           title: 'Bir test planı hazırlayalım',
           body:

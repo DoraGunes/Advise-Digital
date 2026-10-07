@@ -9,13 +9,83 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'app_error.dart';
 import 'config.dart';
 
-class ApiException implements Exception {
+class ApiException implements Exception, UserFacingFailure {
   final int? statusCode;
   final String message;
   final String? details;
-  const ApiException(this.message, {this.statusCode, this.details});
+  final String? code;
+  final String? stage;
+  final String? correlationId;
+  final bool retryable;
+  const ApiException(this.message,
+      {this.statusCode,
+      this.details,
+      this.code,
+      this.stage,
+      this.correlationId,
+      this.retryable = false});
   @override
-  String toString() => AppError.message(message, statusCode: statusCode);
+  String get userMessage {
+    const known = {
+      'META_SESSION_EXPIRED':
+          'Meta bağlantısının süresi dolmuş. Bağlantılar ekranından yeniden bağlayın.',
+      'META_PERMISSION_DENIED':
+          'Meta reklam hesabı ve Sayfa yetkilerini kontrol edin.',
+      'META_RATE_LIMIT':
+          'Meta işlem sınırına ulaştı. Biraz sonra yeniden deneyin.',
+      'META_ACCOUNT_RESTRICTED':
+          'Meta reklam hesabı kısıtlı veya etkin değil. Hesap durumunu kontrol edin.',
+      'META_ACCOUNT_MISMATCH':
+          'Reklam hesabını Bağlantılar ekranından yeniden seçin.',
+      'META_WHATSAPP_MISSING':
+          'Önce Meta Sayfanıza WhatsApp numaranızı bağlayın.',
+      'META_INSTAGRAM_MISMATCH':
+          'Sayfaya bağlı Instagram hesabını yeniden seçin.',
+      'META_ASSETS_MISSING': 'Önce Sayfa ve Instagram hesabınızı bağlayın.',
+      'META_PAGE_UNAVAILABLE':
+          'Meta Sayfanızın erişimini ve yayın durumunu kontrol edin.',
+      'META_PREFLIGHT_UNAVAILABLE':
+          'Meta hesap bilgileri doğrulanamadı. Bağlantıyı kontrol edin.',
+      'META_CURRENCY_UNSUPPORTED':
+          'Bu reklam akışı TRY para birimindeki hesapları destekliyor.',
+      'META_REJECTED':
+          'Meta isteği kabul etmedi. Hesap, hedefleme ve WhatsApp bağlantısını kontrol edin.',
+      'AD_RECONCILE_REQUIRED':
+          'Meta sonucu belirsiz. Yeniden reklam oluşturmadan önce mevcut işlemi kontrol edin.',
+      'IDEMPOTENCY_CONFLICT':
+          'Reklam isteği değişmiş. Önce mevcut işlemin durumunu kontrol edin.',
+      'OPERATION_BUSY':
+          'Bu hesapta başka bir işlem devam ediyor. Biraz sonra yeniden deneyin.',
+      'ETIMEDOUT':
+          'İşlem zamanında tamamlanamadı. Mevcut işlem durumunu kontrol edip yeniden deneyin.',
+      'AD_CREATE_FAILED':
+          'Reklam isteği tamamlanamadı. Hesap ve bağlantı ayarlarını kontrol edin.',
+      'AD_LIMIT_REACHED': 'Paketinizin reklam limitine ulaşıldı.',
+      'META_MEDIA_MISMATCH':
+          'Seçilen Instagram gönderisi bağlı hesaba ait değil.',
+      'REQUEST_ID_REQUIRED':
+          'Güvenli reklam oluşturma için uygulamayı güncelleyin.',
+    };
+    final safe = known[code];
+    if (safe != null) {
+      const stages = {
+        'preflight': 'bağlantı kontrolü',
+        'campaign': 'kampanya',
+        'adset': 'reklam seti',
+        'creative': 'kreatif',
+        'ad': 'reklam',
+        'activation': 'etkinleştirme',
+        'strategy': 'AI önerisi',
+        'lock': 'hesap kilidi'
+      };
+      final label = stages[stage];
+      return label == null ? safe : '$safe (Adım: $label)';
+    }
+    return AppError.message(message, statusCode: statusCode);
+  }
+
+  @override
+  String toString() => userMessage;
 }
 
 class Api {
@@ -150,6 +220,7 @@ class Api {
     Map<String, String>? query,
     bool retry = true,
     bool includeAuth = true,
+    Duration? timeout,
   }) async {
     final base = await baseUrl();
     final uri = _uri(base, path, query);
@@ -173,7 +244,7 @@ class Api {
         case 'POST':
           response = await _client
               .post(uri, headers: headers, body: encodedBody)
-              .timeout(const Duration(seconds: 90));
+              .timeout(timeout ?? const Duration(seconds: 90));
           break;
         case 'PUT':
           response = await _client
@@ -206,7 +277,11 @@ class Api {
         authExpired.value = true;
       }
       throw ApiException(_error(data),
-          statusCode: response.statusCode, details: response.body);
+          statusCode: response.statusCode,
+          code: data is Map ? data['code']?.toString() : null,
+          stage: data is Map ? data['stage']?.toString() : null,
+          correlationId: data is Map ? data['correlationId']?.toString() : null,
+          retryable: data is Map && data['retryable'] == true);
     } on ApiException {
       rethrow;
     } on TimeoutException {
@@ -313,8 +388,9 @@ class Api {
       Map<String, dynamic> values) async {
     await _requireCapability('campaignStrategy',
         feature: 'AI kampanya önerisi');
-    return Map<String, dynamic>.from(
-        await _request('POST', '/api/product/strategy', body: values));
+    return Map<String, dynamic>.from(await _request(
+        'POST', '/api/product/strategy',
+        body: values, timeout: const Duration(seconds: 65)));
   }
 
   static Future<Map<String, dynamic>> productReport(
@@ -424,21 +500,51 @@ class Api {
     required String adSetName,
     required String adName,
     required double dailyBudget,
-    bool activate = true,
+    bool activate = false,
+    required String requestId,
     String locationMode = 'COUNTRY',
     List<String> locations = const [],
-  }) async =>
-      Map<String, dynamic>.from(
-          await _request('POST', '/api/ads/create', body: {
-        'instagramMediaId': instagramMediaId,
-        'campaignName': campaignName,
-        'adSetName': adSetName,
-        'adName': adName,
-        'dailyBudget': dailyBudget,
-        'activate': activate,
-        'locationMode': locationMode,
-        'locations': locations,
-      }));
+  }) async {
+    await _requireCapability('adCreateSaga',
+        feature: 'Güvenli reklam oluşturma');
+    return Map<String, dynamic>.from(
+        await _request('POST', '/api/ads/create', body: {
+      'requestId': requestId,
+      'instagramMediaId': instagramMediaId,
+      'campaignName': campaignName,
+      'adSetName': adSetName,
+      'adName': adName,
+      'dailyBudget': dailyBudget,
+      'activate': activate,
+      'locationMode': locationMode,
+      'locations': locations,
+    }));
+  }
+
+  static Future<Map<String, dynamic>> adsPreflight() async {
+    await _requireCapability('adsPreflight', feature: 'Meta bağlantı kontrolü');
+    return Map<String, dynamic>.from(
+        await _request('GET', '/api/ads/preflight', retry: false));
+  }
+
+  static Future<Map<String, dynamic>> adOperation(String requestId) async =>
+      Map<String, dynamic>.from(await _request(
+          'GET', '/api/ads/operations/$requestId',
+          retry: false));
+
+  static Future<String> stableAdRequestId(String accountScope,
+      Map<String, dynamic> payload, String candidate) async {
+    if (accountScope.isEmpty)
+      throw const ApiException(
+          'Hesap bilgisi doğrulanamadı. Ekranı yenileyin.');
+    final identity = jsonEncode([await baseUrl(), accountScope, payload]);
+    final key = 'adCreateRequest:${base64Url.encode(utf8.encode(identity))}';
+    final prefs = await _prefs();
+    final stored = prefs.getString(key);
+    if (stored != null) return stored;
+    await prefs.setString(key, candidate);
+    return candidate;
+  }
 
   static Future<Map<String, dynamic>> insights(String id) async {
     final data = await _request('GET', '/api/insights/$id');
