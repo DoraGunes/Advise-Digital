@@ -1,7 +1,17 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-process.env.GEMINI_API_KEY='';
+Object.assign(process.env,{
+  DOTENV_CONFIG_PATH:'/tmp/advise-campaign-ai-missing.env',
+  JWT_SECRET:'campaign-ai-test-secret',
+  ADMIN_USERNAME:'campaign-ai-test-admin',
+  ADMIN_PASSWORD:'campaign-ai-test-password',
+  GEMINI_API_KEY:'',
+  GOOGLE_API_KEY:'',
+  ADVISE_NO_LISTEN:'true',
+  CRON_ENABLED:'false',
+  NODE_ENV:'test'
+});
 const ai=await import('../src/ai.js');
 
 test('campaign AI returns structured recommendation and legacy aliases',()=>{
