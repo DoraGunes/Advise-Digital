@@ -240,11 +240,13 @@ export async function generateCampaignStrategy(input={}, {request=null}={}) {
     });
   } catch (error) {
     const failure=safeGeminiError(error);
-    const failureStage=failure.category==='INVALID_OUTPUT'
+    const failureStage=failure.code==='INVALID_JSON_OUTPUT'
       ? 'STRUCTURED_PARSE'
       : failure.category==='REQUEST_VALIDATION_ERROR'||failure.code==='INCOMPLETE'||failure.code==='INTERACTION_NOT_COMPLETED'
         ? 'GEMINI_GENERATION'
-        : 'GEMINI_CONNECTION';
+        : failure.category==='INVALID_OUTPUT'
+          ? 'STRUCTURED_PARSE'
+          : 'GEMINI_CONNECTION';
     return unavailable(failure.message,{errorCategory:failure.category,errorStatus:failure.status,failureStage,providerSucceeded:false});
   }
 
