@@ -1174,6 +1174,25 @@ class _AiContentStudioPageState extends State<AiContentStudioPage> {
                           result!['creativeScore']?.toString() ?? ''),
                       _resultBox(
                           'AI güveni', result!['confidence']?.toString() ?? ''),
+                      if (result!['decisionMeta'] is Map) ...[
+                        _resultBox(
+                            'Üretim kaynağı',
+                            ((result!['decisionMeta'] as Map)['source'] ?? source)
+                                .toString()),
+                        _resultBox(
+                            'Kullanılan hafıza örneği',
+                            '${(result!['decisionMeta'] as Map)['memoryExamplesUsed'] ?? 0} / 5'),
+                        _resultBox(
+                            'Stil neden seçildi?',
+                            ((result!['decisionMeta'] as Map)['styleReason'] ?? '')
+                                .toString()),
+                        _resultBox(
+                            'Saat güveni',
+                            (result!['decisionMeta'] as Map)['timingConfidence']
+                                    is Map
+                                ? '${((result!['decisionMeta'] as Map)['timingConfidence'] as Map)['label'] ?? 'NONE'} • örnek: ${(result!['decisionMeta'] as Map)['timingSampleSize'] ?? 0}'
+                                : 'NONE'),
+                      ],
                       _resultBox(
                           'Hashtag stratejisi',
                           result!['hashtagStrategy'] is Map

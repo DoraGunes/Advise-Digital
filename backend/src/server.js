@@ -612,13 +612,35 @@ app.post('/api/ai/hashtags', async (req, res) => {
     }));
   } catch(e) { res.status(400).json({error:e.message}); }
 });
+async function enrichStudioDecision(tenantId,result,mediaType='AUTO') {
+  let timing={recommended:null,sampleSize:0,confidence:{score:0,label:'NONE'},freshness:'UNKNOWN',reason:'Bu tenant ve format için ölçülmüş performans örneği henüz yok.'};
+  try { timing=await recommendPublishTime(tenantId,{mode:'ORGANIC',mediaType:result?.recommendedFormat||mediaType}); } catch {}
+  const next={...result};
+  if(timing?.recommended&&Number.isInteger(Number(timing.recommended.hour))) {
+    const hour=String(Number(timing.recommended.hour)).padStart(2,'0');
+    next.recommendedPostTime=hour+':00';
+    next.recommendedPublishTime=hour+':00';
+    next.recommendedPostTimeReason=timing.reason;
+  }
+  next.decisionMeta={
+    ...(result?.decisionMeta||{}),
+    timingReason:next.recommendedPostTimeReason||timing.reason||'',
+    timingSource:timing?.recommended?'TENANT_PERFORMANCE_MEMORY':'GENERATION_HYPOTHESIS',
+    timingSampleSize:Number(timing?.sampleSize||0),
+    timingConfidence:timing?.confidence||{score:0,label:'NONE'},
+    timingFreshness:timing?.freshness||'UNKNOWN'
+  };
+  return next;
+}
+
 app.post('/api/ai/content-pack', async (req, res) => {
   try {
     const settings=await getSettings(req.user.tenantId);
     if(settings.aiEnabled===false) return res.json({source:'DISABLED',message:'AI modu kapalı.',recommendedFormat:String(req.body?.mediaType||'IMAGE').toUpperCase()==='VIDEO'?'REELS':'POST'});
     const history=await getLogs(req.user.tenantId, 20);
     const posts=await getPosts(req.user.tenantId);
-    const result=await generateContentPack({...req.body, tone:req.body?.tone||settings.aiTone, goal:'WhatsApp mesajı', adTargeting:adTargetingPrompt(settings), language:req.body?.language||settings.aiLanguage, timezone:config.timezone, tenantId:req.user.tenantId, history, businessName:req.tenant?.companyName || req.tenant?.name || '', locations:settings.adTargetingLocations, recentHashtagSets:recentHashtagSets(posts)});
+    const generated=await generateContentPack({...req.body, tone:req.body?.tone||settings.aiTone, goal:'WhatsApp mesajı', adTargeting:adTargetingPrompt(settings), language:req.body?.language||settings.aiLanguage, timezone:config.timezone, tenantId:req.user.tenantId, history, businessName:req.tenant?.companyName || req.tenant?.name || '', locations:settings.adTargetingLocations, recentHashtagSets:recentHashtagSets(posts)});
+    const result=await enrichStudioDecision(req.user.tenantId,generated,req.body?.mediaType||'AUTO');
     await addLog(req.user.tenantId,{type:'AI_CONTENT_GENERATED',source:result.source,mediaType:req.body?.mediaType||'AUTO'});
     const generation = ['GEMINI','GEMINI_REGENERATED'].includes(result.source)
       ? await learnFromGeneration(req.user.tenantId, result, {postId: String(req.body?.postId || '').trim(), mediaType: req.body?.mediaType || 'AUTO'})
@@ -672,7 +694,7 @@ app.post('/api/ai/content-pack-from-file', upload.single('image'), async (req, r
       hasImageDataUrl: Boolean(imageDataUrl)
     });
 
-    const result = await generateContentPack({
+    const generated = await generateContentPack({
       title: req.body?.title || req.file.originalname,
       context: req.body?.context || '',
       tone: req.body?.tone || settings.aiTone,
@@ -695,7 +717,8 @@ app.post('/api/ai/content-pack-from-file', upload.single('image'), async (req, r
       mediaNote: kind === 'VIDEO'
         ? 'Video Gemini tarafından içerik, sahne ve görünen bilgiler açısından analiz edilecek.'
         : visionMime ? '' : 'Görsel dosyası kabul edildi; Gemini uygun medya tipini mümkün olduğunca kendisi analiz eder.'
-    });
+    })
+    const result = await enrichStudioDecision(req.user.tenantId, generated, req.body?.mediaType || (kind === 'VIDEO' ? 'REELS' : 'AUTO'));;
 
     if (!['GEMINI','GEMINI_REGENERATED'].includes(result.source)) {
       console.error('[AI MEDIA NOT GEMINI]', result.source, result.error || 'Gemini anahtarı/çağrısı kullanılamadı.');
