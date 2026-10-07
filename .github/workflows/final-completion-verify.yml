@@ -34,7 +34,7 @@ jobs:
       - run: node --check src/optimizer.js
       - run: node --check src/ai.js
       - run: node --check src/server.js
-      - run: node --test test/hashtag-strategy.test.js test/content-quality.test.js test/content-memory.test.js test/performance-memory.test.js
+      - run: node --test test/hashtag-strategy.test.js test/content-quality.test.js test/content-memory.test.js test/performance-memory.test.js test/campaign-ai.test.js test/memory-scale.test.js
 
   flutter-phase:
     name: Flutter targeted verification
