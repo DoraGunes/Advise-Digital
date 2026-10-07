@@ -376,6 +376,37 @@ class _ContentQueuePageState extends State<ContentQueuePage> {
     }
   }
 
+  Future<void> _cancelQueue(Map<String, dynamic> post) async {
+    if (!_editable(post) || _loading) return;
+    final accepted = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Planlamayı iptal et'),
+        content: const Text(
+            'İçerik silinmeyecek; yalnız otomatik yayın kuyruğundan çıkarılıp taslak durumuna alınacak.'),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.pop(ctx, false),
+              child: const Text('VAZGEÇ')),
+          FilledButton(
+              onPressed: () => Navigator.pop(ctx, true),
+              child: const Text('PLANLAMAYI İPTAL ET'))
+        ],
+      ),
+    );
+    if (accepted != true) return;
+    setState(() => _loading = true);
+    try {
+      await Api.cancelQueuedPost(post['id'].toString());
+      await _loadQueue();
+      if (mounted) _snack('Planlama iptal edildi. İçerik taslakta kaldı.');
+    } catch (e) {
+      if (mounted) _snack(AppError.message(e));
+    } finally {
+      if (mounted) setState(() => _loading = false);
+    }
+  }
+
   Future<void> _moveQueued(Map<String, dynamic> post, int delta) async {
     if (!_editable(post) || _loading) return;
     final pending = _queued
@@ -587,6 +618,11 @@ class _ContentQueuePageState extends State<ContentQueuePage> {
                       : status == 'ERROR'
                           ? 'Tekrar planla'
                           : 'Saat seç')),
+            if (canEdit && isQueued)
+              OutlinedButton.icon(
+                  onPressed: _loading ? null : () => _cancelQueue(post),
+                  icon: const Icon(Icons.event_busy_outlined, size: 18),
+                  label: const Text('Planı iptal et')),
             if (canEdit && isQueued && queuedIndex > 0)
               IconButton.filledTonal(
                   onPressed: _loading ? null : () => _moveQueued(post, -1),

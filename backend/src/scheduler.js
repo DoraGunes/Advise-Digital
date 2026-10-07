@@ -10,12 +10,40 @@ import path from 'node:path';
 import {withTenantLock} from './persistence.js';
 import {tenantCredentials,metaReady,budgetGuard,withAdAccountLock} from './automation-safety.js';
 
+const PUBLISH_RETRY_STALE_MS=10*60*1000;
+
 function localParts(date=new Date()) {
   const parts=new Intl.DateTimeFormat('en-GB',{timeZone:config.timezone,weekday:'short',hour:'2-digit',minute:'2-digit',hour12:false}).formatToParts(date);
   const get=t=>parts.find(x=>x.type===t)?.value;
   const map={Mon:1,Tue:2,Wed:3,Thu:4,Fri:5,Sat:6,Sun:7};
   return {day:map[get('weekday')],hour:Number(get('hour')),minute:Number(get('minute'))};
 }
+export function schedulerLocalParts(date=new Date()) { return localParts(date); }
+
+export function publicationRetryGate(post={},now=Date.now()) {
+  if(String(post.publishStatus||'').toUpperCase()!=='PUBLISHING')return {blocked:false};
+  const phase=String(post.publishPhase||'').toUpperCase();
+  if(['SUBMITTING','RECONCILE'].includes(phase)||post.instagramContainerId)return {blocked:false};
+  const started=Date.parse(post.publishStartedAt||'');
+  if(!Number.isFinite(started))return {blocked:false};
+  const age=Math.max(0,Number(now)-started);
+  return age<PUBLISH_RETRY_STALE_MS
+    ? {blocked:true,retryAfterMs:PUBLISH_RETRY_STALE_MS-age,reason:'publish still inside stale-guard window'}
+    : {blocked:false};
+}
+
+export function cancelScheduledPostState(post={}) {
+  const status=String(post.publishStatus||'').toUpperCase();
+  if(!['QUEUED','RETRY','READY'].includes(status))throw new Error('Yalnız bekleyen veya hazır içeriklerin planı iptal edilebilir.');
+  post.publishStatus='MANUAL';
+  post.autoPublish=false;
+  post.nextPublishAt=null;
+  post.selectedTime=null;
+  post.publishError='';
+  post.updatedAt=new Date().toISOString();
+  return post;
+}
+
 function weekKey(date=new Date()) {
   const p=localParts(date);
   const d=new Intl.DateTimeFormat('en-CA',{timeZone:config.timezone,year:'numeric',month:'2-digit',day:'2-digit'}).format(date);
@@ -156,6 +184,8 @@ export async function publishPost(tenantId,postId,{manual=false}={}) {
     const post=posts.find(row=>row.id===postId);
     if(!post) throw new Error('İçerik bulunamadı.');
     if(post.publishStatus==='PUBLISHED') return post;
+    const retryGate=publicationRetryGate(post);
+    if(retryGate.blocked) throw Object.assign(new Error('Yayın işlemi kısa süre önce başladı. Çift paylaşımı önlemek için yeniden deneme bekletildi.'),{code:'PUBLISH_IN_PROGRESS',retryAfterMs:retryGate.retryAfterMs});
     const tenant=await getTenant(tenantId);
     const credentials=tenantCredentials(tenantId,tenant);
     if(!/^https:\/\//i.test(String(post.publicUrl||''))) throw new Error('Instagram paylaşımı için medya HTTPS üzerinden erişilebilir olmalı.');

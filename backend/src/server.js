@@ -18,7 +18,7 @@ import {
 import {getCampaigns, getAdSets, getAds, insights, setStatus, updateAdSetBudget, metaHealth, getInstagramMedia, createCampaign, createAdSet, createAdCreativeFromInstagramMedia, createAd, resolveAdGeoTargeting,resolveCredentials,adsPreflight} from './meta.js';
 import {AD_CITIES, AD_REGIONS, provinceNamesForTargeting} from './ad-targeting.js';
 import {optimizeAds} from './optimizer.js';
-import {startScheduler, scheduleUploadedPost, scheduleUploadedPosts, publishDuePosts,publishPost} from './scheduler.js';
+import {startScheduler, scheduleUploadedPost, scheduleUploadedPosts, publishDuePosts,publishPost,cancelScheduledPostState} from './scheduler.js';
 import {analyticsSummary, aiInsights, billingSummary, brandingSummary, saveBranding, notificationPrefs, saveNotificationPrefs, securityOverview, planCatalog, adminOverview} from './v78.js';
 import {dbHealth} from './db.js';
 import {aiAdvisor, performanceSummary, getAlerts, createAlert, markAlert, getLeads, createLead, updateLead, deleteLead, analyzeCreative, getCreatives, simulateBudget, createExperiment, getExperiments, updateExperiment, buildUtm, reportPack, agencyOverview} from './pro.js';
@@ -1046,6 +1046,20 @@ app.post('/api/posts/:id/queue', async (req, res) => {
     await addLog(tenantId, {type:'POST_QUEUED',postId:post.id,nextPublishAt:post.nextPublishAt});
     res.json(post);
   } catch (e) { res.status(400).json({error:e.message}); }
+});
+
+app.post('/api/posts/:id/cancel-queue', async (req, res) => {
+  try {
+    const tenantId=req.user.tenantId;
+    const posts=await getPosts(tenantId);
+    const post=posts.find(x=>x.id===req.params.id);
+    if(!post)return res.status(404).json({error:'İçerik bulunamadı.'});
+    if(postPublicationProtected(post))return res.status(409).json({error:'Yayınlanmış veya yayın sonucu beklenen içeriklerin planı iptal edilemez.'});
+    cancelScheduledPostState(post);
+    await savePosts(tenantId,posts);
+    await addLog(tenantId,{type:'POST_QUEUE_CANCELLED',postId:post.id,actorId:req.user.id});
+    res.json(post);
+  } catch(e) { res.status(400).json({error:e.message}); }
 });
 
 app.post('/api/posts/reorder', async (req, res) => {

@@ -621,6 +621,10 @@ class Api {
         body: scheduleAt.isEmpty ? {} : {'scheduleAt': scheduleAt}));
   }
 
+  static Future<Map<String, dynamic>> cancelQueuedPost(String id) async =>
+      Map<String, dynamic>.from(
+          await _request('POST', '/api/posts/$id/cancel-queue'));
+
   static Future<List<dynamic>> reorderQueuedPosts(List<String> postIds) async =>
       List<dynamic>.from((await _request('POST', '/api/posts/reorder',
               body: {'postIds': postIds}))['data'] ??
