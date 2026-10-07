@@ -1,0 +1,49 @@
+name: AdVise Final Completion Verify
+
+on:
+  push:
+    branches:
+      - wip/advise-final-completion-2026-10-07
+
+permissions:
+  contents: read
+
+concurrency:
+  group: advise-final-completion-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  backend-phase:
+    name: Backend targeted verification
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: backend/package-lock.json
+      - run: npm ci
+      - run: node --check src/hashtag-strategy.js
+      - run: node --check src/ai.js
+      - run: node --check src/server.js
+      - run: node --test test/hashtag-strategy.test.js test/content-quality.test.js
+
+  flutter-phase:
+    name: Flutter targeted verification
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: mobile
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+      - run: flutter pub get
+      - run: flutter analyze
+      - run: flutter test test/widget_test.dart test/product_regression_test.dart

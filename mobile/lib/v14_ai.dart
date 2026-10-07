@@ -26,8 +26,10 @@ class _AiContentStudioPageState extends State<AiContentStudioPage> {
   String tone = '';
   String goal = '';
   String media = 'AUTO';
+  String hashtagMode = 'BALANCED';
 
   bool loading = false;
+  bool hashtagLoading = false;
   bool variantsLoading = false;
   bool scoreLoading = false;
   bool draftSaving = false;
@@ -169,6 +171,8 @@ class _AiContentStudioPageState extends State<AiContentStudioPage> {
               tone: tone,
               goal: goal,
               mediaType: media,
+              hashtagMode: hashtagMode,
+              contentUse: 'ORGANIC',
             )
           : await Api.generateContentPack(
               title: title.text,
@@ -176,6 +180,8 @@ class _AiContentStudioPageState extends State<AiContentStudioPage> {
               tone: tone,
               goal: goal,
               mediaType: media,
+              hashtagMode: hashtagMode,
+              contentUse: 'ORGANIC',
             );
 
       if (!mounted) return;
@@ -188,7 +194,13 @@ class _AiContentStudioPageState extends State<AiContentStudioPage> {
         data['cta']?.toString() ?? '',
         data['hashtags'] is List ? (data['hashtags'] as List).join(' ') : '',
       ].where((part) => part.trim().isNotEmpty).join('\n\n');
-      setState(() => result = data);
+      final strategy = data['hashtagStrategy'];
+      setState(() {
+        result = data;
+        if (strategy is Map && strategy['mode'] != null) {
+          hashtagMode = strategy['mode'].toString().toUpperCase();
+        }
+      });
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(
@@ -208,6 +220,83 @@ class _AiContentStudioPageState extends State<AiContentStudioPage> {
       }
     } finally {
       if (mounted) setState(() => loading = false);
+    }
+  }
+
+  String _replaceHashtagsInDraft(String oldTags, String newTags) {
+    final draft = captionDraft.text;
+    if (oldTags.isNotEmpty) {
+      final index = draft.lastIndexOf(oldTags);
+      if (index >= 0) {
+        final before = draft.substring(0, index).trimRight();
+        final after = draft.substring(index + oldTags.length).trim();
+        return [before, newTags, after]
+            .where((part) => part.trim().isNotEmpty)
+            .join('\n\n');
+      }
+    }
+    return [draft.trimRight(), newTags]
+        .where((part) => part.trim().isNotEmpty)
+        .join('\n\n');
+  }
+
+  Future<bool> _applyHashtagMode(String mode,
+      {String contentUse = 'ORGANIC', bool silent = false}) async {
+    final normalizedMode = mode.toUpperCase();
+    if (result == null) {
+      if (mounted) setState(() => hashtagMode = normalizedMode);
+      return true;
+    }
+    if (hashtagLoading || !_canOperate || _publishPending) return false;
+    final oldTags = hashtagsFromResult;
+    setState(() => hashtagLoading = true);
+    try {
+      final rawCandidates = result!['hashtagCandidates'] is List
+          ? List<dynamic>.from(result!['hashtagCandidates'])
+          : result!['hashtags'] is List
+              ? List<dynamic>.from(result!['hashtags'])
+              : <dynamic>[];
+      final data = await Api.applyHashtagStrategy(
+        candidates: rawCandidates,
+        mode: normalizedMode,
+        contentUse: contentUse,
+        title: result!['productName']?.toString() ?? title.text,
+        context: [
+          contextText.text,
+          result!['detectedText']?.toString() ?? '',
+          result!['visualSummary']?.toString() ?? '',
+        ].where((value) => value.trim().isNotEmpty).join(' | '),
+        industry: result!['industry']?.toString() ?? '',
+        productCategory: result!['productCategory']?.toString() ?? '',
+        brand: result!['brand']?.toString() ?? '',
+      );
+      if (!mounted) return false;
+      final nextTags =
+          data['hashtags'] is List ? (data['hashtags'] as List).join(' ') : '';
+      captionDraft.text = _replaceHashtagsInDraft(oldTags, nextTags);
+      setState(() {
+        hashtagMode = data['mode']?.toString().toUpperCase() ?? normalizedMode;
+        result = {
+          ...?result,
+          'hashtags': data['hashtags'] ?? const [],
+          'hashtagCandidates': data['candidates'] ?? rawCandidates,
+          'hashtagStrategy': data,
+        };
+      });
+      if (!silent) {
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+            content: Text(
+                'Hashtag stratejisi AdVise tarafından yeniden uygulandı. Yeni Gemini çağrısı yapılmadı.')));
+      }
+      return true;
+    } catch (e) {
+      if (mounted && !silent) {
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text(AppError.message(e))));
+      }
+      return false;
+    } finally {
+      if (mounted) setState(() => hashtagLoading = false);
     }
   }
 
@@ -397,6 +486,9 @@ class _AiContentStudioPageState extends State<AiContentStudioPage> {
       return;
     }
 
+    final strategyReady = await _applyHashtagMode(hashtagMode,
+        contentUse: openAd ? 'PAID' : 'ORGANIC', silent: true);
+    if (!strategyReady || !mounted) return;
     setState(() => draftSaving = true);
     try {
       await _storeDraft();
@@ -916,6 +1008,29 @@ class _AiContentStudioPageState extends State<AiContentStudioPage> {
                   ),
                 ),
                 const SizedBox(height: 12),
+                DropdownButtonFormField<String>(
+                  value: hashtagMode,
+                  decoration: const InputDecoration(
+                    labelText: 'Hashtag stratejisi',
+                    prefixIcon: Icon(Icons.tag_rounded),
+                  ),
+                  items: const [
+                    DropdownMenuItem(value: 'MINIMAL', child: Text('Minimal')),
+                    DropdownMenuItem(value: 'BALANCED', child: Text('Balanced')),
+                    DropdownMenuItem(value: 'DISCOVERY', child: Text('Discovery')),
+                  ],
+                  onChanged: hashtagLoading || loading || !_canOperate
+                      ? null
+                      : (value) {
+                          if (value != null) _applyHashtagMode(value);
+                        },
+                ),
+                const SizedBox(height: 6),
+                Text(
+                  'Organic içerikte kalite öncelikli; reklama dönüştürürken paid kuralları otomatik uygulanır.',
+                  style: Theme.of(context).textTheme.bodySmall,
+                ),
+                const SizedBox(height: 12),
                 SizedBox(
                   width: double.infinity,
                   child: FilledButton.icon(
@@ -1059,6 +1174,11 @@ class _AiContentStudioPageState extends State<AiContentStudioPage> {
                           result!['creativeScore']?.toString() ?? ''),
                       _resultBox(
                           'AI güveni', result!['confidence']?.toString() ?? ''),
+                      _resultBox(
+                          'Hashtag stratejisi',
+                          result!['hashtagStrategy'] is Map
+                              ? '${(result!['hashtagStrategy'] as Map)['mode'] ?? hashtagMode} • ${(result!['hashtagStrategy'] as Map)['contentUse'] ?? 'ORGANIC'} • ${result!['hashtags'] is List ? (result!['hashtags'] as List).length : 0} etiket'
+                              : hashtagMode),
                     ],
                   ),
                   Row(

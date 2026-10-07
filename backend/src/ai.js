@@ -5,6 +5,7 @@ import fs from 'node:fs/promises';
 import {buildMemoryContext} from './ai-memory.js';
 import {randomUUID, createHash} from 'node:crypto';
 import {STYLE_SCHEMA, ALTERNATIVE_SCHEMA, validateContentQuality} from './content-quality.js';
+import {buildHashtagStrategy, normalizeHashtagMode, normalizeHashtagUse} from './hashtag-strategy.js';
 
 const MODEL = process.env.GEMINI_MODEL || config.aiModel || 'gemini-3.8-flash';
 const FALLBACK_MODEL = process.env.GEMINI_FALLBACK_MODEL || 'gemini-3.7-flash';
@@ -225,6 +226,14 @@ function localPack(input={}) {
   var whatsappGoal = isWhatsAppGoal(input.goal);
   var mediaType = String(input.mediaType || 'AUTO').toUpperCase();
   var format = ['REELS', 'VIDEO'].includes(mediaType) ? 'REELS' : 'POST';
+  const hashtagStrategy = buildHashtagStrategy({
+    candidates: [],
+    mode: input.hashtagMode,
+    contentUse: input.contentUse,
+    title, context, industry: input.industry, productCategory: input.productCategory, brand: input.brand,
+    businessName: input.businessName, locations: input.locations, competitors: input.competitors,
+    competitorHashtags: input.competitorHashtags, bannedHashtags: input.bannedHashtags, recentHashtagSets: input.recentHashtagSets
+  });
   return {
     source: 'LOCAL_FALLBACK',
     providerModel: null,
@@ -241,7 +250,9 @@ function localPack(input={}) {
     caption: title + ' için net ve doğal bir içerik.' + (context ? ' ' + context : '') + (whatsappGoal ? ' Detaylı bilgi için WhatsApp üzerinden bize ulaşabilirsin.' : ' Detaylı bilgi için mesaj gönderebilirsin.'),
     cta: whatsappGoal ? 'WhatsApp üzerinden bize yazın.' : 'Detaylı bilgi için mesaj gönder.',
     contactChannel: whatsappGoal ? 'WHATSAPP' : '',
-    hashtags: ['#AdViseAI', '#instagram', '#sosyalmedya', '#reklam'],
+    hashtags: hashtagStrategy.hashtags,
+    hashtagCandidates: hashtagStrategy.candidates,
+    hashtagStrategy,
     recommendedFormat: format,
     recommendedPostTime: '19:00',
     recommendedPostTimeReason: 'AI yanıtı alınamadığı için genel bir öneri kullanıldı.',
@@ -260,6 +271,13 @@ function normalizePack(raw, input={}, model=MODEL) {
   var pack = raw && typeof raw === 'object' ? raw : {};
   var format = String(pack.recommendedFormat || '').toUpperCase();
   var whatsappGoal = isWhatsAppGoal(input.goal);
+  const hashtagStrategy = buildHashtagStrategy({
+    candidates: pack.hashtags, mode: input.hashtagMode, contentUse: input.contentUse,
+    title: input.title, context: input.context, industry: clean(pack.industry, 100) || input.industry,
+    productCategory: clean(pack.productCategory, 100) || input.productCategory, brand: clean(pack.brand, 100) || input.brand,
+    businessName: input.businessName, locations: input.locations, competitors: input.competitors,
+    competitorHashtags: input.competitorHashtags, bannedHashtags: input.bannedHashtags, recentHashtagSets: input.recentHashtagSets
+  });
   return {
     source: 'GEMINI',
     providerModel: model,
@@ -279,7 +297,9 @@ function normalizePack(raw, input={}, model=MODEL) {
     hookType: clean(pack.hookType, 120) || fallback.hookType,
     caption: clean(pack.caption, 2200) || fallback.caption,
     cta: whatsappGoal ? whatsappCta(pack.cta) : clean(pack.cta, 300) || fallback.cta,
-    hashtags: safeHashtags(pack.hashtags).length ? safeHashtags(pack.hashtags) : fallback.hashtags,
+    hashtags: hashtagStrategy.hashtags,
+    hashtagCandidates: hashtagStrategy.candidates,
+    hashtagStrategy,
     recommendedFormat: ['POST', 'REELS', 'CAROUSEL'].includes(format) ? format : fallback.recommendedFormat,
     recommendedPostTime: clean(pack.recommendedPostTime, 100) || fallback.recommendedPostTime,
     recommendedPostTimeReason: clean(pack.recommendedPostTimeReason, 500) || fallback.recommendedPostTimeReason,
@@ -471,7 +491,14 @@ export async function generateContentPack(input={}, {request=null}={}) {
     hook: clean(input.hook, 300),
     tenantId: clean(input.tenantId, 120),
     verifiedFacts: Array.isArray(input.verifiedFacts)?input.verifiedFacts.slice(0,20).map(x=>clean(x,200)):[],
-    memoryExamples: Array.isArray(input.memoryExamples)?input.memoryExamples.slice(0,5).map(x=>({caption:clean(x?.caption,2200)})):[]
+    memoryExamples: Array.isArray(input.memoryExamples)?input.memoryExamples.slice(0,5).map(x=>({caption:clean(x?.caption,2200)})):[],
+    hashtagMode: normalizeHashtagMode(input.hashtagMode), contentUse: normalizeHashtagUse(input.contentUse),
+    businessName: clean(input.businessName, 160),
+    locations: Array.isArray(input.locations)?input.locations.slice(0,81).map(x=>clean(x,80)).filter(Boolean):[],
+    competitors: Array.isArray(input.competitors)?input.competitors.slice(0,30).map(x=>clean(x,100)).filter(Boolean):[],
+    competitorHashtags: Array.isArray(input.competitorHashtags)?input.competitorHashtags.slice(0,60).map(x=>clean(x,80)).filter(Boolean):[],
+    bannedHashtags: Array.isArray(input.bannedHashtags)?input.bannedHashtags.slice(0,100).map(x=>clean(x,80)).filter(Boolean):[],
+    recentHashtagSets: Array.isArray(input.recentHashtagSets)?input.recentHashtagSets.slice(-20).filter(Array.isArray):[]
   };
   const fallback=(failure={})=>finish({...localPack(safe),source:'FALLBACK',fallbackKind:'ADVISE_TEMPLATE',headline:safe.title||'İçerik taslağı',primaryText:localPack(safe).caption,description:'Medya analizi doğrulanamadı; yayın öncesi düzenleyin.',visualAngle:'Medya analizi kullanılamıyor.',recommendedPublishTime:null,styleRecipe:null,rationaleSummary:'Gemini çıktısı doğrulanamadı; genel taslak hazırlandı.',alternatives:[],...failure});
   if (!request&&!String(process.env.GEMINI_API_KEY || '').trim()) return fallback({errorCategory:'UNCONFIGURED'});
@@ -490,6 +517,7 @@ export async function generateContentPack(input={}, {request=null}={}) {
     'Marka/model/yazılar görünüyorsa mümkün olduğunca doğru çıkar.',
     'Ürünün sektörünü ve ürün kategorisini tanımla; emin değilsen tahminini kısa ve temkinli yaz.',
     'Ton, format, amaç ve içerik açısını AI kendi seçsin.',
+    'Hashtags alanında yalnız bağlama uygun adaylar üret. Final hashtag seçimi, filtreleme ve sayısı AdVise Hashtag Strategy Engine tarafından belirlenecek; sırf sayıyı doldurmak için etiket ekleme.',
     'Hook görsele özel, caption en az 60 karakter ve doğal Türkçe; CTA tek ve WhatsApp yönlendirmeli olsun. Jenerik şimdi tam zamanı, kaçırmayın, benzersiz deneyim girişlerinden kaçın.',
     'headline, primaryText, description, visualAngle ve kısa rationaleSummary yaz. Düşünce zinciri verme.',
     'Üç ayrı hook/açı/CTA/caption alternatifi üret: samimi, bilgi veren, fayda odaklı. Görünen detaylar dışında fiyat/indirim/garanti/üstünlük iddiası ekleme.',

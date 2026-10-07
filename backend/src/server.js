@@ -23,6 +23,7 @@ import {analyticsSummary, aiInsights, billingSummary, brandingSummary, saveBrand
 import {dbHealth} from './db.js';
 import {aiAdvisor, performanceSummary, getAlerts, createAlert, markAlert, getLeads, createLead, updateLead, deleteLead, analyzeCreative, getCreatives, simulateBudget, createExperiment, getExperiments, updateExperiment, buildUtm, reportPack, agencyOverview} from './pro.js';
 import {generateContentPack, generateCaption, generateCaptionVariants, scoreCreative, aiStatus} from './ai.js';
+import {buildHashtagStrategy} from './hashtag-strategy.js';
 import {learnFromGeneration, linkGenerationToPost, getMemorySummary} from './ai-memory.js';
 import {runGeminiAdReview, applyGeminiAdDecision} from './gemini-ads.js';
 import {withTenantLock} from './persistence.js';
@@ -62,6 +63,13 @@ function mediaKind(file = {}) {
   if (mime.startsWith('image/') || IMAGE_EXTENSIONS.has(ext)) return 'IMAGE';
   if (mime.startsWith('video/') || VIDEO_EXTENSIONS.has(ext)) return 'VIDEO';
   return 'OTHER';
+}
+
+function recentHashtagSets(posts = []) {
+  return (Array.isArray(posts) ? posts : [])
+    .slice(-20)
+    .map(row => Array.isArray(row?.aiHashtags) ? row.aiHashtags : [])
+    .filter(row => row.length);
 }
 
 function adTargetingPrompt(settings = {}) {
@@ -573,12 +581,30 @@ app.put('/api/notifications', allowRoles('ADMIN','CUSTOMER_ADMIN'), async (req, 
 app.get('/api/security/overview', async (req, res) => { try { res.json(await securityOverview(req.user.tenantId)); } catch (e) { res.status(500).json({error:e.message}); } });
 app.get('/api/ai/status', async (_req, res) => res.json(aiStatus()));
 app.get('/api/ai/memory', async (req, res) => { try { res.json(await getMemorySummary(req.user.tenantId)); } catch(e) { res.status(500).json({error:e.message}); } });
+app.post('/api/ai/hashtags', async (req, res) => {
+  try {
+    const settings=await getSettings(req.user.tenantId);
+    const posts=await getPosts(req.user.tenantId);
+    res.json(buildHashtagStrategy({
+      candidates:Array.isArray(req.body?.candidates)?req.body.candidates:[],
+      mode:req.body?.mode, contentUse:req.body?.contentUse,
+      title:req.body?.title, context:req.body?.context, industry:req.body?.industry, productCategory:req.body?.productCategory, brand:req.body?.brand,
+      businessName:req.tenant?.companyName || req.tenant?.name || '',
+      locations:Array.isArray(settings.adTargetingLocations)?settings.adTargetingLocations:[],
+      competitors:Array.isArray(req.body?.competitors)?req.body.competitors:[],
+      competitorHashtags:Array.isArray(req.body?.competitorHashtags)?req.body.competitorHashtags:[],
+      bannedHashtags:Array.isArray(req.body?.bannedHashtags)?req.body.bannedHashtags:[],
+      recentHashtagSets:recentHashtagSets(posts)
+    }));
+  } catch(e) { res.status(400).json({error:e.message}); }
+});
 app.post('/api/ai/content-pack', async (req, res) => {
   try {
     const settings=await getSettings(req.user.tenantId);
     if(settings.aiEnabled===false) return res.json({source:'DISABLED',message:'AI modu kapalı.',recommendedFormat:String(req.body?.mediaType||'IMAGE').toUpperCase()==='VIDEO'?'REELS':'POST'});
     const history=await getLogs(req.user.tenantId, 20);
-    const result=await generateContentPack({...req.body, tone:req.body?.tone||settings.aiTone, goal:'WhatsApp mesajı', adTargeting:adTargetingPrompt(settings), language:req.body?.language||settings.aiLanguage, timezone:config.timezone, tenantId:req.user.tenantId, history});
+    const posts=await getPosts(req.user.tenantId);
+    const result=await generateContentPack({...req.body, tone:req.body?.tone||settings.aiTone, goal:'WhatsApp mesajı', adTargeting:adTargetingPrompt(settings), language:req.body?.language||settings.aiLanguage, timezone:config.timezone, tenantId:req.user.tenantId, history, businessName:req.tenant?.companyName || req.tenant?.name || '', locations:settings.adTargetingLocations, recentHashtagSets:recentHashtagSets(posts)});
     await addLog(req.user.tenantId,{type:'AI_CONTENT_GENERATED',source:result.source,mediaType:req.body?.mediaType||'AUTO'});
     const generation = ['GEMINI','GEMINI_REGENERATED'].includes(result.source)
       ? await learnFromGeneration(req.user.tenantId, result, {postId: String(req.body?.postId || '').trim(), mediaType: req.body?.mediaType || 'AUTO'})
@@ -622,6 +648,7 @@ app.post('/api/ai/content-pack-from-file', upload.single('image'), async (req, r
       : '';
 
     const history = await getLogs(req.user.tenantId, 20);
+    const posts = await getPosts(req.user.tenantId);
     console.log('[AI MEDIA]', {
       originalName: req.file.originalname,
       mimetype: req.file.mimetype,
@@ -646,6 +673,11 @@ app.post('/api/ai/content-pack-from-file', upload.single('image'), async (req, r
       mimeType: kind === 'IMAGE' ? (visionMime || req.file.mimetype) : (req.file.mimetype || 'video/mp4'),
       timezone: config.timezone,
       history,
+      hashtagMode: req.body?.hashtagMode,
+      contentUse: req.body?.contentUse,
+      businessName: req.tenant?.companyName || req.tenant?.name || '',
+      locations: settings.adTargetingLocations,
+      recentHashtagSets: recentHashtagSets(posts),
       mediaNote: kind === 'VIDEO'
         ? 'Video Gemini tarafından içerik, sahne ve görünen bilgiler açısından analiz edilecek.'
         : visionMime ? '' : 'Görsel dosyası kabul edildi; Gemini uygun medya tipini mümkün olduğunca kendisi analiz eder.'
@@ -680,7 +712,8 @@ app.post('/api/ai/caption', async (req, res) => {
     const settings=await getSettings(req.user.tenantId);
     if(settings.aiEnabled===false) return res.status(403).json({error:'AI modu kapalı.'});
     const history=await getLogs(req.user.tenantId, 20);
-    res.json(await generateCaption({...req.body,tone:req.body?.tone||settings.aiTone,goal:'WhatsApp mesajı',adTargeting:adTargetingPrompt(settings),language:req.body?.language||settings.aiLanguage,timezone:config.timezone,tenantId:req.user.tenantId,history}));
+    const posts=await getPosts(req.user.tenantId);
+    res.json(await generateCaption({...req.body,tone:req.body?.tone||settings.aiTone,goal:'WhatsApp mesajı',adTargeting:adTargetingPrompt(settings),language:req.body?.language||settings.aiLanguage,timezone:config.timezone,tenantId:req.user.tenantId,history,businessName:req.tenant?.companyName || req.tenant?.name || '',locations:settings.adTargetingLocations,recentHashtagSets:recentHashtagSets(posts)}));
   } catch(e) { res.status(400).json({error:e.message}); }
 });
 app.post('/api/ai/caption-variants', async (req,res)=>{ try { res.json(await generateCaptionVariants(req.body||{})); } catch(e) { res.status(400).json({error:e.message}); } });

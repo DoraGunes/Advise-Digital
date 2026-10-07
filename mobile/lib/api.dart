@@ -847,6 +847,27 @@ class Api {
       Map<String, dynamic>.from(await _request('GET', '/api/ai/status'));
   static Future<Map<String, dynamic>> aiMemory() async =>
       Map<String, dynamic>.from(await _request('GET', '/api/ai/memory'));
+  static Future<Map<String, dynamic>> applyHashtagStrategy({
+    required List<dynamic> candidates,
+    required String mode,
+    String contentUse = 'ORGANIC',
+    String title = '',
+    String context = '',
+    String industry = '',
+    String productCategory = '',
+    String brand = '',
+  }) async =>
+      Map<String, dynamic>.from(
+          await _request('POST', '/api/ai/hashtags', body: {
+        'candidates': candidates,
+        'mode': mode,
+        'contentUse': contentUse,
+        'title': title,
+        'context': context,
+        'industry': industry,
+        'productCategory': productCategory,
+        'brand': brand,
+      }));
   static Future<Map<String, dynamic>> generateCaptionVariants(
           {required String title,
           String context = '',
@@ -888,6 +909,8 @@ class Api {
     String goal = '',
     String language = 'Türkçe',
     String mediaType = 'AUTO',
+    String hashtagMode = 'BALANCED',
+    String contentUse = 'ORGANIC',
   }) async {
     final base = await baseUrl();
     final authToken = await token();
@@ -907,6 +930,8 @@ class Api {
     request.fields['goal'] = goal.trim();
     request.fields['language'] = language.trim();
     request.fields['mediaType'] = mediaType.trim();
+    request.fields['hashtagMode'] = hashtagMode.trim();
+    request.fields['contentUse'] = contentUse.trim();
 
     request.files.add(await _mediaPart('image', path, file: mediaFile));
 
@@ -943,6 +968,8 @@ class Api {
           String goal = '',
           String language = 'Türkçe',
           String mediaType = 'AUTO',
+          String hashtagMode = 'BALANCED',
+          String contentUse = 'ORGANIC',
           String imageUrl = ''}) async =>
       Map<String, dynamic>.from(
           await _request('POST', '/api/ai/content-pack', body: {
@@ -952,6 +979,8 @@ class Api {
         'goal': goal,
         'language': language,
         'mediaType': mediaType,
+        'hashtagMode': hashtagMode,
+        'contentUse': contentUse,
         'imageUrl': imageUrl
       }));
   static Future<Map<String, dynamic>> generateCaption(
