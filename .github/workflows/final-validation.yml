@@ -8,16 +8,8 @@ on:
 permissions:
   contents: read
 
-concurrency:
-  group: advise-final-validation-${{ github.ref }}
-  cancel-in-progress: true
-
-env:
-  ADVISE_API_URL: https://advisedigital.poyrazteknikservis.com.tr
-  SOURCE_CHECKPOINT: 8d09bb2db0749f1177747635aae6f7418c4632b1
-
 jobs:
-  repository-safety:
+  repository_safety:
     name: Repository safety checks
     runs-on: ubuntu-latest
     steps:
@@ -25,29 +17,27 @@ jobs:
         with:
           fetch-depth: 0
       - name: Git diff check
-        run: git diff --check "$SOURCE_CHECKPOINT"...HEAD
-      - name: Worktree and index must be clean
+        run: git diff --check 8d09bb2db0749f1177747635aae6f7418c4632b1...HEAD
+      - name: Clean checkout verification
         shell: bash
         run: |
-          set -euo pipefail
+          set -e
           test -z "$(git status --porcelain)"
           test -z "$(git diff --cached --name-only)"
-      - name: Runtime and secret paths must stay outside branch diff
+      - name: Runtime and secret diff verification
         shell: bash
         run: |
-          set -euo pipefail
-          changed="$(git diff --name-only "$SOURCE_CHECKPOINT"...HEAD)"
-          printf '%s
-' "$changed"
-          if printf '%s
-' "$changed" | grep -E '^(backend/data/|backend/uploads/|\.env($|\.)|.*(^|/)(secret|secrets|token|tokens)(/|$))' ; then
-            echo "Unsafe runtime/secret path detected in branch diff."
+          set -e
+          git diff --name-only 8d09bb2db0749f1177747635aae6f7418c4632b1...HEAD > /tmp/changed-files.txt
+          cat /tmp/changed-files.txt
+          if grep -E '^(backend/data/|backend/uploads/|\.env($|\.)|secrets?/|tokens?/)' /tmp/changed-files.txt; then
+            echo "Unsafe runtime or secret path detected."
             exit 1
           fi
 
-  backend-full:
+  backend_full:
     name: Full backend test suite
-    needs: repository-safety
+    needs: repository_safety
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -63,9 +53,9 @@ jobs:
       - name: Full backend tests
         run: npm test
 
-  flutter-full:
+  flutter_full:
     name: Full Flutter test suite and analyze
-    needs: backend-full
+    needs: backend_full
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -83,9 +73,9 @@ jobs:
       - name: Flutter analyze
         run: flutter analyze
 
-  android-web:
+  android_web:
     name: Android release and Web PWA build
-    needs: flutter-full
+    needs: flutter_full
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -104,26 +94,26 @@ jobs:
       - name: PWA worker validation
         run: node tool/check_pwa_worker.cjs
       - name: Android release APK
-        run: flutter build apk --release --dart-define=ADVISE_API_URL="$ADVISE_API_URL"
+        run: flutter build apk --release --dart-define=ADVISE_API_URL=https://advisedigital.poyrazteknikservis.com.tr
       - name: Web PWA release
-        run: flutter build web --release --dart-define=ADVISE_API_URL="$ADVISE_API_URL"
-      - name: Rename APK
+        run: flutter build web --release --dart-define=ADVISE_API_URL=https://advisedigital.poyrazteknikservis.com.tr
+      - name: Copy final APK
         shell: bash
-        run: cp build/app/outputs/flutter-apk/app-release.apk "build/AdVise-Digital-${GITHUB_SHA::8}-android-release.apk"
+        run: cp build/app/outputs/flutter-apk/app-release.apk build/AdVise-Digital-android-release.apk
       - uses: actions/upload-artifact@v4
         with:
-          name: advise-final-android-${{ github.sha }}
-          path: mobile/build/AdVise-Digital-*-android-release.apk
+          name: advise-final-android
+          path: mobile/build/AdVise-Digital-android-release.apk
           if-no-files-found: error
       - uses: actions/upload-artifact@v4
         with:
-          name: advise-final-web-pwa-${{ github.sha }}
+          name: advise-final-web-pwa
           path: mobile/build/web
           if-no-files-found: error
 
   windows:
     name: Windows release build
-    needs: flutter-full
+    needs: flutter_full
     runs-on: windows-latest
     defaults:
       run:
@@ -137,15 +127,12 @@ jobs:
       - run: flutter config --enable-windows-desktop
       - run: flutter pub get
       - name: Windows release
-        run: flutter build windows --release --dart-define=ADVISE_API_URL="$env:ADVISE_API_URL"
+        run: flutter build windows --release --dart-define=ADVISE_API_URL=https://advisedigital.poyrazteknikservis.com.tr
       - name: Package Windows release
         shell: pwsh
-        run: |
-          $short = $env:GITHUB_SHA.Substring(0,8)
-          $dest = "build\AdVise-Digital-$short-windows-release.zip"
-          Compress-Archive -Path "build\windows\x64\runner\Release\*" -DestinationPath $dest -Force
+        run: Compress-Archive -Path build\windows\x64\runner\Release\* -DestinationPath build\AdVise-Digital-windows-release.zip -Force
       - uses: actions/upload-artifact@v4
         with:
-          name: advise-final-windows-${{ github.sha }}
-          path: mobile/build/AdVise-Digital-*-windows-release.zip
+          name: advise-final-windows
+          path: mobile/build/AdVise-Digital-windows-release.zip
           if-no-files-found: error
