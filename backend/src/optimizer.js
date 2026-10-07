@@ -3,6 +3,7 @@ import {getSettings,getPosts,getLogs,addLog,getTenant} from './store.js';
 import {config} from './config.js';
 import {earlyAdDecision} from './rules.js';
 import {learnFromOutcome} from './ai-memory.js';
+import {recordPerformance,metaInsightToPerformance} from './performance-memory.js';
 import {withTenantLock} from './persistence.js';
 import {tenantCredentials,metaReady,minorToMoney,budgetGuard,withAdAccountLock} from './automation-safety.js';
 
@@ -76,6 +77,21 @@ async function optimizeAdsLocked(tenantId='system') {
       const ir=await insightsRange(ad.id,'ad',since,new Date(),credentials);
       const row=(ir.data||[])[0];
       const m=metric(row);
+      const measuredAt=new Date().toISOString();
+      const linkedPost=launch.postId?posts.find(post=>String(post.id)===String(launch.postId)):null;
+      await recordPerformance(tenantId,metaInsightToPerformance(row,{
+        key:'META_AD:'+ad.id+':'+since.toISOString()+':'+measuredAt,
+        mode:'PAID',
+        timestamp:launch.launchAt,
+        measuredAt,
+        timeRange:{start:since.toISOString(),end:measuredAt},
+        postId:launch.postId||null,
+        campaignId:ad.campaign_id||null,
+        adsetId:ad.adset_id||null,
+        adId:ad.id,
+        mediaType:linkedPost?.mediaType||null,
+        creativeType:linkedPost?.format||linkedPost?.mediaType||null
+      }));
       const decision=earlyAdDecision(m,settings);
       if (decision.action==='WAIT') {
         results.push({adId:ad.id,name:ad.name,action:'WAIT_MIN_SPEND',metrics:m,reason:decision.reason});

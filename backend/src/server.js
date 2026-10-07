@@ -24,6 +24,7 @@ import {dbHealth} from './db.js';
 import {aiAdvisor, performanceSummary, getAlerts, createAlert, markAlert, getLeads, createLead, updateLead, deleteLead, analyzeCreative, getCreatives, simulateBudget, createExperiment, getExperiments, updateExperiment, buildUtm, reportPack, agencyOverview} from './pro.js';
 import {generateContentPack, generateCaption, generateCaptionVariants, scoreCreative, aiStatus} from './ai.js';
 import {buildHashtagStrategy} from './hashtag-strategy.js';
+import {getPerformanceMemorySummary,recommendPublishTime} from './performance-memory.js';
 import {learnFromGeneration, linkGenerationToPost, getMemorySummary, getCopyStyleRecommendation} from './ai-memory.js';
 import {runGeminiAdReview, applyGeminiAdDecision} from './gemini-ads.js';
 import {withTenantLock} from './persistence.js';
@@ -581,6 +582,14 @@ app.put('/api/notifications', allowRoles('ADMIN','CUSTOMER_ADMIN'), async (req, 
 app.get('/api/security/overview', async (req, res) => { try { res.json(await securityOverview(req.user.tenantId)); } catch (e) { res.status(500).json({error:e.message}); } });
 app.get('/api/ai/status', async (_req, res) => res.json(aiStatus()));
 app.get('/api/ai/memory', async (req, res) => { try { res.json(await getMemorySummary(req.user.tenantId)); } catch(e) { res.status(500).json({error:e.message}); } });
+app.get('/api/ai/performance-memory', async (req,res)=>{
+  try { res.json(await getPerformanceMemorySummary(req.user.tenantId)); }
+  catch(e) { res.status(500).json({error:e.message}); }
+});
+app.get('/api/ai/timing-recommendation', async (req,res)=>{
+  try { res.json(await recommendPublishTime(req.user.tenantId,{mode:req.query?.mode,mediaType:req.query?.mediaType})); }
+  catch(e) { res.status(400).json({error:e.message}); }
+});
 app.post('/api/ai/style-recommendation', async (req,res)=>{
   try {
     res.json(await getCopyStyleRecommendation(req.user.tenantId,req.body||{},req.body?.styleRecipe||{}));
