@@ -210,13 +210,23 @@ function upsertPattern(list,key,value,delta=0,incrementUse=true){
 
 function preferred(generation={}){
   const final=generation.finalOutput;
+  if(final&&typeof final==='object'){
+    return {
+      hook:clean(final.hook,300),
+      caption:clean(final.caption||final.publishedText,2200),
+      cta:clean(final.cta,300),
+      hashtags:Array.isArray(final.hashtags)?final.hashtags:[],
+      headline:clean(final.headline,180),
+      styleRecipe:normalizeCopyStyle(final.styleRecipe||generation.styleRecipe||generation.originalOutput?.styleRecipe)
+    };
+  }
   return {
-    hook:clean(final?.hook||generation.hook||generation.originalOutput?.hook,300),
-    caption:clean(final?.caption||final?.publishedText||generation.caption||generation.originalOutput?.caption,2200),
-    cta:clean(final?.cta||generation.cta||generation.originalOutput?.cta,300),
-    hashtags:Array.isArray(final?.hashtags)?final.hashtags:(generation.hashtags||[]),
-    headline:clean(final?.headline||generation.headline||generation.originalOutput?.headline,180),
-    styleRecipe:normalizeCopyStyle(final?.styleRecipe||generation.styleRecipe||generation.originalOutput?.styleRecipe)
+    hook:clean(generation.hook||generation.originalOutput?.hook,300),
+    caption:clean(generation.caption||generation.originalOutput?.caption,2200),
+    cta:clean(generation.cta||generation.originalOutput?.cta,300),
+    hashtags:Array.isArray(generation.hashtags)?generation.hashtags:[],
+    headline:clean(generation.headline||generation.originalOutput?.headline,180),
+    styleRecipe:normalizeCopyStyle(generation.styleRecipe||generation.originalOutput?.styleRecipe)
   };
 }
 
@@ -404,7 +414,12 @@ function rankContentMemories(memory,input={},limit=5){
     const performanceScore=Math.max(-1,Math.min(1,Number(generation.performanceSummary?.score||0)));
     const recency=Math.exp(-daysOld(generation.createdAt||generation.at)/120);
     const userEditSignal=generation.finalOutput?Math.min(1,.35+Number(generation.userEditDistance||0)):0;
-    const creativeSimilarity=similarity(creativeQuery,terms([output.hook,output.caption,generation.visualSummary].join(' ')));
+    const directCreativeQuery=terms([input.hook,input.caption,input.title,input.context].join(' '));
+    const directCreativeMemory=terms([output.hook,output.caption].join(' '));
+    const creativeSimilarity=Math.max(
+      similarity(creativeQuery,terms([output.hook,output.caption,generation.visualSummary].join(' '))),
+      similarity(directCreativeQuery,directCreativeMemory)
+    );
     const noveltyPenalty=creativeSimilarity>.72?(creativeSimilarity-.72)*5:0;
     const score=
       sectorSimilarity*2.2+
