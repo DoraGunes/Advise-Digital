@@ -486,9 +486,6 @@ class _AiContentStudioPageState extends State<AiContentStudioPage> {
       return;
     }
 
-    final strategyReady = await _applyHashtagMode(hashtagMode,
-        contentUse: openAd ? 'PAID' : 'ORGANIC', silent: true);
-    if (!strategyReady || !mounted) return;
     setState(() => draftSaving = true);
     try {
       await _storeDraft();
@@ -560,6 +557,9 @@ class _AiContentStudioPageState extends State<AiContentStudioPage> {
               ],
             ));
     if (accepted != true || !mounted) return;
+    final strategyReady = await _applyHashtagMode(hashtagMode,
+        contentUse: openAd ? 'PAID' : 'ORGANIC', silent: true);
+    if (!strategyReady || !mounted) return;
     setState(() => draftSaving = true);
     try {
       await _storeDraft();
@@ -1009,7 +1009,7 @@ class _AiContentStudioPageState extends State<AiContentStudioPage> {
                 ),
                 const SizedBox(height: 12),
                 DropdownButtonFormField<String>(
-                  value: hashtagMode,
+                  initialValue: hashtagMode,
                   decoration: const InputDecoration(
                     labelText: 'Hashtag stratejisi',
                     prefixIcon: Icon(Icons.tag_rounded),
