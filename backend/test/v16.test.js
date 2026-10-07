@@ -81,7 +81,7 @@ test('campaign strategy is bounded, explicit and never an applied action',async(
   const result=await ai.generateCampaignStrategy({budgetLimit:150,accountDailyCap:300,locationMode:'CITY',locations:['Bolu'],reportAvailable:false,memoryOutcomeCount:0,profile:{businessName:'Fixture'},memoryContext:'tenant-owned context'},{request:async options=>{requested=options;return {model:'fixture-gemini',parsed:{...strategyAnswer,dailyBudget:9999}};}});
   assert.equal(result.available,true);assert.equal(result.source,'GEMINI');assert.equal(result.model,'fixture-gemini');assert.equal(result.published,false);assert.equal(result.created,false);assert.equal(result.requiresApproval,true);
   assert.equal(result.strategy.budget.dailyBudget,150);assert.deepEqual(result.strategy.audience.locations,['Bolu']);assert.ok(result.strategy.warnings.length>=3);
-  assert.ok(requested.schema.required.includes('dailyBudget'));assert.equal(state.calls.length,0);
+  assert.ok(requested.schema.required.includes('dailyBudgetMin'));assert.ok(requested.schema.required.includes('dailyBudgetMax'));assert.ok(requested.schema.required.includes('missingPrerequisites'));assert.equal(state.calls.length,0);
 });
 
 test('invalid campaign strategy output cannot turn into a fake recommendation',async()=>{
@@ -245,7 +245,7 @@ test('Memory Palace v2 learns hook types and ranks sector-relevant examples befo
   await memory.learnFromGeneration(tenantId,{productName:'Telefon Kılıfı',industry:'Aksesuar',productCategory:'Telefon Aksesuarı',hook:'Telefonunu koru',hookType:'FAYDA',caption:'Telefon kılıfı için güçlü koruma anlatımı.',contentAngle:'Fayda',selectedTone:'dinamik',recommendedFormat:'POST',recommendedPostTime:'20:00',targetAudience:'Telefon kullanıcıları',visualSummary:'Telefon kılıfı',source:'GEMINI'},{generationId:'mem-unrelated',postId:'post-unrelated',mediaType:'IMAGE'});
   await memory.learnFromOutcome(tenantId,{generationId:'mem-unrelated',postId:'post-unrelated',adId:'ad-unrelated',spend:20,messages:20,ctr:4,messageCost:0.2});
   const context=await memory.buildMemoryContext(tenantId,{title:'Espresso Pro kahve makinesi',context:'espresso kahve hazırlama',industry:'Kafe',productCategory:'Kahve',visualSummary:'Tezgah üzerinde espresso makinesi',mediaType:'IMAGE',hook:'Kahven neden istediğin gibi olmuyor?'});
-  assert.ok(context.indexOf('Espresso Pro')>=0);assert.ok(context.indexOf('Espresso Pro')<context.indexOf('Telefon Kılıfı'));assert.match(context,/Performansla güçlenen hook tipleri:/);assert.match(context,/Novelty uyarısı:/);
+  assert.ok(context.indexOf('Espresso Pro')>=0);assert.ok(context.indexOf('Espresso Pro')<context.indexOf('Telefon Kılıfı'));assert.match(context,/ADVISE CONTENT MEMORY PALACE V3:/);assert.match(context,/Copy Style önerisi:/);assert.match(context,/Novelty uyarısı:/);
   const summary=await memory.getMemorySummary(tenantId);assert.ok(summary.bestHookTypes.some(row=>row.value==='SORU'));
 });
 test('concurrent and repeated publish produces only one remote publish',async()=>{
