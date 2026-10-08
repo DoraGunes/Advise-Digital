@@ -56,6 +56,13 @@ test('Gemini SDK that ignores timeout still terminates within aggregate budget',
   await assert.rejects(callGemini({prompt:'fixture',overallTimeoutMs:30},{client:{interactions:{create:()=>new Promise(()=>{})}}}),{code:'ETIMEDOUT'});
   assert.ok(Date.now()-start<1000);
 });
+test('Gemini SDK internal retries are disabled so quota errors reach model fallback promptly',async()=>{
+  let sdkOptions;
+  const result=await callGemini({prompt:'fixture',overallTimeoutMs:1000,maxAttempts:1},{client:{interactions:{create:async(_payload,options)=>{sdkOptions=options;return {status:'completed',output_text:'{"hook":"fixture"}'};}}}});
+  assert.equal(result.parsed.hook,'fixture');
+  assert.deepEqual(sdkOptions.retries,{strategy:'none'});
+  assert.equal(sdkOptions.maxRetries,undefined);
+});
 test('Gemini completed JSON returns model and malformed output never claims success',async()=>{
   const result=await callGemini({prompt:'fixture',overallTimeoutMs:30},{client:{interactions:{create:async()=>({status:'completed',output_text:'{"hook":"fixture"}'})}}});assert.equal(result.parsed.hook,'fixture');assert.ok(result.model);
   await assert.rejects(callGemini({prompt:'fixture',overallTimeoutMs:30},{client:{interactions:{create:async()=>({status:'completed',output_text:'{broken'})}}}));

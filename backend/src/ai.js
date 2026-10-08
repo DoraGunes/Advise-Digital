@@ -529,7 +529,7 @@ export async function callGemini(options, {client:providedClient=null}={}) {
           },
           generation_config: {max_output_tokens: options.maxOutputTokens || 8192, thinking_level: 'low'},
           store: false
-        }, {timeout: Math.min(timeoutMs,remaining), maxRetries: 0, signal}),Math.min(timeoutMs,remaining),'gemini');
+        }, {timeout: Math.min(timeoutMs,remaining), retries: {strategy: 'none'}, signal}),Math.min(timeoutMs,remaining),'gemini');
         var status = String(interaction && interaction.status || '').toLowerCase();
         var outputText = String(interaction && interaction.output_text || '').trim();
         console.log('[AI GEMINI INTERACTIONS RESPONSE]', {model: model, attempt: attempt, status: ['completed','incomplete','failed','in_progress','cancelled'].includes(status)?status:'unknown', hasOutput: Boolean(outputText)});
