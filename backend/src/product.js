@@ -183,7 +183,7 @@ export async function saveOnboarding(tenantId,input={}) {
 }
 
 export async function productStrategy(tenantId,input={}, options={}) {
-  return boundedRead(()=>withOperationBudget(55000,()=>buildProductStrategy(tenantId,input,options)),55000,'strategy');
+  return boundedRead(()=>withOperationBudget(90000,()=>buildProductStrategy(tenantId,input,options)),90000,'strategy');
 }
 async function buildProductStrategy(tenantId,input={}, {actorId='',request=null}={}) {
   const [tenant,settings,onboarding,posts,memory]=await Promise.all([
@@ -226,7 +226,7 @@ async function buildProductStrategy(tenantId,input={}, {actorId='',request=null}
     profile:{businessName,industry,goal:'WhatsApp mesajı',media},locationMode,locations,budgetLimit,accountDailyCap,
     timezone:config.timezone,memoryOutcomeCount:memory.outcomeCount,reportAvailable:report.available,
     performance:{available:report.available,period:{since:report.since,until:report.until},currency:report.currency||null,metrics:report.available?report.metrics:null,campaigns:report.campaigns.slice(0,20)},
-    memoryContext:context,overallTimeoutMs:Math.max(1,remainingMs(40000)-500)
+    memoryContext:context,overallTimeoutMs:Math.max(1,remainingMs(82000)-1000)
   },{request});
   if(result.available)await addLog(tenantId,{type:'AI_CAMPAIGN_STRATEGY_GENERATED',source:result.source,model:result.model,actorId,postId:selectedPostId,dailyBudget:result.strategy.budget.dailyBudget,requiresApproval:true});
   if(result.available&&accountDailyCap<=0)result.strategy.warnings.push('Reklamı etkinleştirmeden önce hesap günlük bütçe sınırını kaydedin.');

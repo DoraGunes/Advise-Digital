@@ -236,7 +236,7 @@ export async function generateCampaignStrategy(input={}, {request=null}={}) {
         'Son 7 gün gerçek raporu: '+JSON.stringify(input.performance||{available:false}),
         'Hafıza Sarayı: '+clean(input.memoryContext,12000)
       ].join('\n'),
-      mediaParts:[],schema:CAMPAIGN_STRATEGY_SCHEMA,maxOutputTokens:4096,overallTimeoutMs:input.overallTimeoutMs||40000
+      mediaParts:[],schema:CAMPAIGN_STRATEGY_SCHEMA,maxOutputTokens:4096,overallTimeoutMs:input.overallTimeoutMs||80000
     });
   } catch (error) {
     const failure=safeGeminiError(error);

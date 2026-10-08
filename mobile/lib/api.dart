@@ -429,7 +429,7 @@ class Api {
         feature: 'AI kampanya önerisi');
     final data = Map<String, dynamic>.from(await _request(
         'POST', '/api/product/strategy',
-        body: values, timeout: const Duration(seconds: 65)));
+        body: values, timeout: const Duration(seconds: 95)));
     if (data['available'] == false && data['code'] != null) {
       throw ApiException(
         (data['userMessage'] ?? data['error'] ?? 'AI kampanya önerisi hazırlanamadı.').toString(),
