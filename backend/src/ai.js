@@ -507,10 +507,15 @@ export async function callGemini(options, {client:providedClient=null}={}) {
   var lastError = null;
   for (var modelIndex = 0; modelIndex < models.length; modelIndex++) {
     var model = models[modelIndex];
-    var maxAttempts = Math.max(1,Math.min(3,options.maxAttempts||3));
+    // Fail over promptly: provider SDK retries are disabled below and each
+    // model gets one bounded attempt unless a caller explicitly opts in.
+    var maxAttempts = Math.max(1,Math.min(3,Number(options.maxAttempts)||1));
     for (var attempt = 1; attempt <= maxAttempts; attempt++) {
       const remaining=deadline-Date.now();
       if(remaining<=0)throw Object.assign(new Error('Gemini operation timeout.'),{code:'ETIMEDOUT'});
+      const modelsRemaining=models.length-modelIndex;
+      const modelBudget=Math.max(1,Math.floor(remaining/modelsRemaining));
+      const requestBudget=Math.min(timeoutMs,modelBudget,remaining);
       try {
         console.log('[AI GEMINI INTERACTIONS REQUEST]', {
           model: model,
@@ -529,7 +534,7 @@ export async function callGemini(options, {client:providedClient=null}={}) {
           },
           generation_config: {max_output_tokens: options.maxOutputTokens || 8192, thinking_level: 'low'},
           store: false
-        }, {timeout: Math.min(timeoutMs,remaining), retries: {strategy: 'none'}, signal}),Math.min(timeoutMs,remaining),'gemini');
+        }, {timeout: requestBudget, retries: {strategy: 'none'}, signal}),requestBudget,'gemini');
         var status = String(interaction && interaction.status || '').toLowerCase();
         var outputText = String(interaction && interaction.output_text || '').trim();
         console.log('[AI GEMINI INTERACTIONS RESPONSE]', {model: model, attempt: attempt, status: ['completed','incomplete','failed','in_progress','cancelled'].includes(status)?status:'unknown', hasOutput: Boolean(outputText)});

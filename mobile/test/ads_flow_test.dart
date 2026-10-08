@@ -73,7 +73,8 @@ void main() {
   Future<void> openStrategy(
       WidgetTester tester, Future<http.Response> Function() action,
       {Future<http.Response> Function(http.Request)? createAction,
-      ThemeData? theme}) async {
+      ThemeData? theme,
+      bool mediaHasCaption = true}) async {
     Api.setHttpClientForTesting(MockClient((request) async {
       if (request.url.path == '/api/product/strategy') return action();
       if (request.url.path == '/api/ads/create' && createAction != null)
@@ -96,7 +97,7 @@ void main() {
             'data': [
               {
                 'id': 'media-1',
-                'caption': 'Fixture ürün',
+                if (mediaHasCaption) 'caption': 'Fixture ürün',
                 'media_type': 'IMAGE'
               }
             ]
@@ -119,6 +120,19 @@ void main() {
     await tester.tap(button);
     await tester.pump();
   }
+
+  testWidgets('selected post without caption is not shown as unselected',
+      (tester) async {
+    await openStrategy(tester, () async => http.Response('{}', 200),
+        mediaHasCaption: false);
+    await tester.ensureVisible(find.text('Önizle ve onayla'));
+    await tester.tap(find.text('Önizle ve onayla'));
+    await tester.pumpAndSettle();
+    expect(find.text('Seçili Instagram gönderisinin açıklaması yok.'),
+        findsOneWidget);
+    expect(find.text('Instagram gönderisi seçilmedi'), findsNothing);
+    expect(tester.takeException(), isNull);
+  });
 
   for (final entry in {
     'Light': ProductTheme.light,

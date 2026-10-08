@@ -14,6 +14,20 @@ Object.assign(process.env,{
 });
 const ai=await import('../src/ai.js');
 
+test('Gemini quota then timeout falls through exactly once per model to rescue',async()=>{
+  const calls=[];
+  const client={interactions:{create:async(payload,options)=>{
+    calls.push({model:payload.model,timeout:options.timeout,retries:options.retries});
+    if(payload.model==='gemini-3.8-flash')throw Object.assign(new Error('quota exceeded'),{status:429});
+    if(payload.model==='gemini-3.7-flash')throw Object.assign(new Error('socket timed out'),{code:'ETIMEDOUT'});
+    return {status:'completed',output_text:'{"ok":true}'};
+  }}};
+  const result=await ai.callGemini({prompt:'fixture',overallTimeoutMs:3000},{client});
+  assert.equal(result.model,'gemini-3.5-flash-lite');
+  assert.deepEqual(calls.map(row=>row.model),['gemini-3.8-flash','gemini-3.7-flash','gemini-3.5-flash-lite']);
+  assert.ok(calls.every(row=>row.retries.strategy==='none'));
+});
+
 test('campaign AI returns structured recommendation and legacy aliases',()=>{
   const strategy=ai.normalizeCampaignStrategy({
     objective:'OUTCOME_ENGAGEMENT',optimizationGoal:'CONVERSATIONS',destination:'WHATSAPP',

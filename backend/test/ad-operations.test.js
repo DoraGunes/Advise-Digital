@@ -112,7 +112,7 @@ test('WhatsApp asset preflight: non-WhatsApp destination skips WhatsApp validati
 test('authenticated HTTP create passes preflight, resumes rejection and returns same completed ad',async()=>{
   const store=await import('../src/store.js'),auth=await import('../src/auth.js');
   const tenant=await store.createTenant({companyName:'Ad operation fixture',plan:'AGENCY'});
-  await store.updateTenant(tenant.id,{meta:{connected:true,accessToken:'fixture-only',adAccountId:'123',pageId:'456',instagramUserId:'789',instagramAccessToken:'fixture-instagram-only'}});
+  await store.updateTenant(tenant.id,{meta:{connected:true,accessToken:'fixture-only',adAccountId:'123',pageId:'456',instagramUserId:'789',instagramAccessToken:'fixture-instagram-only',metaWhatsappWabaId:'waba-456',metaWhatsappPhoneNumberId:'phone-789'}});
   await store.saveSettings(tenant.id,{geminiAdsDailyCap:300,maxDailyBudget:300});
   await auth.createTenantUser({tenantId:tenant.id,username:'fixture-ad-manager',password:'fixture-manager-password',role:'MANAGER'});
   const session=await auth.login('fixture-ad-manager','fixture-manager-password');
@@ -128,7 +128,9 @@ test('authenticated HTTP create passes preflight, resumes rejection and returns 
       assert.equal(new URLSearchParams(options.body).get('status'),endpoint==='adcreatives'?null:'PAUSED');
       result={id:String({campaigns:1001,adsets:1002,adcreatives:1003,ads:1004}[endpoint])};
     } else if(endpoint==='act_123')result={id:'act_123',account_id:'123',currency:'TRY',account_status:1,disable_reason:0,timezone_name:'Europe/Istanbul',user_tasks:['ADVERTISE']};
-    else if(endpoint==='permissions')result={data:[{permission:'ads_management',status:'granted'},{permission:'pages_read_engagement',status:'granted'}]};
+    else if(endpoint==='permissions')result={data:[{permission:'ads_management',status:'granted'},{permission:'pages_read_engagement',status:'granted'},{permission:'whatsapp_business_management',status:'granted'},{permission:'whatsapp_business_messaging',status:'granted'}]};
+    else if(endpoint==='waba-456')result={id:'waba-456'};
+    else if(endpoint==='phone_numbers')result={data:[{id:'phone-789'}]};
     else if(endpoint==='456')result={id:'456',is_published:true,instagram_business_account:{id:'789'},has_whatsapp_number:true};
     else if(endpoint==='media')result={data:[{id:'901',media_type:'IMAGE'}]};
     else result={data:[]};

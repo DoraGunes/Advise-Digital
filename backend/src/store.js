@@ -139,6 +139,10 @@ function normalizeTenant(tenant) {
       pageId: tenant.meta?.pageId || '',
       instagramUserId: tenant.meta?.instagramUserId || '',
       instagramUsername: tenant.meta?.instagramUsername || '',
+      // These are identifiers only (never credentials) and must survive tenant
+      // normalization so WhatsApp preflight can verify the explicit asset pair.
+      metaWhatsappWabaId: tenant.meta?.metaWhatsappWabaId || '',
+      metaWhatsappPhoneNumberId: tenant.meta?.metaWhatsappPhoneNumberId || '',
       businessId: tenant.meta?.businessId || '',
       connectedAt: tenant.meta?.connectedAt || null
     },

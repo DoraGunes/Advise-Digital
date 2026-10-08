@@ -485,7 +485,10 @@ class Api {
     }
     throw ApiException(_error(data),
         statusCode: response.statusCode,
-        code: data is Map ? data['code']?.toString() : null);
+        code: data is Map ? data['code']?.toString() : null,
+        stage: data is Map ? data['stage']?.toString() : null,
+        correlationId: data is Map ? data['correlationId']?.toString() : null,
+        retryable: data is Map && data['retryable'] == true);
   }
 
   static Future<Map<String, dynamic>> login(String username, String password,

@@ -117,6 +117,11 @@ class _SocialAdsPageState extends State<SocialAdsPage> {
     return '${values.take(3).join(' • ')} ve ${values.length - 3} $kind daha';
   }
 
+  String? get _selectedPostId {
+    final value = selected?['id']?.toString().trim();
+    return value == null || value.isEmpty || value == 'null' ? null : value;
+  }
+
   Future<void> _chooseTargeting() async {
     if (!canOperate || creating) return;
     var mode = locationMode;
@@ -260,7 +265,7 @@ class _SocialAdsPageState extends State<SocialAdsPage> {
   Future<void> _createAd() async {
     if (!canOperate || creating || _created) return;
     final post = selected;
-    if (post == null) {
+    if (post == null || _selectedPostId == null) {
       _snack('Önce reklam vereceğin Instagram gönderisini seç.');
       return;
     }
@@ -295,7 +300,7 @@ class _SocialAdsPageState extends State<SocialAdsPage> {
       // Keeping the same key across UI retries prevents duplicate remote writes.
       final result = await Api.createAdFromInstagramPost(
         requestId: _adRequestId!,
-        instagramMediaId: post['id'].toString(),
+        instagramMediaId: _selectedPostId!,
         campaignName: campaignName.text.trim(),
         adSetName: adSetName.text.trim(),
         adName: adName.text.trim(),
@@ -666,9 +671,11 @@ class _SocialAdsPageState extends State<SocialAdsPage> {
                                                 child: _preview(selected!,
                                                     height: 230)),
                                           const SizedBox(height: 14),
-                                          Text(selected?['caption']
-                                                  ?.toString() ??
-                                              'Gönderi seçilmedi'),
+                                          Text(selected == null || _selectedPostId == null
+                                              ? 'Instagram gönderisi seçilmedi'
+                                              : ((selected!['caption']?.toString().trim().isNotEmpty ?? false)
+                                                  ? selected!['caption'].toString()
+                                                  : 'Seçili Instagram gönderisinin açıklaması yok.')),
                                           const SizedBox(height: 14),
                                           ProductSurface(
                                               child: Column(
@@ -705,7 +712,7 @@ class _SocialAdsPageState extends State<SocialAdsPage> {
 
   Future<void> _confirmCampaign() async {
     if (!canOperate || creating) return;
-    if (selected == null) {
+    if (selected == null || _selectedPostId == null) {
       _snack('Önce bir Instagram gönderisi seç.');
       return;
     }
@@ -728,7 +735,7 @@ class _SocialAdsPageState extends State<SocialAdsPage> {
 
   Future<void> _requestStrategy() async {
     if (!canOperate || creating || strategyLoading) return;
-    if (selected == null) {
+    if (selected == null || _selectedPostId == null) {
       _snack('Önce reklam için bir gönderi seç.');
       return;
     }

@@ -728,7 +728,11 @@ app.post('/api/ai/content-pack-from-file', upload.single('image'), async (req, r
       console.error('[AI MEDIA NOT GEMINI]', result.source, result.error || 'Gemini anahtarı/çağrısı kullanılamadı.');
       return res.status(502).json({
         error: result.error || 'Gemini görsel analizi çalışmadı.',
-        source: result.source
+        source: result.source,
+        code: `GEMINI_${result.errorCategory||'UNAVAILABLE'}`,
+        stage: result.errorCategory==='INVALID_OUTPUT'?'STRUCTURED_PARSE':result.errorCategory==='TIMEOUT'?'GEMINI_PROVIDER':result.errorCategory==='QUOTA_OR_RATE_LIMIT'?'GEMINI_QUOTA':'GEMINI_PROVIDER',
+        correlationId: result.correlationId,
+        retryable: ['TIMEOUT','NETWORK_ERROR','PROVIDER_ERROR','INVALID_OUTPUT'].includes(result.errorCategory)
       });
     }
 
