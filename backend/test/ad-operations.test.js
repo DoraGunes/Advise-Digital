@@ -120,6 +120,32 @@ test('authenticated HTTP create passes preflight, resumes rejection and returns 
   } finally {global.fetch=native;listener.closeAllConnections();await new Promise(resolve=>listener.close(resolve));}
 });
 
+test('WhatsApp preflight failure returns actionable status without creating Meta objects',async()=>{
+  const store=await import('../src/store.js'),auth=await import('../src/auth.js');
+  const tenant=await store.createTenant({companyName:'WhatsApp preflight fixture',plan:'AGENCY'});
+  await store.updateTenant(tenant.id,{meta:{connected:true,accessToken:'fixture-only',adAccountId:'123',pageId:'456',instagramUserId:'789',instagramAccessToken:'fixture-instagram-only'}});
+  await store.saveSettings(tenant.id,{geminiAdsDailyCap:300,maxDailyBudget:300});
+  await auth.createTenantUser({tenantId:tenant.id,username:'fixture-whatsapp-manager',password:'fixture-manager-password',role:'MANAGER'});
+  const session=await auth.login('fixture-whatsapp-manager','fixture-manager-password');
+  const {app}=await import('../src/server.js');const listener=app.listen(0,'127.0.0.1');await new Promise(resolve=>listener.once('listening',resolve));
+  const base=`http://127.0.0.1:${listener.address().port}`,native=global.fetch;let metaWrites=0;
+  global.fetch=async(input,options={})=>{
+    const url=new URL(input);if(url.hostname==='127.0.0.1')return native(input,options);
+    if(options.method==='POST'){metaWrites++;return new Response(JSON.stringify({id:'unexpected'}),{status:200});}
+    const endpoint=url.pathname.split('/').at(-1);
+    const result=endpoint==='act_123'?{id:'act_123',account_id:'123',currency:'TRY',account_status:1,disable_reason:0,timezone_name:'Europe/Istanbul',user_tasks:['ADVERTISE']}:endpoint==='permissions'?{data:[{permission:'ads_management',status:'granted'},{permission:'pages_read_engagement',status:'granted'}]}:{id:'456',is_published:true,instagram_business_account:{id:'789'},has_whatsapp_business_number:false,has_whatsapp_number:false};
+    return new Response(JSON.stringify(result),{status:200});
+  };
+  try {
+    const response=await native(`${base}/api/ads/create`,{method:'POST',headers:{authorization:`Bearer ${session.token}`,'content-type':'application/json'},body:JSON.stringify({requestId:'whatsapp-preflight-fixture-0001',instagramMediaId:'901',dailyBudget:100,activate:false})});
+    const result=await response.json();
+    assert.equal(response.status,422);assert.equal(result.code,'META_WHATSAPP_MISSING');assert.equal(result.stage,'preflight');
+    assert.equal(metaWrites,0);
+    const operation=await getAdOperation(tenant.id,'whatsapp-preflight-fixture-0001');
+    assert.equal(operation.status,'FAILED');assert.deepEqual(operation.ids,{});
+  } finally {global.fetch=native;listener.closeAllConnections();await new Promise(resolve=>listener.close(resolve));}
+});
+
 test('HTTP Reels covers use decoded bytes for JPEG/PNG/WebP/blob/mismatched MIME and preserve old cover on rejection',async()=>{
   const sharp=(await import('sharp')).default,store=await import('../src/store.js'),auth=await import('../src/auth.js');
   const tenant=await store.createTenant({companyName:'Cover fixture',plan:'AGENCY'});

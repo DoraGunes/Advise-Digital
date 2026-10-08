@@ -474,7 +474,7 @@ app.post('/api/ads/create',allowRoles('ADMIN','CUSTOMER_ADMIN','MANAGER','OPERAT
   } catch(error) {
     const failure=error.failure||operationFailure(error,'validation',correlationId);
     console.error('[ADS CREATE ERROR]',{code:failure.code,stage:failure.stage,correlationId:failure.correlationId});
-    res.status(failure.code==='AD_RECONCILE_REQUIRED'||failure.code==='IDEMPOTENCY_CONFLICT'?409:failure.stage==='validation'?400:502).json({...failure,requestId});
+    res.status(failure.code==='AD_RECONCILE_REQUIRED'||failure.code==='IDEMPOTENCY_CONFLICT'?409:failure.code==='META_WHATSAPP_MISSING'?422:failure.stage==='validation'?400:502).json({...failure,requestId});
   }
 });
 
