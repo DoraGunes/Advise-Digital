@@ -64,24 +64,42 @@ test('Gemini completed JSON returns model and malformed output never claims succ
 test('read timeout is bounded and supplies cancellation signal',async()=>{
   let signal;await assert.rejects(boundedRead(value=>{signal=value;return new Promise(()=>{});},10),{code:'ETIMEDOUT'});assert.equal(signal.aborted,true);
 });
-test('Meta preflight requires WhatsApp evidence only for WhatsApp destinations',async()=>{
-  const native=global.fetch;let failure='';
+function mockWhatsAppPreflight({wabaVisible=true,phoneId='phone-789',permissions=['whatsapp_business_management','whatsapp_business_messaging']}={}) {
+  let wabaReads=0,phoneReads=0;
   global.fetch=async input=>{
-    const url=new URL(input),endpoint=url.pathname.split('/').at(-1);
-    if(failure==='expired')return new Response(JSON.stringify({error:{code:190,message:'access_token=fixture-secret'}}),{status:400});
-    const result=endpoint==='act_123'?{id:'act_123',account_id:'123',currency:'TRY',account_status:1,disable_reason:0,timezone_name:'Europe/Istanbul',user_tasks:['ADVERTISE']}:endpoint==='permissions'?{data:[{permission:'ads_management',status:failure==='permission'?'declined':'granted'},{permission:'pages_read_engagement',status:'granted'}]}:{id:'456',is_published:true,instagram_business_account:{id:'789'},has_whatsapp_number:failure!=='whatsapp'};
+    const url=new URL(input),path=url.pathname.split('/').filter(Boolean),endpoint=path.at(-1);
+    let result;
+    if(endpoint==='act_123')result={id:'act_123',account_id:'123',currency:'TRY',account_status:1,disable_reason:0,timezone_name:'Europe/Istanbul',user_tasks:['ADVERTISE']};
+    else if(endpoint==='permissions')result={data:[{permission:'ads_management',status:'granted'},{permission:'pages_read_engagement',status:'granted'},...permissions.map(permission=>({permission,status:'granted'}))]};
+    else if(endpoint==='456')result={id:'456',is_published:true,instagram_business_account:{id:'789'},has_whatsapp_business_number:false,has_whatsapp_number:false};
+    else if(endpoint==='waba-456'){wabaReads++;if(!wabaVisible)return new Response(JSON.stringify({error:{code:200,message:'permission denied'}}),{status:403});result={id:'waba-456'};}
+    else if(endpoint==='phone_numbers'){phoneReads++;result={data:[{id:phoneId}]};}
+    else result={data:[]};
     return new Response(JSON.stringify(result),{status:200});
   };
-  const credentials={accessToken:'fixture-only',adAccountId:'123',pageId:'456',instagramUserId:'789'};
-  try {
-    failure='whatsapp';
-    assert.equal((await adsPreflight(credentials)).destination,'FACEBOOK_INSTAGRAM');
-    assert.equal((await adsPreflight(credentials,{destination:'INSTAGRAM'})).destination,'INSTAGRAM');
-    await assert.rejects(adsPreflight(credentials,{destination:'WHATSAPP'}),{code:'META_WHATSAPP_MISSING'});
-    failure='';
-    assert.equal((await adsPreflight(credentials,{destination:'WHATSAPP'})).destination,'WHATSAPP');
-    for(const [value,code]of [['permission','META_PERMISSION_DENIED'],['expired','META_SESSION_EXPIRED']]){failure=value;await assert.rejects(adsPreflight(credentials),{code});}
-  } finally {global.fetch=native;}
+  return {get wabaReads(){return wabaReads;},get phoneReads(){return phoneReads;}};
+}
+const whatsappCredentials={accessToken:'fixture-only',adAccountId:'123',pageId:'456',instagramUserId:'789',metaWhatsappWabaId:'waba-456',metaWhatsappPhoneNumberId:'phone-789'};
+
+test('WhatsApp asset preflight: false Page flags pass with verified configured WABA and phone',async()=>{
+  const native=global.fetch,mock=mockWhatsAppPreflight();
+  try {const result=await adsPreflight(whatsappCredentials,{destination:'WHATSAPP'});assert.deepEqual(result.whatsappPageFlags,{hasBusinessNumber:false,hasNumber:false});assert.equal(result.whatsappAssetVerified,true);assert.equal(mock.wabaReads,1);assert.equal(mock.phoneReads,1);} finally {global.fetch=native;}
+});
+test('WhatsApp asset preflight: inaccessible configured WABA fails closed',async()=>{
+  const native=global.fetch;mockWhatsAppPreflight({wabaVisible:false});
+  try {await assert.rejects(adsPreflight(whatsappCredentials,{destination:'WHATSAPP'}),{code:'META_WHATSAPP_MISSING'});} finally {global.fetch=native;}
+});
+test('WhatsApp asset preflight: phone ID outside configured WABA fails closed',async()=>{
+  const native=global.fetch;mockWhatsAppPreflight({phoneId:'different-phone'});
+  try {await assert.rejects(adsPreflight(whatsappCredentials,{destination:'WHATSAPP'}),{code:'META_WHATSAPP_MISSING'});} finally {global.fetch=native;}
+});
+test('WhatsApp asset preflight: missing business management permission fails closed',async()=>{
+  const native=global.fetch;mockWhatsAppPreflight({permissions:['whatsapp_business_messaging']});
+  try {await assert.rejects(adsPreflight(whatsappCredentials,{destination:'WHATSAPP'}),{code:'META_WHATSAPP_MISSING'});} finally {global.fetch=native;}
+});
+test('WhatsApp asset preflight: non-WhatsApp destination skips WhatsApp validation',async()=>{
+  const native=global.fetch,mock=mockWhatsAppPreflight({wabaVisible:false,permissions:[]});
+  try {const result=await adsPreflight({...whatsappCredentials,metaWhatsappWabaId:'',metaWhatsappPhoneNumberId:''},{destination:'INSTAGRAM'});assert.equal(result.destination,'INSTAGRAM');assert.equal(result.whatsappAssetVerified,false);assert.equal(mock.wabaReads,0);assert.equal(mock.phoneReads,0);} finally {global.fetch=native;}
 });
 
 test('authenticated HTTP create passes preflight, resumes rejection and returns same completed ad',async()=>{

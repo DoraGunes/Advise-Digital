@@ -18,6 +18,8 @@ export function resolveCredentials(credentials=null) {
       fallback.metaInstagramUserId ||
       ''
     ).trim(),
+    metaWhatsappWabaId: String(credentials?.metaWhatsappWabaId || fallback.metaWhatsappWabaId || '').trim(),
+    metaWhatsappPhoneNumberId: String(credentials?.metaWhatsappPhoneNumberId || fallback.metaWhatsappPhoneNumberId || '').trim(),
     pageId: String(credentials?.pageId || fallback.metaPageId || '').trim(),
     instagramAccessToken: String(credentials?.instagramAccessToken || fallback.instagramAccessToken || '').trim(),
     instagramUsername: String(credentials?.instagramUsername || fallback.instagramUsername || '').trim(),
@@ -136,8 +138,20 @@ export async function adsPreflight(credentials={}, {destination='FACEBOOK_INSTAG
   if(String(page.id)!==c.pageId||page.is_published!==true)fail('META_PAGE_UNAVAILABLE','Bağlı Sayfa erişimi veya yayın durumu doğrulanamadı.');
   const linked=String(page.instagram_business_account?.id||page.connected_instagram_account?.id||'');
   if(!linked||linked!==String(c.metaInstagramUserId||c.instagramUserId))fail('META_INSTAGRAM_MISMATCH','Sayfaya bağlı Instagram hesabını Bağlantılar ekranından yeniden seçin.');
-  if(whatsappDestination&&page.has_whatsapp_business_number!==true&&page.has_whatsapp_number!==true)fail('META_WHATSAPP_MISSING','Reklam oluşturmadan önce Meta Sayfanıza WhatsApp numaranızı bağlayın.');
-  return {ok:true,accountId:c.adAccountId,pageId:c.pageId,instagramId:linked,currency:account.currency,timezone:account.timezone_name,objective:'OUTCOME_ENGAGEMENT',optimizationGoal:'CONVERSATIONS',destination:normalizedDestination,checkedAt:new Date().toISOString(),limitations:['Meta yaratım sırasında ek işletme, ödeme veya içerik kısıtlaması bildirebilir.']};
+  const whatsappPageFlags={hasBusinessNumber:page.has_whatsapp_business_number===true,hasNumber:page.has_whatsapp_number===true};
+  let whatsappAssetVerified=false;
+  if(whatsappDestination) {
+    if(!c.metaWhatsappWabaId||!c.metaWhatsappPhoneNumberId)fail('META_WHATSAPP_MISSING','WhatsApp Business Account ve telefon varlığı yapılandırılmamış.');
+    if(!granted.has('whatsapp_business_management')||!granted.has('whatsapp_business_messaging'))fail('META_WHATSAPP_MISSING','WhatsApp Business yönetim ve mesajlaşma izinleri doğrulanamadı.');
+    let waba;
+    try {waba=await request(c.metaWhatsappWabaId,{credentials:c,query:{fields:'id'}});} catch {fail('META_WHATSAPP_MISSING','Yapılandırılmış WhatsApp Business Account okunamadı.');}
+    if(String(waba?.id||'')!==c.metaWhatsappWabaId)fail('META_WHATSAPP_MISSING','Yapılandırılmış WhatsApp Business Account bulunamadı.');
+    let phoneNumbers;
+    try {phoneNumbers=await collection(`${c.metaWhatsappWabaId}/phone_numbers`,c,'id',500);} catch {fail('META_WHATSAPP_MISSING','WhatsApp Business Account telefon listesi okunamadı.');}
+    if(!Array.isArray(phoneNumbers?.data)||!phoneNumbers.data.some(phone=>String(phone.id||'')===c.metaWhatsappPhoneNumberId))fail('META_WHATSAPP_MISSING','Yapılandırılmış telefon numarası bu WhatsApp Business Account içinde bulunamadı.');
+    whatsappAssetVerified=true;
+  }
+  return {ok:true,accountId:c.adAccountId,pageId:c.pageId,instagramId:linked,currency:account.currency,timezone:account.timezone_name,objective:'OUTCOME_ENGAGEMENT',optimizationGoal:'CONVERSATIONS',destination:normalizedDestination,whatsappPageFlags,whatsappAssetVerified,checkedAt:new Date().toISOString(),limitations:['Meta yaratım sırasında ek işletme, ödeme veya içerik kısıtlaması bildirebilir.']};
 }
 
 export async function accountInsights(credentials={}, {since,until,timeIncrement,level='account'}={}) {
