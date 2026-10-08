@@ -114,9 +114,12 @@ export async function getMetaAccount(credentials={}) {
 
 // No success is inferred from locally stored credentials. Unknown prerequisite
 // fields fail closed, and every create/resume runs fresh provider checks.
-export async function adsPreflight(credentials={}) {
+export async function adsPreflight(credentials={}, {destination='FACEBOOK_INSTAGRAM'}={}) {
   const c=requireMeta(credentials);
   const fail=(code,message)=>{throw Object.assign(new Error(message),{code,retryable:false});};
+  const normalizedDestination=String(destination||'FACEBOOK_INSTAGRAM').trim().toUpperCase();
+  if(!['FACEBOOK','INSTAGRAM','FACEBOOK_INSTAGRAM','INSTAGRAM_DIRECT','WHATSAPP'].includes(normalizedDestination))fail('META_DESTINATION_INVALID','Geçerli reklam hedefini seçin.');
+  const whatsappDestination=normalizedDestination==='WHATSAPP';
   if(!c.pageId||!c.metaInstagramUserId&&!c.instagramUserId)fail('META_ASSETS_MISSING','Reklam oluşturmadan önce Sayfa ve Instagram hesabını bağlayın.');
   const [account,permissions,page]=await Promise.all([
     request(`act_${c.adAccountId}`,{credentials:c,query:{fields:'id,account_id,currency,account_status,disable_reason,timezone_name,user_tasks'}}),
@@ -133,8 +136,8 @@ export async function adsPreflight(credentials={}) {
   if(String(page.id)!==c.pageId||page.is_published!==true)fail('META_PAGE_UNAVAILABLE','Bağlı Sayfa erişimi veya yayın durumu doğrulanamadı.');
   const linked=String(page.instagram_business_account?.id||page.connected_instagram_account?.id||'');
   if(!linked||linked!==String(c.metaInstagramUserId||c.instagramUserId))fail('META_INSTAGRAM_MISMATCH','Sayfaya bağlı Instagram hesabını Bağlantılar ekranından yeniden seçin.');
-  if(page.has_whatsapp_business_number!==true&&page.has_whatsapp_number!==true)fail('META_WHATSAPP_MISSING','Reklam oluşturmadan önce Meta Sayfanıza WhatsApp numaranızı bağlayın.');
-  return {ok:true,accountId:c.adAccountId,pageId:c.pageId,instagramId:linked,currency:account.currency,timezone:account.timezone_name,objective:'OUTCOME_ENGAGEMENT',optimizationGoal:'CONVERSATIONS',destination:'WHATSAPP',checkedAt:new Date().toISOString(),limitations:['Meta yaratım sırasında ek işletme, ödeme veya içerik kısıtlaması bildirebilir.']};
+  if(whatsappDestination&&page.has_whatsapp_business_number!==true&&page.has_whatsapp_number!==true)fail('META_WHATSAPP_MISSING','Reklam oluşturmadan önce Meta Sayfanıza WhatsApp numaranızı bağlayın.');
+  return {ok:true,accountId:c.adAccountId,pageId:c.pageId,instagramId:linked,currency:account.currency,timezone:account.timezone_name,objective:'OUTCOME_ENGAGEMENT',optimizationGoal:'CONVERSATIONS',destination:normalizedDestination,checkedAt:new Date().toISOString(),limitations:['Meta yaratım sırasında ek işletme, ödeme veya içerik kısıtlaması bildirebilir.']};
 }
 
 export async function accountInsights(credentials={}, {since,until,timeIncrement,level='account'}={}) {

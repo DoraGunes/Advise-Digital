@@ -416,7 +416,7 @@ app.put('/api/ads/targeting-preferences', allowRoles('ADMIN','CUSTOMER_ADMIN','M
 
 app.get('/api/ads/preflight',allowRoles('ADMIN','CUSTOMER_ADMIN','MANAGER','OPERATOR'),async(req,res)=>{
   const correlationId=crypto.randomUUID();
-  try {const credentials=tenantCredentials(req.user.tenantId,await getTenant(req.user.tenantId));res.json(await withOperationBudget(15000,()=>adsPreflight(credentials)));}
+  try {const credentials=tenantCredentials(req.user.tenantId,await getTenant(req.user.tenantId));const destination=String(req.query.destination||'FACEBOOK_INSTAGRAM');res.json(await withOperationBudget(15000,()=>adsPreflight(credentials,{destination})));}
   catch(error){res.status(422).json(operationFailure(error,'preflight',correlationId));}
 });
 app.get('/api/ads/operations/:id',allowRoles('ADMIN','CUSTOMER_ADMIN','MANAGER','OPERATOR'),async(req,res)=>{
@@ -456,7 +456,7 @@ app.post('/api/ads/create',allowRoles('ADMIN','CUSTOMER_ADMIN','MANAGER','OPERAT
     }]);
     const result=await withOperationBudget(70000,()=>runAdOperation({tenantId,requestId,payload,steps,
       prepare:async operation=>{
-        await adsPreflight(credentials);
+        await adsPreflight(credentials,{destination:'WHATSAPP'});
         await budgetGuard(credentials,settings,{nextBudget:dailyBudget,creating:true});
         const media=await getInstagramMedia(credentials,100);
         if(!(media.data||[]).some(row=>String(row.id)===mediaId))throw Object.assign(new Error('Seçilen Instagram gönderisi bu hesaba ait değil.'),{code:'META_MEDIA_MISMATCH'});

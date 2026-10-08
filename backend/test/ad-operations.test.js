@@ -64,7 +64,7 @@ test('Gemini completed JSON returns model and malformed output never claims succ
 test('read timeout is bounded and supplies cancellation signal',async()=>{
   let signal;await assert.rejects(boundedRead(value=>{signal=value;return new Promise(()=>{});},10),{code:'ETIMEDOUT'});assert.equal(signal.aborted,true);
 });
-test('Meta preflight validates actual account, permission, Page, Instagram and WhatsApp evidence',async()=>{
+test('Meta preflight requires WhatsApp evidence only for WhatsApp destinations',async()=>{
   const native=global.fetch;let failure='';
   global.fetch=async input=>{
     const url=new URL(input),endpoint=url.pathname.split('/').at(-1);
@@ -74,8 +74,13 @@ test('Meta preflight validates actual account, permission, Page, Instagram and W
   };
   const credentials={accessToken:'fixture-only',adAccountId:'123',pageId:'456',instagramUserId:'789'};
   try {
-    assert.equal((await adsPreflight(credentials)).destination,'WHATSAPP');
-    for(const [value,code]of [['permission','META_PERMISSION_DENIED'],['whatsapp','META_WHATSAPP_MISSING'],['expired','META_SESSION_EXPIRED']]){failure=value;await assert.rejects(adsPreflight(credentials),{code});}
+    failure='whatsapp';
+    assert.equal((await adsPreflight(credentials)).destination,'FACEBOOK_INSTAGRAM');
+    assert.equal((await adsPreflight(credentials,{destination:'INSTAGRAM'})).destination,'INSTAGRAM');
+    await assert.rejects(adsPreflight(credentials,{destination:'WHATSAPP'}),{code:'META_WHATSAPP_MISSING'});
+    failure='';
+    assert.equal((await adsPreflight(credentials,{destination:'WHATSAPP'})).destination,'WHATSAPP');
+    for(const [value,code]of [['permission','META_PERMISSION_DENIED'],['expired','META_SESSION_EXPIRED']]){failure=value;await assert.rejects(adsPreflight(credentials),{code});}
   } finally {global.fetch=native;}
 });
 
