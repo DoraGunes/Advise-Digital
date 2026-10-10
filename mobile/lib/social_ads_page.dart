@@ -771,9 +771,20 @@ class _SocialAdsPageState extends State<SocialAdsPage> {
     });
     try {
       final result = await Api.adsPreflight();
+      final destination =
+          result['destination']?.toString().trim().toUpperCase() ?? '';
+      final destinationLabel = destination == 'WHATSAPP'
+          ? 'WhatsApp'
+          : destination == 'FACEBOOK_INSTAGRAM'
+              ? 'Facebook + Instagram'
+              : destination == 'INSTAGRAM'
+                  ? 'Instagram'
+                  : destination == 'FACEBOOK'
+                      ? 'Facebook'
+                      : 'Meta';
       if (mounted)
         setState(() => _preflightMessage = result['ok'] == true
-            ? 'Meta bağlantıları doğrulandı. ${result['currency']} · ${result['timezone']} · WhatsApp'
+            ? 'Meta bağlantıları doğrulandı. ${result['currency']} · ${result['timezone']} · $destinationLabel'
             : 'Meta bağlantısı doğrulanamadı.');
     } catch (error) {
       if (mounted) setState(() => _preflightMessage = AppError.message(error));

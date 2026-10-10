@@ -100,6 +100,47 @@ void main() {
     expect(mutationCalls, 4);
   });
 
+  test('Meta preflight retries transient gateway failure and sends explicit destination',
+      () async {
+    var healthCalls = 0;
+    var preflightCalls = 0;
+    Api.setHttpClientForTesting(MockClient((request) async {
+      if (request.url.path == '/health') {
+        healthCalls++;
+        return http.Response(
+            jsonEncode({
+              'ok': true,
+              'version': '16.0.0',
+              'capabilities': {
+                'productExperience': true,
+                'adsPreflight': true,
+              }
+            }),
+            200);
+      }
+      expect(request.url.path, '/api/ads/preflight');
+      expect(request.url.queryParameters['destination'], 'FACEBOOK_INSTAGRAM');
+      preflightCalls++;
+      if (preflightCalls == 1) {
+        return http.Response('{"error":"temporary gateway failure"}', 503);
+      }
+      return http.Response(
+          jsonEncode({
+            'ok': true,
+            'currency': 'TRY',
+            'timezone': 'Europe/Istanbul',
+            'destination': 'FACEBOOK_INSTAGRAM',
+          }),
+          200);
+    }));
+
+    final result = await Api.adsPreflight();
+    expect(result['ok'], isTrue);
+    expect(result['destination'], 'FACEBOOK_INSTAGRAM');
+    expect(healthCalls, 1);
+    expect(preflightCalls, 2);
+  });
+
   test('authenticated 401 triggers session expiry', () async {
     await Api.setToken('fixture-session');
     Api.setHttpClientForTesting(MockClient(

@@ -577,8 +577,11 @@ class Api {
 
   static Future<Map<String, dynamic>> adsPreflight() async {
     await _requireCapability('adsPreflight', feature: 'Meta bağlantı kontrolü');
-    return Map<String, dynamic>.from(
-        await _request('GET', '/api/ads/preflight', retry: false));
+    return Map<String, dynamic>.from(await _request(
+      'GET',
+      '/api/ads/preflight',
+      query: const {'destination': 'FACEBOOK_INSTAGRAM'},
+    ));
   }
 
   static Future<Map<String, dynamic>> adOperation(String requestId) async =>

@@ -1,7 +1,7 @@
 name: advise_digital
 description: AdVise Digital AI advertising and content workspace
 publish_to: "none"
-version: 16.0.0+16
+version: 16.0.1+17
 
 environment:
   sdk: ">=3.3.0 <4.0.0"
