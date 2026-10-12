@@ -5,7 +5,10 @@ import {withTenantLock} from './persistence.js';
 export const minorToMoney=value=>Math.round((Number(value)||0))/100;
 export const money=value=>Math.round(Number(value)*100)/100;
 export function tenantCredentials(tenantId,tenant) {
-  return tenantId==='system' ? {systemAccount:true} : {...(tenant?.meta||{}),systemAccount:false};
+  // An explicitly connected account must win over the legacy system .env account.
+  // Disable fallback so tokens and asset IDs from two accounts cannot be mixed.
+  if(tenantId==='system'&&!tenant?.meta?.connected)return {systemAccount:true};
+  return {...(tenant?.meta||{}),systemAccount:false};
 }
 export function metaReady(credentials) {
   const c=resolveCredentials(credentials);
