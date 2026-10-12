@@ -1,5 +1,6 @@
 import {withOperationBudget} from './operation-budget.js';
 import {normalizeCover,MAX_COVER_BYTES} from './cover-image.js';
+import {normalizeInstagramImage} from './instagram-image.js';
 import {runAdOperation,getAdOperation,operationFailure} from './ad-operations.js';
 import express from 'express';
 import cors from 'cors';
@@ -832,6 +833,17 @@ app.post('/api/posts', upload.single('image'), async (req, res) => {
       await fs.rm(req.file.path,{force:true});
       return res.status(409).json({error:'Bu içerik daha önce yüklenmiş. Aynı görsel/video tekrar kuyruğa alınmadı.'});
     }
+    let publishPath=req.file.path, publishFileName=req.file.filename, publishMimeType=req.file.mimetype;
+    if(mediaKind(req.file)==='IMAGE') {
+      let jpeg;
+      try {jpeg=await normalizeInstagramImage(buffer);}
+      catch(error){await fs.rm(req.file.path,{force:true});return res.status(422).json({error:error.message});}
+      publishFileName=`${crypto.randomUUID()}.jpg`;
+      publishPath=path.join(uploadDir,publishFileName);
+      await fs.writeFile(publishPath,jpeg.bytes,{flag:'wx'});
+      await fs.rm(req.file.path,{force:true});
+      publishMimeType='image/jpeg';
+    }
     const requestedMediaType=String(req.body?.mediaType||'AUTO').toUpperCase();
     const mediaType=mediaKind(req.file)==='VIDEO'?'REELS':(requestedMediaType==='CAROUSEL'?'CAROUSEL':'POST');
     const requestedAuto=String(req.body?.autoPublish ?? 'true').toLowerCase()!=='false';
@@ -844,10 +856,10 @@ app.post('/api/posts', upload.single('image'), async (req, res) => {
       caption:String(req.body?.caption||'').trim(),
       linkUrl:String(req.body?.linkUrl||'').trim(),
       autoPublish:requestedAuto && settings.autoPublish !== false,
-      filePath:req.file.path,
-      publicUrl:`${publicBaseUrlForRequest(req)}/uploads/${encodeURIComponent(req.file.filename)}`,
+      filePath:publishPath,
+      publicUrl:`${publicBaseUrlForRequest(req)}/uploads/${encodeURIComponent(publishFileName)}`,
       fileHash,
-      mimeType:req.file.mimetype,
+      mimeType:publishMimeType,
       mediaType,
       format:mediaType,
       memoryGenerationId,
