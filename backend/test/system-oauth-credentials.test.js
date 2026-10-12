@@ -40,14 +40,14 @@ test('system media listing, ad creation and publishing all use the already selec
  const store=await import('../src/store.js');
  await store.updateTenant('system',{meta});
  await store.saveSettings('system',{geminiAdsDailyCap:300,maxDailyBudget:300});
- await store.savePosts('system',[{id:'system-photo',mediaType:'POST',publicUrl:'https://fixture.invalid/image.jpg',caption:'Fixture',publishStatus:'MANUAL'}]);
+ await store.savePosts('system',[{id:'system-photo',mediaType:'POST',publicUrl:'https://fixture.invalid/image.jpg',caption:'Fixture',publishStatus:'MANUAL'},{id:'system-reel',mediaType:'REELS',publicUrl:'https://fixture.invalid/video.mp4',caption:'Fixture Reel',publishStatus:'MANUAL'}]);
  const {app}=await import('../src/server.js');
  const auth=await import('../src/auth.js');
  const session=await auth.login('fixture-system-admin','fixture-password');
  const listener=app.listen(0,'127.0.0.1');
  await new Promise(resolve=>listener.once('listening',resolve));
  const base='http://127.0.0.1:'+listener.address().port;
- const native=globalThis.fetch,writes=[];
+ const native=globalThis.fetch,writes=[];let mediaCreates=0;
  globalThis.fetch=async(input,options={})=>{
   const url=new URL(input);
   if(url.hostname==='127.0.0.1')return native(input,options);
@@ -58,8 +58,14 @@ test('system media listing, ad creation and publishing all use the already selec
   let result;
   if(options.method==='POST'){
    writes.push(endpoint);
-   if(endpoint==='media'){assert.ok(url.pathname.endsWith('/789/media'));result={id:'1005'};}
-   else if(endpoint==='media_publish'){assert.ok(url.pathname.endsWith('/789/media_publish'));result={id:'1006'};}
+   if(endpoint==='media'){
+    assert.ok(url.pathname.endsWith('/789/media'));
+    const body=new URLSearchParams(options.body);
+    if(++mediaCreates===1){assert.equal(body.get('image_url'),'https://fixture.invalid/image.jpg');assert.equal(body.get('media_type'),null);}
+    else {assert.equal(body.get('media_type'),'REELS');assert.equal(body.get('video_url'),'https://fixture.invalid/video.mp4');assert.equal(body.get('image_url'),null);}
+    result={id:mediaCreates===1?'1005':'1007'};
+   }
+   else if(endpoint==='media_publish'){assert.ok(url.pathname.endsWith('/789/media_publish'));result={id:new URLSearchParams(options.body).get('creation_id')==='1005'?'1006':'1008'};}
    else {
     assert.ok(url.pathname.includes('/act_246/'));
     result={id:String({campaigns:1001,adsets:1002,adcreatives:1003,ads:1004}[endpoint])};
@@ -68,7 +74,7 @@ test('system media listing, ad creation and publishing all use the already selec
   else if(endpoint==='permissions')result={data:[{permission:'ads_management',status:'granted'},{permission:'pages_read_engagement',status:'granted'}]};
   else if(endpoint==='456')result={id:'456',is_published:true,instagram_business_account:{id:'789'}};
   else if(endpoint==='media'){assert.ok(url.pathname.endsWith('/789/media'));result={data:[{id:'901',media_type:'IMAGE'}]};}
-  else if(endpoint==='1005')result={status_code:'FINISHED'};
+  else if(['1005','1007'].includes(endpoint))result={status_code:'FINISHED'};
   else if(['campaigns','adsets','ads'].includes(endpoint))result={data:[]};
   else assert.fail('Unexpected fixture provider endpoint');
   return new Response(JSON.stringify(result),{status:200});
@@ -84,7 +90,10 @@ test('system media listing, ad creation and publishing all use the already selec
   const published=await native(base+'/api/posts/system-photo/publish',{method:'POST',headers,body:'{}'});
   assert.equal(published.status,200,JSON.stringify(await published.clone().json()));
   assert.equal((await store.getPosts('system'))[0].instagramMediaId,'1006');
-  assert.deepEqual(writes,['campaigns','adsets','adcreatives','ads','media','media_publish']);
+  const reel=await native(base+'/api/posts/system-reel/publish',{method:'POST',headers,body:'{}'});
+  assert.equal(reel.status,200,JSON.stringify(await reel.clone().json()));
+  assert.equal((await store.getPosts('system'))[1].instagramMediaId,'1008');
+  assert.deepEqual(writes,['campaigns','adsets','adcreatives','ads','media','media_publish','media','media_publish']);
  }finally{
   globalThis.fetch=native;
   listener.closeAllConnections();

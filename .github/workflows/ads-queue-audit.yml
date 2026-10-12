@@ -128,6 +128,13 @@ jobs:
         with:
           channel: stable
           cache: true
+      - name: Parse read-only PowerShell diagnostic without executing it
+        shell: pwsh
+        run: |
+          $parseTokens = $null
+          $parseErrors = $null
+          [void][System.Management.Automation.Language.Parser]::ParseFile((Join-Path $env:GITHUB_WORKSPACE 'tools/AdVise-Safe-Production-Diagnostic.ps1'), [ref]$parseTokens, [ref]$parseErrors)
+          if ($parseErrors.Count -gt 0) { $parseErrors | ForEach-Object { Write-Error $_.Message }; exit 1 }
       - run: flutter config --enable-windows-desktop
       - run: flutter pub get
       - name: Windows release
