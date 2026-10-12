@@ -119,7 +119,7 @@ void main() {
             200);
       }
       expect(request.url.path, '/api/ads/preflight');
-      expect(request.url.queryParameters['destination'], 'FACEBOOK_INSTAGRAM');
+      expect(request.url.queryParameters['destination'], 'INSTAGRAM_DIRECT');
       preflightCalls++;
       if (preflightCalls == 1) {
         return http.Response('{"error":"temporary gateway failure"}', 503);
@@ -129,16 +129,43 @@ void main() {
             'ok': true,
             'currency': 'TRY',
             'timezone': 'Europe/Istanbul',
-            'destination': 'FACEBOOK_INSTAGRAM',
+            'destination': 'INSTAGRAM_DIRECT',
           }),
           200);
     }));
 
     final result = await Api.adsPreflight();
     expect(result['ok'], isTrue);
-    expect(result['destination'], 'FACEBOOK_INSTAGRAM');
+    expect(result['destination'], 'INSTAGRAM_DIRECT');
     expect(healthCalls, 1);
     expect(preflightCalls, 2);
+  });
+
+  test('Meta preflight preserves explicitly selected WhatsApp destination',
+      () async {
+    var preflightCalls = 0;
+    Api.setHttpClientForTesting(MockClient((request) async {
+      if (request.url.path == '/health') {
+        return http.Response(jsonEncode({
+          'ok': true,
+          'version': '16.0.0',
+          'capabilities': {'productExperience': true, 'adsPreflight': true},
+        }), 200);
+      }
+      expect(request.url.path, '/api/ads/preflight');
+      expect(request.url.queryParameters['destination'], 'WHATSAPP');
+      preflightCalls++;
+      return http.Response(jsonEncode({
+        'ok': true,
+        'destination': 'WHATSAPP',
+        'currency': 'TRY',
+        'timezone': 'Europe/Istanbul',
+      }), 200);
+    }));
+
+    final result = await Api.adsPreflight(destination: 'WHATSAPP');
+    expect(result['destination'], 'WHATSAPP');
+    expect(preflightCalls, 1);
   });
 
   test('authenticated 401 triggers session expiry', () async {
