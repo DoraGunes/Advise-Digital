@@ -907,14 +907,15 @@ app.post('/api/posts', upload.single('image'), async (req, res) => {
     delete post.aiMemoryPack;
     posts.unshift(post);
     await savePosts(tenantId,posts);
-    await addLog(tenantId,{type:'POST_UPLOADED',postId:post.id,title:post.title,mediaType,aiGenerated:post.aiGenerated});
-    if (post.aiGenerated && memoryPack && ['GEMINI','GEMINI_REGENERATED'].includes(memoryPack.source)) await learnFromGeneration(tenantId, memoryPack, {postId:post.id});
-    else if (memoryGenerationId) await linkGenerationToPost(tenantId, memoryGenerationId, post.id, {caption:post.caption});
+    await addLog(tenantId,{type:'POST_UPLOADED',postId:post.id,title:post.title,mediaType,aiGenerated:post.aiGenerated}).catch(()=>console.error('[POST_UPLOAD_LOG_FAILED]'));
+    if (post.aiGenerated && memoryPack && ['GEMINI','GEMINI_REGENERATED'].includes(memoryPack.source)) await learnFromGeneration(tenantId, memoryPack, {postId:post.id}).catch(()=>console.error('[POST_UPLOAD_MEMORY_FAILED]'));
+    else if (memoryGenerationId) await linkGenerationToPost(tenantId, memoryGenerationId, post.id, {caption:post.caption}).catch(()=>console.error('[POST_UPLOAD_MEMORY_FAILED]'));
     res.status(201).json(post);
   } catch (e) { res.status(500).json({error:e.message}); }
 });
 
 app.post('/api/posts/bulk', upload.array('files', 20), async (req, res) => {
+  let postsSaved=false;
   try {
     const files = Array.isArray(req.files) ? req.files.slice(0, 20) : [];
     if (!files.length) return res.status(400).json({error:'En az bir fotoğraf veya video seçmelisin.'});
@@ -1049,11 +1050,12 @@ app.post('/api/posts/bulk', upload.array('files', 20), async (req, res) => {
     }
     const nextPosts=[...accepted,...existing];
     await savePosts(tenantId,nextPosts);
+    postsSaved=true;
 
     for(const post of accepted) {
       const memoryPack = memoryPacks.get(post.id);
-      await addLog(tenantId,{type:'POST_UPLOADED',postId:post.id,title:post.title,mediaType:post.mediaType,aiGenerated:post.aiGenerated,bulk:true});
-      if (post.aiGenerated && memoryPack && ['GEMINI','GEMINI_REGENERATED'].includes(memoryPack.source)) await learnFromGeneration(tenantId, memoryPack, {postId:post.id});
+      await addLog(tenantId,{type:'POST_UPLOADED',postId:post.id,title:post.title,mediaType:post.mediaType,aiGenerated:post.aiGenerated,bulk:true}).catch(()=>console.error('[POST_UPLOAD_LOG_FAILED]'));
+      if (post.aiGenerated && memoryPack && ['GEMINI','GEMINI_REGENERATED'].includes(memoryPack.source)) await learnFromGeneration(tenantId, memoryPack, {postId:post.id}).catch(()=>console.error('[POST_UPLOAD_MEMORY_FAILED]'));
     }
 
     res.status(201).json({
@@ -1064,7 +1066,8 @@ app.post('/api/posts/bulk', upload.array('files', 20), async (req, res) => {
       posts:accepted
     });
   } catch(e) {
-    for(const file of (req.files||[])) await fs.rm(file.path,{force:true}).catch(()=>{});
+    // Committed posts own these files; secondary failures must never delete them.
+    if(!postsSaved) for(const file of (req.files||[])) await fs.rm(file.path,{force:true}).catch(()=>{});
     res.status(500).json({error:e.message});
   }
 });
