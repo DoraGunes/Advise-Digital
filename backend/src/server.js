@@ -912,6 +912,7 @@ app.post('/api/posts/bulk', upload.array('files', 20), async (req, res) => {
     const settings=await getSettings(tenantId);
     const existing=await getPosts(tenantId);
     const accepted=[];
+    const skippedReasons=[];
     const seenHashes=new Set(existing.map(x=>x.fileHash).filter(Boolean));
     const useAI=String(req.body?.useAI ?? 'true').toLowerCase()!=='false';
     const requestedAuto=String(req.body?.autoPublish ?? 'true').toLowerCase()!=='false';
@@ -929,6 +930,16 @@ app.post('/api/posts/bulk', upload.array('files', 20), async (req, res) => {
         seenHashes.add(fileHash);
 
         const mediaType=mediaKind(file)==='VIDEO'?'REELS':'POST';
+        if(mediaType==='POST') {
+          const jpeg=await normalizeInstagramImage(buffer);
+          const normalizedName=`${crypto.randomUUID()}.jpg`;
+          const normalizedPath=path.join(uploadDir,normalizedName);
+          await fs.writeFile(normalizedPath,jpeg.bytes,{flag:'wx'});
+          await fs.rm(file.path,{force:true});
+          file.path=normalizedPath;
+          file.filename=normalizedName;
+          file.mimetype='image/jpeg';
+        }
         const post={
           id:`post_${Date.now()}_${accepted.length}`,
           tenantId,
@@ -948,7 +959,8 @@ app.post('/api/posts/bulk', upload.array('files', 20), async (req, res) => {
         };
 
         if(useAI && settings.aiEnabled!==false) {
-          const pack=await generateContentPack({
+          let pack;
+          try { pack=await generateContentPack({
             title:post.title,
             context:aiContext,
             tone:settings.aiTone,
@@ -962,7 +974,15 @@ app.post('/api/posts/bulk', upload.array('files', 20), async (req, res) => {
             imageUrl:mediaType==='POST' && /^https:\/\//i.test(post.publicUrl) ? post.publicUrl : '',
             filePath:post.filePath,
             mimeType:post.mimeType
-          });
+          }); } catch(aiError) {
+            // Caption generation may fail independently. Preserve uploaded media
+            // and the queue slot instead of silently discarding the file.
+            post.aiGenerated=false;
+            post.aiStatus='FAILED';
+            post.caption=post.title;
+            post.aiError='AI metni üretilemedi. İçeriği düzenleyerek devam edin.';
+          }
+          if(pack) {
           post.aiGenerated=true;
           post.aiMemoryPack=pack;
           post.aiSource=pack.source;
@@ -978,15 +998,26 @@ app.post('/api/posts/bulk', upload.array('files', 20), async (req, res) => {
             post.aiCta,
             post.aiHashtags.join(' ')
           ].filter(Boolean).join('\\n\\n');
+          post.aiStatus='READY';
+          }
         }
 
         accepted.push(post);
       } catch(fileError) {
+        skippedReasons.push({
+          name:String(file.originalname||'Medya').slice(0,80),
+          reason:/Instagram|JPEG|görsel|fotoğraf|okunamad/i.test(String(fileError?.message||''))
+            ? String(fileError.message).slice(0,180)
+            : 'Dosya işlenemedi.'
+        });
         await fs.rm(file.path,{force:true}).catch(()=>{});
       }
     }
 
-    if(!accepted.length) return res.status(409).json({error:'Yüklenecek yeni içerik bulunamadı. Tekrarlanan içerikler atlanmış olabilir.'});
+    if(!accepted.length) return res.status(422).json({
+      error:'Hiçbir medya kaydedilemedi. Tekrarlanan veya işlenemeyen dosyalar olabilir.',
+      skippedReasons
+    });
 
     if(requestedAuto && settings.autoPublish !== false) {
       await scheduleUploadedPosts(accepted,tenantId);
@@ -1011,6 +1042,7 @@ app.post('/api/posts/bulk', upload.array('files', 20), async (req, res) => {
     res.status(201).json({
       count:accepted.length,
       skipped:files.length-accepted.length,
+      skippedReasons,
       order:accepted.map(x=>({id:x.id,title:x.title,mediaType:x.mediaType,nextPublishAt:x.nextPublishAt||null})),
       posts:accepted
     });
