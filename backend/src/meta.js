@@ -309,7 +309,12 @@ async function instagramRequest(path,{method='GET',body={},accessToken,api='INST
   try {
     const response=await fetch(url,{method,body:method==='GET'?undefined:params,headers:{accept:'application/json'},signal:controller.signal});
     const data=parse(await response.text());
-    if(!response.ok||data.error) throw new Error(`Instagram API ${response.status}: ${data?.error?.message||JSON.stringify(data)}`);
+    if(!response.ok||data.error) {
+      const err=data?.error||{};
+      const detail=err.message||'İstek reddedildi.';
+      const codes=[err.code&&`kod ${err.code}`,err.error_subcode&&`alt kod ${err.error_subcode}`].filter(Boolean).join(', ');
+      throw new Error(`Instagram API ${response.status}: ${detail}${codes?' ('+codes+')':''}`);
+    }
     return data;
   } catch(e) {
     if(e.name==='AbortError') throw new Error('Instagram API timeout.');
@@ -323,7 +328,7 @@ async function waitForReel(containerId,accessToken,api) {
     const state=await instagramRequest(containerId,{accessToken,api,body:{fields:'status_code,status'}});
     const code=String(state.status_code||state.status||'').toUpperCase();
     if(code==='FINISHED'||code==='PUBLISHED') return state;
-    if(code==='ERROR'||code==='EXPIRED') throw new Error(`Instagram Reel hazırlama durumu: ${code}`);
+    if(code==='ERROR'||code==='EXPIRED') throw new Error(`Instagram içerik hazırlama durumu: ${code}${state.status ? ' — '+String(state.status).slice(0,240) : ''}`);
     await new Promise(r=>setTimeout(r,3000));
   }
   throw new Error('Instagram Reel hazırlama zaman aşımına uğradı.');
