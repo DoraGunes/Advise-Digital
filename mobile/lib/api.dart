@@ -62,6 +62,10 @@ class ApiException implements Exception, UserFacingFailure {
           'İşlem zamanında tamamlanamadı. Mevcut işlem durumunu kontrol edip yeniden deneyin.',
       'AD_CREATE_FAILED':
           'Reklam isteği tamamlanamadı. Hesap ve bağlantı ayarlarını kontrol edin.',
+      'AD_BUDGET_CAP_REQUIRED':
+          'Hesap günlük reklam limiti tanımlanmamış. Daha Fazla > Otomasyon bölümünde günlük harcama limiti belirleyin. Reklam oluşturulmadı.',
+      'AD_BUDGET_CAP_EXCEEDED':
+          'Seçilen bütçe günlük hesap harcama sınırını aşıyor. Limitleri ve aktif reklam bütçelerini kontrol edin.',
       'AD_LIMIT_REACHED': 'Paketinizin reklam limitine ulaşıldı.',
       'META_MEDIA_MISMATCH':
           'Seçilen Instagram gönderisi bağlı hesaba ait değil.',
