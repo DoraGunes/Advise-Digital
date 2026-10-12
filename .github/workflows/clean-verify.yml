@@ -26,11 +26,11 @@ jobs:
           cp backend/package-lock.json /tmp/advise-overwrite/backend/ 2>/dev/null || true
 
           cat > /tmp/advise-overwrite/README.txt <<'EOF'
-AdVise AI - DIRECT OVERWRITE SOURCE
-Bu ZIP'teki klasör yapısını proje kökünün üzerine çıkart.
-Dosyalar doğrudan mobile/lib ve backend/src altındaki mevcut dosyaların üzerine yazılacak.
-Gizli .env/token/secret dosyaları pakete dahil değildir.
-EOF
+          AdVise AI - DIRECT OVERWRITE SOURCE
+          Bu ZIP'teki klasör yapısını proje kökünün üzerine çıkart.
+          Dosyalar doğrudan mobile/lib ve backend/src altındaki mevcut dosyaların üzerine yazılacak.
+          Gizli .env/token/secret dosyaları pakete dahil değildir.
+          EOF
 
           cd /tmp/advise-overwrite
           zip -qr /tmp/AdViseAI_CHANGED_FILES_DIRECT_OVERWRITE.zip mobile backend README.txt
