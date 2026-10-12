@@ -32,7 +32,15 @@ export async function runAdOperation({tenantId,requestId,payload,prepare,steps,c
   return withTenantLock(tenantId,async()=>{
     const fingerprint=createHash('sha256').update(JSON.stringify(payload)).digest('hex');
     let operation=await getAdOperation(tenantId,requestId);
-    if(operation&&operation.fingerprint!==fingerprint)throw Object.assign(new Error('İstek kimliği farklı içerikte kullanılmış.'),{code:'IDEMPOTENCY_CONFLICT'});
+    if(operation&&operation.fingerprint!==fingerprint) {
+      // A corrected connection can change account/Page identity in the fingerprint.
+      // Only a durably failed preflight with no started or completed provider write
+      // can accept that change. Any remote-write/ambiguous state remains immutable.
+      const beforeWrites=operation.status==='FAILED'&&operation.stage==='preflight'&&operation.failure?.stage==='preflight'&&!operation.startedStage&&operation.ids&&typeof operation.ids==='object'&&!Array.isArray(operation.ids)&&Object.keys(operation.ids).length===0;
+      if(!beforeWrites)throw Object.assign(new Error('İstek kimliği farklı içerikte kullanılmış.'),{code:'IDEMPOTENCY_CONFLICT'});
+      operation.preflightHistory=[...(Array.isArray(operation.preflightHistory)?operation.preflightHistory:[]),{fingerprint:operation.fingerprint,failure:operation.failure,providerFailure:operation.providerFailure,at:operation.updatedAt}].slice(-5);
+      operation.fingerprint=fingerprint;
+    }
     if(operation?.status==='SUCCEEDED')return operation.result;
     if(operation?.status==='RECONCILE'||operation?.status==='RUNNING'&&operation?.startedStage)throw Object.assign(new Error('Meta sonucunu kontrol edin.'),{code:'AD_RECONCILE_REQUIRED'});
     operation??={tenantId,requestId,fingerprint,correlationId:randomUUID(),status:'RUNNING',stage:'preflight',ids:{},createdAt:new Date().toISOString()};

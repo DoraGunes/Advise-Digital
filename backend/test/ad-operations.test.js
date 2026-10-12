@@ -196,3 +196,34 @@ test('HTTP Reels covers use decoded bytes for JPEG/PNG/WebP/blob/mismatched MIME
     const tooBig=await send(Buffer.alloc(10*1024*1024+1),'cover.jpg','image/jpeg');assert.equal(tooBig.status,413);assert.equal((await tooBig.json()).code,'COVER_TOO_LARGE');
   } finally {listener.closeAllConnections();await new Promise(resolve=>listener.close(resolve));}
 });
+
+test('failed preflight can reuse its request after a connection correction without losing diagnosis',async()=>{
+  let writes=0;
+  const input=args('corrected-context',[['campaign',async()=>({id:String(++writes)})]]);
+  const oldPayload={...input.payload,pageId:''};
+  await assert.rejects(runAdOperation({...input,payload:oldPayload,prepare:async()=>{throw Object.assign(new Error('Seçili varlık eksik.'),{code:'META_ASSETS_MISSING'});}}));
+  assert.equal(writes,0);
+  const corrected={...input,payload:{...oldPayload,pageId:'456'}};
+  await runAdOperation(corrected);
+  await runAdOperation(corrected);
+  assert.equal(writes,1);
+  const saved=await getAdOperation('corrected-context',requestId);
+  assert.equal(saved.status,'SUCCEEDED');
+  assert.equal(saved.preflightHistory.length,1);
+  assert.equal(saved.preflightHistory[0].failure.code,'META_ASSETS_MISSING');
+  assert.notEqual(saved.preflightHistory[0].fingerprint,saved.fingerprint);
+});
+
+test('a rejected or ambiguous provider write cannot accept a changed fingerprint even without an ID',async()=>{
+  for(const [tenantId,error] of [
+    ['rejected-context',Object.assign(new Error('İstek reddedildi.'),{status:400,code:'META_REJECTED'})],
+    ['ambiguous-context',Object.assign(new Error('timeout'),{code:'ETIMEDOUT'})]
+  ]){
+    let writes=0;
+    const input=args(tenantId,[['campaign',async()=>{writes++;throw error;}]]);
+    await assert.rejects(runAdOperation(input));
+    await assert.rejects(runAdOperation({...input,payload:{...input.payload,pageId:'456'}}),{code:'IDEMPOTENCY_CONFLICT'});
+    assert.equal(writes,1);
+    assert.equal((await getAdOperation(tenantId,requestId)).preflightHistory,undefined);
+  }
+});
