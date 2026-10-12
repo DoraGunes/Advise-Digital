@@ -387,11 +387,14 @@ export async function createAdCreativeFromInstagramMedia({name,instagramMediaId,
 
   const identity=await resolveMetaInstagramIdentity(c,instagramUserId,pageId);
   if(!identity.pageId) throw new Error('Instagram reklamı için Facebook Page ID gerekli.');
+  // Existing IG media must be referenced by source_instagram_media_id at
+  // the creative root. The Page belongs in object_story_spec rather than
+  // object_id, which is a separate creative field.
   const body={
     name,
-    object_id:identity.pageId,
+    source_instagram_media_id:mediaId,
     instagram_user_id:identity.instagramUserId,
-    source_instagram_media_id:mediaId
+    object_story_spec:{page_id:identity.pageId}
   };
 
   return request(`act_${c.adAccountId}/adcreatives`,{method:'POST',credentials:c,body,timeoutMs:15000});
