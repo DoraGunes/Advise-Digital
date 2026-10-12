@@ -209,6 +209,8 @@ test('failed preflight can reuse its request after a connection correction witho
   assert.equal(writes,1);
   const saved=await getAdOperation('corrected-context',requestId);
   assert.equal(saved.status,'SUCCEEDED');
+  assert.equal(saved.failure,null);assert.equal(saved.providerFailure,null);
+  assert.equal(saved.lastFailure.failure.code,'META_ASSETS_MISSING');
   assert.equal(saved.preflightHistory.length,1);
   assert.equal(saved.preflightHistory[0].failure.code,'META_ASSETS_MISSING');
   assert.notEqual(saved.preflightHistory[0].fingerprint,saved.fingerprint);

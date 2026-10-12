@@ -57,6 +57,8 @@ export async function runAdOperation({tenantId,requestId,payload,prepare,steps,c
       }
       operation.stage='completion';
       operation.result=await complete(operation,context);
+      if(operation.failure)operation.lastFailure={failure:operation.failure,providerFailure:operation.providerFailure,at:operation.updatedAt};
+      operation.failure=null;operation.providerFailure=null;
       operation.status='SUCCEEDED';await save(operation);
       return operation.result;
     } catch(error) {
