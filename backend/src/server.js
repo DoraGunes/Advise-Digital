@@ -869,9 +869,18 @@ app.post('/api/posts', upload.single('image'), async (req, res) => {
     };
     if(useAI && settings.aiEnabled!==false && !post.caption) {
       const history=await getLogs(tenantId, 20);
-      const pack=await generateContentPack({title:post.title,context:req.body?.aiContext||'',tone:settings.aiTone,goal:'WhatsApp mesajı',adTargeting:adTargetingPrompt(settings),language:settings.aiLanguage,mediaType,timezone:config.timezone,tenantId,history,imageUrl:mediaType==='POST' && /^https:\/\//i.test(post.publicUrl)?post.publicUrl:'',
+      let pack;
+      try { pack=await generateContentPack({title:post.title,context:req.body?.aiContext||'',tone:settings.aiTone,goal:'WhatsApp mesajı',adTargeting:adTargetingPrompt(settings),language:settings.aiLanguage,mediaType,timezone:config.timezone,tenantId,history,imageUrl:mediaType==='POST' && /^https:\/\//i.test(post.publicUrl)?post.publicUrl:'',
         filePath:post.filePath,
-        mimeType:post.mimeType});
+        mimeType:post.mimeType}); } catch(aiError) {
+        // Do not lose the draft because Gemini is temporarily unavailable.
+        post.aiStatus='FAILED';
+        post.aiGenerated=false;
+        post.aiError='AI metni üretilemedi. Paylaşmadan önce metni gözden geçirin.';
+        post.caption=post.title;
+        post.autoPublish=false;
+      }
+      if(pack) {
       post.aiGenerated=true;
       post.aiMemoryPack=pack;
       post.aiSource=pack.source;
@@ -887,6 +896,8 @@ app.post('/api/posts', upload.single('image'), async (req, res) => {
         post.aiCta,
         post.aiHashtags.join(' ')
       ].filter(Boolean).join('\n\n');
+      post.aiStatus='READY';
+      }
     }
     if(post.autoPublish || req.body?.scheduleAt) {
       await scheduleUploadedPost(post,tenantId,req.body?.scheduleAt||'');
@@ -1021,6 +1032,12 @@ app.post('/api/posts/bulk', upload.array('files', 20), async (req, res) => {
 
     if(requestedAuto && settings.autoPublish !== false) {
       await scheduleUploadedPosts(accepted,tenantId);
+      for(const post of accepted) {
+        if(post.aiStatus==='FAILED') {
+          post.autoPublish=false;
+          post.publishStatus='READY';
+        }
+      }
     } else {
       for(const post of accepted) post.publishStatus='MANUAL';
     }
