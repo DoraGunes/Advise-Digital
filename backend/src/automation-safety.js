@@ -35,11 +35,11 @@ export async function budgetGuard(credentials,settings,{adSetId='',nextBudget=0,
   if (next>Number(settings.maxDailyBudget)) throw new Error(`Reklam grubu günlük sınırı ${settings.maxDailyBudget} TL.`);
   if (creating || next>currentBudget || activate) {
     const cap=Number(settings.geminiAdsDailyCap||0);
-    if (!(cap>0)) throw new Error('Önce hesap günlük bütçe sınırını belirleyin.');
+    if (!(cap>0)) throw Object.assign(new Error('Hesap günlük reklam harcama sınırı ayarlanmamış. Daha Fazla > Otomasyon bölümünde günlük limit belirleyin; reklam oluşturulmadı.'),{code:'AD_BUDGET_CAP_REQUIRED'});
     const total=rows.filter(row=>String(row.status).toUpperCase()==='ACTIVE').reduce((sum,row)=>sum+minorToMoney(row.daily_budget),0);
     const counted=current&&String(current.status).toUpperCase()==='ACTIVE' ? currentBudget : 0;
     const projected=total-counted+((activate||creating||counted>0)?next:0);
-    if (projected>cap+0.001) throw new Error(`Hesap günlük bütçe sınırı (${cap} TL) aşılacağı için işlem uygulanmadı.`);
+    if (projected>cap+0.001) throw Object.assign(new Error(`Hesap günlük bütçe sınırı (${cap} TL) aşılacağı için işlem uygulanmadı.`),{code:'AD_BUDGET_CAP_EXCEEDED'});
   }
   return {current,rows,next};
 }
