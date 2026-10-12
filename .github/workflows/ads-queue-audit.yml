@@ -151,7 +151,7 @@ jobs:
           @(@{id='system';meta=@{connected=$true;source='OAUTH';instagramApi='FACEBOOK';accessToken='DO_NOT_PRINT_THIS_VALUE';instagramAccessToken='DO_NOT_PRINT_THIS_VALUE'}}) | ConvertTo-Json -Depth 8 | Set-Content (Join-Path $fixtureData 'tenants.json')
           @{system=@{geminiAdsDailyCap=300;maxDailyBudget=150}} | ConvertTo-Json -Depth 8 | Set-Content (Join-Path $fixtureData 'settings.json')
           $before = @(Get-ChildItem $fixtureRoot -File -Recurse | Sort-Object FullName | ForEach-Object { $_.FullName + ':' + (Get-FileHash $_.FullName).Hash })
-          $diagnosis = & ./tools/AdVise-Safe-Production-Diagnostic.ps1 -BackendPath $fixtureRoot
+          $diagnosis = & (Join-Path $env:GITHUB_WORKSPACE 'tools/AdVise-Safe-Production-Diagnostic.ps1') -BackendPath $fixtureRoot
           $diagnosisText = $diagnosis -join "`n"
           if ($diagnosisText -match 'DO_NOT_PRINT_THIS_VALUE|fixture.invalid') { throw 'Diagnostic leaked a synthetic sensitive value.' }
           foreach ($expected in @('HELPER_SYSTEM_ENV_BYPASS=True','igCode=100','igSubcode=2207009','SYSTEM_BUDGET_CAP=300','READ_ONLY_DONE')) {
