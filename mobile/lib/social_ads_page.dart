@@ -24,6 +24,7 @@ class _SocialAdsPageState extends State<SocialAdsPage> {
   bool creating = false;
   String? error;
   int _step = 0;
+  String destination = 'INSTAGRAM_DIRECT';
   bool strategyLoading = false;
   bool canOperate = false;
   Map<String, dynamic>? strategyReport;
@@ -35,8 +36,8 @@ class _SocialAdsPageState extends State<SocialAdsPage> {
   String? _preflightMessage;
 
   final campaignName =
-      TextEditingController(text: 'WhatsApp müşteri kampanyası');
-  final adSetName = TextEditingController(text: 'WhatsApp hedef kitle');
+      TextEditingController(text: 'Instagram mesaj kampanyası');
+  final adSetName = TextEditingController(text: 'Instagram hedef kitle');
   final adName = TextEditingController(text: 'AdVise AI Instagram Reklamı');
   final budget = TextEditingController(text: '150');
   bool activateAd = false;
@@ -116,6 +117,8 @@ class _SocialAdsPageState extends State<SocialAdsPage> {
     if (values.length <= 3) return values.join(' • ');
     return '${values.take(3).join(' • ')} ve ${values.length - 3} $kind daha';
   }
+
+  String get _destinationLabel => destination == 'WHATSAPP' ? 'WhatsApp' : 'Instagram Direct';
 
   String? get _selectedPostId {
     final value = selected?['id']?.toString().trim();
@@ -291,6 +294,7 @@ class _SocialAdsPageState extends State<SocialAdsPage> {
             'adset': adSetName.text.trim(),
             'ad': adName.text.trim(),
             'activate': activateAd,
+            'destination': destination,
             'mode': locationMode,
             'locations': selectedLocations.toList()..sort(),
           },
@@ -306,6 +310,7 @@ class _SocialAdsPageState extends State<SocialAdsPage> {
         adName: adName.text.trim(),
         dailyBudget: dailyBudget,
         activate: activateAd,
+        destination: destination,
         locationMode: locationMode,
         locations: selectedLocations.toList(),
       );
@@ -321,7 +326,7 @@ class _SocialAdsPageState extends State<SocialAdsPage> {
           content: SelectableText(
             '${campaignName.text}\n'
             'Durum: ${result['activated'] == true ? 'Aktif' : 'Durduruldu'}\n'
-            'Mesaj kanalı: WhatsApp\n'
+            'Mesaj kanalı: $_destinationLabel\n'
             'Hedef: ${result['targeting']?['locations'] is List ? (result['targeting']['locations'] as List).join(', ') : _targetingSummary}',
           ),
           actions: [
@@ -396,7 +401,7 @@ class _SocialAdsPageState extends State<SocialAdsPage> {
 
   @override
   Widget build(BuildContext context) => Scaffold(
-        appBar: AppBar(title: const Text('Yeni WhatsApp reklamı'), actions: [
+        appBar: AppBar(title: const Text('Yeni mesaj reklamı'), actions: [
           IconButton(
               tooltip: 'Gönderileri yenile',
               onPressed: loading || creating ? null : _load,
@@ -509,12 +514,39 @@ class _SocialAdsPageState extends State<SocialAdsPage> {
                                 Step(
                                     title: const Text('Amaç'),
                                     isActive: _step >= 0,
-                                    content: const ProductInsightCard(
-                                        title:
-                                            'WhatsApp üzerinden müşteri kazan',
-                                        body:
-                                            'İnsanları işletmenin WhatsApp görüşmesine yönlendir. Reklam hesabı, Facebook Sayfası ve WhatsApp Business bağlantısı hazır olmalı.',
-                                        icon: Icons.chat_outlined)),
+                                    content: Column(
+                                        crossAxisAlignment: CrossAxisAlignment.start,
+                                        children: [
+                                          DropdownButtonFormField<String>(
+                                            initialValue: destination,
+                                            decoration: const InputDecoration(labelText: 'Mesajlaşma kanalı'),
+                                            items: const [
+                                              DropdownMenuItem(
+                                                value: 'INSTAGRAM_DIRECT',
+                                                child: Text('Instagram Direct')),
+                                              DropdownMenuItem(
+                                                value: 'WHATSAPP',
+                                                child: Text('WhatsApp Business')),
+                                            ],
+                                            onChanged: creating ? null : (value) {
+                                              if (value != null) setState(() {
+                                                destination = value;
+                                                _adRequestId = null;
+                                                _preflightMessage = null;
+                                              });
+                                            },
+                                          ),
+                                          const SizedBox(height: 12),
+                                          ProductInsightCard(
+                                            title: destination == 'WHATSAPP'
+                                                ? 'WhatsApp üzerinden müşteri kazan'
+                                                : 'Instagram Direct üzerinden müşteri kazan',
+                                            body: destination == 'WHATSAPP'
+                                                ? 'WhatsApp Business bağlantısı ve mesajlaşma izinleri gereklidir.'
+                                                : 'Reklamla insanları Instagram mesaj kutusuna yönlendir. WhatsApp bağlantısı gerekmez.',
+                                            icon: Icons.chat_outlined),
+                                        ],
+                                      )),
                                 Step(
                                     title: const Text('İçerik'),
                                     isActive: _step >= 1,
@@ -683,7 +715,7 @@ class _SocialAdsPageState extends State<SocialAdsPage> {
                                                       CrossAxisAlignment.start,
                                                   children: [
                                                 Text(
-                                                    'Hedef: WhatsApp görüşmesi',
+                                                    'Hedef: $_destinationLabel mesajları',
                                                     style: Theme.of(context)
                                                         .textTheme
                                                         .titleMedium),
@@ -721,7 +753,7 @@ class _SocialAdsPageState extends State<SocialAdsPage> {
         builder: (ctx) => AlertDialog(
                 title: const Text('Reklamı onayla'),
                 content: Text(
-                    "Günlük ₺${budget.text} bütçe ile $_targetingSummary hedefinde WhatsApp reklamı oluşturulacak.${activateAd ? ' Reklam hemen aktif edilecek.' : ' Reklam durdurulmuş durumda kalacak.'}"),
+                    "Günlük ₺${budget.text} bütçe ile $_targetingSummary hedefinde $_destinationLabel reklamı oluşturulacak.${activateAd ? ' Reklam hemen aktif edilecek.' : ' Reklam durdurulmuş durumda kalacak.'}"),
                 actions: [
                   TextButton(
                       onPressed: () => Navigator.pop(ctx, false),
@@ -770,17 +802,19 @@ class _SocialAdsPageState extends State<SocialAdsPage> {
       _preflightMessage = null;
     });
     try {
-      final result = await Api.adsPreflight();
-      final destination =
+      final result = await Api.adsPreflight(destination: destination);
+      final checkedDestination =
           result['destination']?.toString().trim().toUpperCase() ?? '';
-      final destinationLabel = destination == 'WHATSAPP'
+      final destinationLabel = checkedDestination == 'WHATSAPP'
           ? 'WhatsApp'
-          : destination == 'FACEBOOK_INSTAGRAM'
+          : checkedDestination == 'FACEBOOK_INSTAGRAM'
               ? 'Facebook + Instagram'
-              : destination == 'INSTAGRAM'
+              : checkedDestination == 'INSTAGRAM'
                   ? 'Instagram'
-                  : destination == 'FACEBOOK'
+                  : checkedDestination == 'FACEBOOK'
                       ? 'Facebook'
+                      : checkedDestination == 'INSTAGRAM_DIRECT'
+                      ? 'Instagram Direct'
                       : 'Meta';
       if (mounted)
         setState(() => _preflightMessage = result['ok'] == true
