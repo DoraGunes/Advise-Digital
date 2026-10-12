@@ -311,13 +311,13 @@ async function instagramRequest(path,{method='GET',body={},accessToken,api='INST
     const data=parse(await response.text());
     if(!response.ok||data.error) {
       const err=data?.error||{};
-      const detail=err.message||'İstek reddedildi.';
-      const codes=[err.code&&`kod ${err.code}`,err.error_subcode&&`alt kod ${err.error_subcode}`].filter(Boolean).join(', ');
-      throw new Error(`Instagram API ${response.status}: ${detail}${codes?' ('+codes+')':''}`);
+      const code=Number(err.code)===190?'META_SESSION_EXPIRED':response.status===403||[10,200].includes(Number(err.code))?'META_PERMISSION_DENIED':response.status===429||[4,17,32,613].includes(Number(err.code))?'META_RATE_LIMIT':'INSTAGRAM_REJECTED';
+      const messages={META_SESSION_EXPIRED:'Instagram bağlantısının oturumu geçersiz veya süresi dolmuş.',META_PERMISSION_DENIED:'Instagram bu işlem için gerekli izni vermedi.',META_RATE_LIMIT:'Instagram işlem sınırına ulaşıldı. Biraz sonra yeniden deneyin.',INSTAGRAM_REJECTED:'Instagram içerik isteğini kabul etmedi.'};
+      throw Object.assign(new Error(messages[code]),{code,status:response.status,providerCode:Number(err.code)||null,providerSubcode:Number(err.error_subcode)||null,providerTrace:/^[a-zA-Z0-9_-]{1,120}$/.test(err.fbtrace_id||'')?err.fbtrace_id:null,retryable:code==='META_RATE_LIMIT'||response.status>=500});
     }
     return data;
   } catch(e) {
-    if(e.name==='AbortError') throw new Error('Instagram API timeout.');
+    if(e.name==='AbortError') throw Object.assign(new Error('Instagram yanıtı zamanında tamamlanamadı.'),{code:'ETIMEDOUT',retryable:false});
     throw e;
   } finally { clearTimeout(timeout); }
 }

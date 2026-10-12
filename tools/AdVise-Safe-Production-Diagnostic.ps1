@@ -86,7 +86,7 @@ foreach($name in @('ad_operations','posts','logs','tenants','settings')){
       $rows | Sort-Object createdAt -Descending | Select-Object -First 5 | ForEach-Object {
         $exists=$false
         if($_.filePath){$exists=Test-Path $_.filePath}
-        'POST system='+($_.tenantId -eq 'system' -or !$_.tenantId)+' type='+(SafeCode $_.mediaType)+' status='+(SafeCode $_.publishStatus)+' phase='+(SafeCode $_.publishPhase)+' ai='+(SafeCode $_.aiStatus)+' auto='+($_.autoPublish -eq $true)+' fileExists='+$exists+' https='+("$($_.publicUrl)" -match '^https://')+' scheduled='+([bool]$_.nextPublishAt)+' errorCategory='+(ErrorCategory $_.publishError)+' igHttp='+(ProviderHttp $_.publishError)+' igCode='+(ProviderCode $_.publishError)+' igSubcode='+(ProviderSubcode $_.publishError)
+        'POST system='+($_.tenantId -eq 'system' -or !$_.tenantId)+' type='+(SafeCode $_.mediaType)+' status='+(SafeCode $_.publishStatus)+' phase='+(SafeCode $_.publishPhase)+' ai='+(SafeCode $_.aiStatus)+' auto='+($_.autoPublish -eq $true)+' fileExists='+$exists+' https='+("$($_.publicUrl)" -match '^https://')+' scheduled='+([bool]$_.nextPublishAt)+' errorCategory='+(ErrorCategory $_.publishError)+' igHttp='+(ProviderHttp $_.publishError)+' igCode='+(ProviderCode $_.publishError)+' igSubcode='+(ProviderSubcode $_.publishError)+' savedFailure='+(SafeCode $_.publishFailure.code)+' savedProvider='+(SafeNumber $_.publishFailure.providerFailure.code)+' savedSubcode='+(SafeNumber $_.publishFailure.providerFailure.subcode)+' savedHttp='+(SafeNumber $_.publishFailure.providerFailure.status)
       }
     }
     if($name -eq 'logs'){
