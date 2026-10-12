@@ -78,7 +78,7 @@ test('system media listing, ad creation and publishing all use the already selec
   const listing=await native(base+'/api/instagram/media',{headers});
   assert.equal(listing.status,200);
   assert.equal((await listing.json()).data[0].id,'901');
-  const created=await native(base+'/api/ads/create',{method:'POST',headers,body:JSON.stringify({requestId:'system-oauth-fixture-request-0001',instagramMediaId:'901',dailyBudget:100,activate:false,destination:'INSTAGRAM_DIRECT'})});
+  const created=await native(base+'/api/ads/create',{method:'POST',headers,body:JSON.stringify({requestId:'system-oauth-fixture-request-0001',instagramMediaId:'901',dailyBudget:100,activate:false,destination:'INSTAGRAM_DIRECT',locationMode:'COUNTRY'})});
   assert.equal(created.status,201,JSON.stringify(await created.clone().json()));
   assert.equal((await created.json()).ad.id,'1004');
   const published=await native(base+'/api/posts/system-photo/publish',{method:'POST',headers,body:'{}'});
