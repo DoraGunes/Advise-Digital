@@ -1,5 +1,6 @@
 import {withOperationBudget} from './operation-budget.js';
 import {normalizeCover,MAX_COVER_BYTES} from './cover-image.js';
+import {normalizeInstagramImage} from './instagram-image.js';
 import {runAdOperation,getAdOperation,operationFailure} from './ad-operations.js';
 import express from 'express';
 import cors from 'cors';
@@ -416,7 +417,7 @@ app.put('/api/ads/targeting-preferences', allowRoles('ADMIN','CUSTOMER_ADMIN','M
 
 app.get('/api/ads/preflight',allowRoles('ADMIN','CUSTOMER_ADMIN','MANAGER','OPERATOR'),async(req,res)=>{
   const correlationId=crypto.randomUUID();
-  try {const credentials=tenantCredentials(req.user.tenantId,await getTenant(req.user.tenantId));const destination=String(req.query.destination||'FACEBOOK_INSTAGRAM');res.json(await withOperationBudget(15000,()=>adsPreflight(credentials,{destination})));}
+  try {const credentials=tenantCredentials(req.user.tenantId,await getTenant(req.user.tenantId));const destination=String(req.query.destination||'INSTAGRAM_DIRECT');res.json(await withOperationBudget(15000,()=>adsPreflight(credentials,{destination})));}
   catch(error){res.status(422).json(operationFailure(error,'preflight',correlationId));}
 });
 app.get('/api/ads/operations/:id',allowRoles('ADMIN','CUSTOMER_ADMIN','MANAGER','OPERATOR'),async(req,res)=>{
@@ -438,10 +439,12 @@ app.post('/api/ads/create',allowRoles('ADMIN','CUSTOMER_ADMIN','MANAGER','OPERAT
     if(locationMode!=='COUNTRY')provinceNamesForTargeting(locationMode,locations);
     const campaignName=String(req.body?.campaignName||'AdVise AI Kampanyası').trim().slice(0,120),adSetName=String(req.body?.adSetName||'AdVise AI Ad Set').trim().slice(0,120),adName=String(req.body?.adName||'AdVise AI Reklamı').trim().slice(0,120);
     const activate=req.body?.activate===true;
-    const payload={mediaId,dailyBudget,locationMode,locations,campaignName,adSetName,adName,activate,adAccountId:resolveCredentials(credentials).adAccountId,pageId:resolveCredentials(credentials).pageId,instagramId:resolveCredentials(credentials).metaInstagramUserId||resolveCredentials(credentials).instagramUserId};
+    const destination=String(req.body?.destination||'INSTAGRAM_DIRECT').trim().toUpperCase();
+    if(!['INSTAGRAM_DIRECT','WHATSAPP'].includes(destination))throw Object.assign(new Error('Geçerli mesajlaşma kanalı seçin.'),{code:'META_DESTINATION_INVALID'});
+    const payload={mediaId,dailyBudget,locationMode,locations,campaignName,adSetName,adName,activate,destination,adAccountId:resolveCredentials(credentials).adAccountId,pageId:resolveCredentials(credentials).pageId,instagramId:resolveCredentials(credentials).metaInstagramUserId||resolveCredentials(credentials).instagramUserId};
     const steps=[
       ['campaign',()=>createCampaign({name:campaignName,objective:'OUTCOME_ENGAGEMENT',status:'PAUSED',credentials})],
-      ['adset',(ids,audience)=>createAdSet({name:adSetName,campaignId:ids.campaign,dailyBudget,optimizationGoal:'CONVERSATIONS',billingEvent:'IMPRESSIONS',destinationType:'WHATSAPP',targeting:{geo_locations:audience.geo_locations},credentials})],
+      ['adset',(ids,audience)=>createAdSet({name:adSetName,campaignId:ids.campaign,dailyBudget,optimizationGoal:'CONVERSATIONS',billingEvent:'IMPRESSIONS',destinationType:destination,targeting:{geo_locations:audience.geo_locations},credentials})],
       ['creative',()=>createAdCreativeFromInstagramMedia({name:adName,instagramMediaId:mediaId,instagramUserId:resolveCredentials(credentials).metaInstagramUserId||resolveCredentials(credentials).instagramUserId,pageId:resolveCredentials(credentials).pageId,credentials})],
       ['ad',ids=>createAd({name:adName,adsetId:ids.adset,creativeId:ids.creative,status:'PAUSED',credentials})]
     ];
@@ -456,7 +459,7 @@ app.post('/api/ads/create',allowRoles('ADMIN','CUSTOMER_ADMIN','MANAGER','OPERAT
     }]);
     const result=await withOperationBudget(70000,()=>runAdOperation({tenantId,requestId,payload,steps,
       prepare:async operation=>{
-        await adsPreflight(credentials,{destination:'WHATSAPP'});
+        await adsPreflight(credentials,{destination});
         await budgetGuard(credentials,settings,{nextBudget:dailyBudget,creating:true});
         const media=await getInstagramMedia(credentials,100);
         if(!(media.data||[]).some(row=>String(row.id)===mediaId))throw Object.assign(new Error('Seçilen Instagram gönderisi bu hesaba ait değil.'),{code:'META_MEDIA_MISMATCH'});
@@ -467,7 +470,7 @@ app.post('/api/ads/create',allowRoles('ADMIN','CUSTOMER_ADMIN','MANAGER','OPERAT
       complete:async(operation,audience)=>{
         await saveSettings(tenantId,{adTargetingMode:locationMode,adTargetingLocations:locationMode==='COUNTRY'?[]:locations});
         await addLog(tenantId,{type:'WEEKLY_LAUNCH',source:'APP_AD_CREATE',actorId:req.user.id,adId:operation.ids.ad,adSetId:operation.ids.adset,campaignId:operation.ids.campaign,instagramMediaId:mediaId,requestId,correlationId:operation.correlationId,launchAt:new Date().toISOString(),selectionScore:1});
-        return {ok:true,requestId,correlationId:operation.correlationId,campaign:{id:operation.ids.campaign},adset:{id:operation.ids.adset},creative:{id:operation.ids.creative},ad:{id:operation.ids.ad,status:activate?'ACTIVE':'PAUSED'},activated:activate,contactChannel:'WHATSAPP',targeting:{mode:audience.locationMode,locations:audience.locations}};
+        return {ok:true,requestId,correlationId:operation.correlationId,campaign:{id:operation.ids.campaign},adset:{id:operation.ids.adset},creative:{id:operation.ids.creative},ad:{id:operation.ids.ad,status:activate?'ACTIVE':'PAUSED'},activated:activate,contactChannel:destination,targeting:{mode:audience.locationMode,locations:audience.locations}};
       }
     }));
     res.status(201).json(result);
@@ -830,6 +833,17 @@ app.post('/api/posts', upload.single('image'), async (req, res) => {
       await fs.rm(req.file.path,{force:true});
       return res.status(409).json({error:'Bu içerik daha önce yüklenmiş. Aynı görsel/video tekrar kuyruğa alınmadı.'});
     }
+    let publishPath=req.file.path, publishFileName=req.file.filename, publishMimeType=req.file.mimetype;
+    if(mediaKind(req.file)==='IMAGE') {
+      let jpeg;
+      try {jpeg=await normalizeInstagramImage(buffer);}
+      catch(error){await fs.rm(req.file.path,{force:true});return res.status(422).json({error:error.message});}
+      publishFileName=`${crypto.randomUUID()}.jpg`;
+      publishPath=path.join(uploadDir,publishFileName);
+      await fs.writeFile(publishPath,jpeg.bytes,{flag:'wx'});
+      await fs.rm(req.file.path,{force:true});
+      publishMimeType='image/jpeg';
+    }
     const requestedMediaType=String(req.body?.mediaType||'AUTO').toUpperCase();
     const mediaType=mediaKind(req.file)==='VIDEO'?'REELS':(requestedMediaType==='CAROUSEL'?'CAROUSEL':'POST');
     const requestedAuto=String(req.body?.autoPublish ?? 'true').toLowerCase()!=='false';
@@ -842,10 +856,10 @@ app.post('/api/posts', upload.single('image'), async (req, res) => {
       caption:String(req.body?.caption||'').trim(),
       linkUrl:String(req.body?.linkUrl||'').trim(),
       autoPublish:requestedAuto && settings.autoPublish !== false,
-      filePath:req.file.path,
-      publicUrl:`${publicBaseUrlForRequest(req)}/uploads/${encodeURIComponent(req.file.filename)}`,
+      filePath:publishPath,
+      publicUrl:`${publicBaseUrlForRequest(req)}/uploads/${encodeURIComponent(publishFileName)}`,
       fileHash,
-      mimeType:req.file.mimetype,
+      mimeType:publishMimeType,
       mediaType,
       format:mediaType,
       memoryGenerationId,

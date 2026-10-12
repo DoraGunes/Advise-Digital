@@ -164,7 +164,7 @@ test('WhatsApp preflight failure returns actionable status without creating Meta
     return new Response(JSON.stringify(result),{status:200});
   };
   try {
-    const response=await native(`${base}/api/ads/create`,{method:'POST',headers:{authorization:`Bearer ${session.token}`,'content-type':'application/json'},body:JSON.stringify({requestId:'whatsapp-preflight-fixture-0001',instagramMediaId:'901',dailyBudget:100,activate:false})});
+    const response=await native(`${base}/api/ads/create`,{method:'POST',headers:{authorization:`Bearer ${session.token}`,'content-type':'application/json'},body:JSON.stringify({requestId:'whatsapp-preflight-fixture-0001',instagramMediaId:'901',dailyBudget:100,activate:false,destination:'WHATSAPP'})});
     const result=await response.json();
     assert.equal(response.status,422);assert.equal(result.code,'META_WHATSAPP_MISSING');assert.equal(result.stage,'preflight');
     assert.equal(metaWrites,0);

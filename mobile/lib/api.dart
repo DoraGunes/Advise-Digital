@@ -555,6 +555,7 @@ class Api {
     required String adName,
     required double dailyBudget,
     bool activate = false,
+    String destination = 'INSTAGRAM_DIRECT',
     required String requestId,
     String locationMode = 'COUNTRY',
     List<String> locations = const [],
@@ -570,17 +571,18 @@ class Api {
       'adName': adName,
       'dailyBudget': dailyBudget,
       'activate': activate,
+      'destination': destination,
       'locationMode': locationMode,
       'locations': locations,
     }));
   }
 
-  static Future<Map<String, dynamic>> adsPreflight() async {
+  static Future<Map<String, dynamic>> adsPreflight({String destination = 'INSTAGRAM_DIRECT'}) async {
     await _requireCapability('adsPreflight', feature: 'Meta bağlantı kontrolü');
     return Map<String, dynamic>.from(await _request(
       'GET',
       '/api/ads/preflight',
-      query: const {'destination': 'FACEBOOK_INSTAGRAM'},
+      query: {'destination': destination},
     ));
   }
 
