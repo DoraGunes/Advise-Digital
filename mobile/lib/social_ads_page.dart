@@ -265,6 +265,29 @@ class _SocialAdsPageState extends State<SocialAdsPage> {
     }
   }
 
+  String _operationDiagnostic(Map<String, dynamic> operation) {
+    final failure = operation['failure'];
+    final provider = operation['providerFailure'];
+    final f = failure is Map ? failure : const <String, dynamic>{};
+    final p = provider is Map ? provider : const <String, dynamic>{};
+    final status = operation['status']?.toString() ?? 'UNKNOWN';
+    final stage = f['stage']?.toString() ?? operation['stage']?.toString() ?? '-';
+    final code = f['code']?.toString() ?? '-';
+    final reason = f['userMessage']?.toString() ??
+        f['error']?.toString() ??
+        'Meta işlemi tamamlanmadı.';
+    final metaCode = p['code']?.toString() ?? '';
+    final subcode = p['subcode']?.toString() ?? '';
+    final correlation = operation['correlationId']?.toString() ?? '';
+    return [
+      reason,
+      'Durum: $status • Adım: $stage • Hata: $code',
+      if (metaCode.isNotEmpty && metaCode != 'null')
+        'Meta kodu: $metaCode${subcode.isNotEmpty && subcode != 'null' ? ' / $subcode' : ''}',
+      if (correlation.isNotEmpty) 'İşlem takip: $correlation',
+    ].join('\n');
+  }
+
   Future<void> _createAd() async {
     if (!canOperate || creating || _created) return;
     final post = selected;
@@ -338,9 +361,18 @@ class _SocialAdsPageState extends State<SocialAdsPage> {
         ),
       );
     } catch (e) {
+      var detail = AppError.message(e);
+      if (_adRequestId != null) {
+        try {
+          final operation = await Api.adOperation(_adRequestId!);
+          detail = _operationDiagnostic(operation);
+        } catch (_) {
+          // Preserve the initial API error if the operation cannot be read.
+        }
+      }
       if (mounted) {
-        setState(() => _adFailure = AppError.message(e));
-        _snack(_adFailure!);
+        setState(() => _adFailure = detail);
+        _snack(detail);
       }
     } finally {
       if (mounted) setState(() => creating = false);
@@ -473,11 +505,9 @@ class _SocialAdsPageState extends State<SocialAdsPage> {
                                                         _snack(
                                                             'Reklam oluşturuldu.');
                                                       } else {
-                                                        _snack(operation[
-                                                                    'status'] ==
-                                                                'RECONCILE'
-                                                            ? 'Meta sonucu belirsiz. Yeni reklam oluşturmadan önce Meta kayıtlarını kontrol edin.'
-                                                            : 'İşlem durumu: ${operation['status']}');
+                                                        final detail = _operationDiagnostic(operation);
+                                                        setState(() => _adFailure = detail);
+                                                        _snack(detail);
                                                       }
                                                     } catch (e) {
                                                       if (mounted)
@@ -803,6 +833,8 @@ class _SocialAdsPageState extends State<SocialAdsPage> {
     });
     try {
       final result = await Api.adsPreflight(destination: destination);
+      final settings = await Api.settings();
+      final cap = (settings['geminiAdsDailyCap'] as num?)?.toDouble() ?? 0;
       final checkedDestination =
           result['destination']?.toString().trim().toUpperCase() ?? '';
       final destinationLabel = checkedDestination == 'WHATSAPP'
@@ -817,9 +849,11 @@ class _SocialAdsPageState extends State<SocialAdsPage> {
                       ? 'Instagram Direct'
                       : 'Meta';
       if (mounted)
-        setState(() => _preflightMessage = result['ok'] == true
-            ? 'Meta bağlantıları doğrulandı. ${result['currency']} · ${result['timezone']} · $destinationLabel'
-            : 'Meta bağlantısı doğrulanamadı.');
+        setState(() => _preflightMessage = result['ok'] != true
+            ? 'Meta bağlantısı doğrulanamadı.'
+            : cap <= 0
+                ? 'Meta bağlantıları doğrulandı ancak günlük reklam limiti ayarlanmamış. Daha Fazla > Otomasyon bölümünden günlük hesap bütçe sınırını tanımlayın.'
+                : 'Meta bağlantıları doğrulandı. ${result['currency']} · ${result['timezone']} · $destinationLabel · Günlük hesap sınırı ₺$cap');
     } catch (error) {
       if (mounted) setState(() => _preflightMessage = AppError.message(error));
     } finally {
