@@ -421,7 +421,7 @@ app.get('/api/ads/preflight',allowRoles('ADMIN','CUSTOMER_ADMIN','MANAGER','OPER
   catch(error){res.status(422).json(operationFailure(error,'preflight',correlationId));}
 });
 app.get('/api/ads/operations/:id',allowRoles('ADMIN','CUSTOMER_ADMIN','MANAGER','OPERATOR'),async(req,res)=>{
-  try {const operation=await getAdOperation(req.user.tenantId,req.params.id);if(!operation)return res.status(404).json({error:'İşlem bulunamadı.'});const {requestId,status,stage,ids,failure,result,correlationId}=operation;res.json({requestId,status,stage,ids,failure,result,correlationId});}
+  try {const operation=await getAdOperation(req.user.tenantId,req.params.id);if(!operation)return res.status(404).json({error:'İşlem bulunamadı.'});const {requestId,status,stage,ids,failure,providerFailure,result,correlationId}=operation;res.json({requestId,status,stage,ids,failure,providerFailure:providerFailure?{status:providerFailure.status||null,code:providerFailure.code||null,subcode:providerFailure.subcode||null,trace:providerFailure.trace||null}:null,result,correlationId});}
   catch{res.status(500).json({error:'İşlem kaydı okunamadı.'});}
 });
 app.post('/api/ads/create',allowRoles('ADMIN','CUSTOMER_ADMIN','MANAGER','OPERATOR'),async(req,res)=>{
