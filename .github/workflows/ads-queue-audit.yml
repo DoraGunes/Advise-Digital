@@ -188,3 +188,17 @@ jobs:
           name: advise-final-windows
           path: mobile/build/AdVise-Digital-windows-release.zip
           if-no-files-found: error
+
+  staging-safety:
+    name: Windows PowerShell 5 isolated staging verification
+    needs: repository-safety
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+      - name: Verify staging syntax, guards, runtime preservation and native JPEG
+        shell: powershell
+        run: |
+          & (Join-Path $env:GITHUB_WORKSPACE 'tools/test/AdVise-Safe-Production-Stage.Tests.ps1') -StageScript (Join-Path $env:GITHUB_WORKSPACE 'tools/AdVise-Safe-Production-Stage.ps1')
