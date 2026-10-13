@@ -322,7 +322,7 @@ app.get('/api/dashboard', async (req, res) => {
     const tenantRaw = await getTenant(tenantId);
     const settings = await getSettings(tenantId);
     const [posts, logs] = await Promise.all([getPosts(tenantId), getLogs(tenantId, 50)]);
-    const credentials = tenantId === 'system' ? {systemAccount:true} : (tenantRaw?.meta?.connected ? tenantRaw.meta : null);
+    const credentials = tenantCredentials(tenantId,tenantRaw);
 
     let campaigns = [], adsets = [], ads = [];
     const metaReady = hasMetaCredentials(credentials || {});
@@ -358,7 +358,7 @@ app.get('/api/dashboard', async (req, res) => {
 app.get('/api/campaigns', async (req, res) => {
   try {
     const tenant = await getTenant(req.user.tenantId);
-    const credentials = req.user.tenantId === 'system' ? {systemAccount:true} : tenant?.meta;
+    const credentials = tenantCredentials(req.user.tenantId,tenant);
     if (!hasMetaCredentials(credentials || {})) {
       return res.json({data: [], connected: false, mode: 'PLANNING', reason: 'Meta bağlantısı kurulmadı.'});
     }
@@ -368,7 +368,7 @@ app.get('/api/campaigns', async (req, res) => {
 app.get('/api/adsets', async (req, res) => {
   try {
     const tenant = await getTenant(req.user.tenantId);
-    const credentials = req.user.tenantId === 'system' ? {systemAccount:true} : tenant?.meta;
+    const credentials = tenantCredentials(req.user.tenantId,tenant);
     if (!hasMetaCredentials(credentials || {})) {
       return res.json({data: [], connected: false, mode: 'PLANNING', reason: 'Meta bağlantısı kurulmadı.'});
     }
@@ -378,7 +378,7 @@ app.get('/api/adsets', async (req, res) => {
 app.get('/api/ads', async (req, res) => {
   try {
     const tenant = await getTenant(req.user.tenantId);
-    const credentials = req.user.tenantId === 'system' ? {systemAccount:true} : tenant?.meta;
+    const credentials = tenantCredentials(req.user.tenantId,tenant);
     if (!hasMetaCredentials(credentials || {})) {
       return res.json({data: [], connected: false, mode: 'PLANNING', reason: 'Meta bağlantısı kurulmadı.'});
     }
@@ -388,7 +388,7 @@ app.get('/api/ads', async (req, res) => {
 app.get('/api/instagram/media', async (req, res) => {
   try {
     const tenant = await getTenant(req.user.tenantId);
-    const credentials = req.user.tenantId === 'system' ? {systemAccount:true} : (tenant?.meta || {});
+    const credentials = tenantCredentials(req.user.tenantId,tenant);
     const limit = Math.max(1, Math.min(100, Number(req.query.limit || 50)));
     if (!hasInstagramCredentials(credentials || {})) {
       return res.json({data: [], connected: false, mode: 'PLANNING', reason: 'Instagram bağlantısı kurulmadı.'});
@@ -485,7 +485,7 @@ app.get('/api/insights/:id', async (req, res) => {
   try {
     const days = Math.max(1, Math.min(30, Number(req.query.days || 7)));
     const tenant = await getTenant(req.user.tenantId);
-    const credentials = req.user.tenantId === 'system' ? {systemAccount:true} : tenant?.meta;
+    const credentials = tenantCredentials(req.user.tenantId,tenant);
     res.json(await insights(req.params.id, req.query.level || 'ad', days, credentials || {}));
   } catch (e) { res.status(502).json({error: e.message}); }
 });
@@ -493,7 +493,7 @@ app.post('/api/status/:id', allowRoles('ADMIN','CUSTOMER_ADMIN','MANAGER','OPERA
   try {
     const status = String(req.body?.status || '').toUpperCase();
     const tenant = await getTenant(req.user.tenantId);
-    const credentials = req.user.tenantId === 'system' ? {systemAccount:true} : tenant?.meta;
+    const credentials = tenantCredentials(req.user.tenantId,tenant);
     if(status==='ACTIVE')await activationGuard(credentials||{},await getSettings(req.user.tenantId),req.params.id);
     const result=await setStatus(req.params.id, status, credentials || {});
     await addLog(req.user.tenantId,{type:'META_STATUS_CHANGED',id:String(req.params.id),status,source:'USER_ACTION',actorId:req.user.id});
@@ -507,7 +507,7 @@ app.post('/api/budget/:id', allowRoles('ADMIN','CUSTOMER_ADMIN','MANAGER','OPERA
     if (!Number.isFinite(budget) || budget <= 0) return res.status(400).json({error: 'Geçersiz günlük bütçe.'});
     const tenantId = req.user.tenantId;
     const tenant = await getTenant(tenantId);
-    const credentials = tenantId === 'system' ? {systemAccount:true} : tenant?.meta;
+    const credentials = tenantCredentials(tenantId,tenant);
     const settings = await getSettings(tenantId);
     await budgetGuard(credentials || {}, settings, {adSetId:req.params.id, nextBudget:budget});
     const result=await updateAdSetBudget(req.params.id, budget, credentials || {});
@@ -806,7 +806,7 @@ app.get('/api/pro/agency', allowRoles('ADMIN'), async (_req,res)=>{ try{res.json
 app.post('/api/automation/run', async (req, res) => {
   try {
     const tenant = await getTenant(req.user.tenantId);
-    const credentials = req.user.tenantId === 'system' ? {systemAccount:true} : (tenant?.meta || {});
+    const credentials = tenantCredentials(req.user.tenantId,tenant);
     if (!hasMetaCredentials(credentials || {})) {
       return res.json({
         enabled: true,
@@ -907,14 +907,15 @@ app.post('/api/posts', upload.single('image'), async (req, res) => {
     delete post.aiMemoryPack;
     posts.unshift(post);
     await savePosts(tenantId,posts);
-    await addLog(tenantId,{type:'POST_UPLOADED',postId:post.id,title:post.title,mediaType,aiGenerated:post.aiGenerated});
-    if (post.aiGenerated && memoryPack && ['GEMINI','GEMINI_REGENERATED'].includes(memoryPack.source)) await learnFromGeneration(tenantId, memoryPack, {postId:post.id});
-    else if (memoryGenerationId) await linkGenerationToPost(tenantId, memoryGenerationId, post.id, {caption:post.caption});
+    await addLog(tenantId,{type:'POST_UPLOADED',postId:post.id,title:post.title,mediaType,aiGenerated:post.aiGenerated}).catch(()=>console.error('[POST_UPLOAD_LOG_FAILED]'));
+    if (post.aiGenerated && memoryPack && ['GEMINI','GEMINI_REGENERATED'].includes(memoryPack.source)) await learnFromGeneration(tenantId, memoryPack, {postId:post.id}).catch(()=>console.error('[POST_UPLOAD_MEMORY_FAILED]'));
+    else if (memoryGenerationId) await linkGenerationToPost(tenantId, memoryGenerationId, post.id, {caption:post.caption}).catch(()=>console.error('[POST_UPLOAD_MEMORY_FAILED]'));
     res.status(201).json(post);
   } catch (e) { res.status(500).json({error:e.message}); }
 });
 
 app.post('/api/posts/bulk', upload.array('files', 20), async (req, res) => {
+  let postsSaved=false;
   try {
     const files = Array.isArray(req.files) ? req.files.slice(0, 20) : [];
     if (!files.length) return res.status(400).json({error:'En az bir fotoğraf veya video seçmelisin.'});
@@ -1049,11 +1050,12 @@ app.post('/api/posts/bulk', upload.array('files', 20), async (req, res) => {
     }
     const nextPosts=[...accepted,...existing];
     await savePosts(tenantId,nextPosts);
+    postsSaved=true;
 
     for(const post of accepted) {
       const memoryPack = memoryPacks.get(post.id);
-      await addLog(tenantId,{type:'POST_UPLOADED',postId:post.id,title:post.title,mediaType:post.mediaType,aiGenerated:post.aiGenerated,bulk:true});
-      if (post.aiGenerated && memoryPack && ['GEMINI','GEMINI_REGENERATED'].includes(memoryPack.source)) await learnFromGeneration(tenantId, memoryPack, {postId:post.id});
+      await addLog(tenantId,{type:'POST_UPLOADED',postId:post.id,title:post.title,mediaType:post.mediaType,aiGenerated:post.aiGenerated,bulk:true}).catch(()=>console.error('[POST_UPLOAD_LOG_FAILED]'));
+      if (post.aiGenerated && memoryPack && ['GEMINI','GEMINI_REGENERATED'].includes(memoryPack.source)) await learnFromGeneration(tenantId, memoryPack, {postId:post.id}).catch(()=>console.error('[POST_UPLOAD_MEMORY_FAILED]'));
     }
 
     res.status(201).json({
@@ -1064,7 +1066,8 @@ app.post('/api/posts/bulk', upload.array('files', 20), async (req, res) => {
       posts:accepted
     });
   } catch(e) {
-    for(const file of (req.files||[])) await fs.rm(file.path,{force:true}).catch(()=>{});
+    // Committed posts own these files; secondary failures must never delete them.
+    if(!postsSaved) for(const file of (req.files||[])) await fs.rm(file.path,{force:true}).catch(()=>{});
     res.status(500).json({error:e.message});
   }
 });

@@ -195,7 +195,7 @@ export async function publishPost(tenantId,postId,{manual=false}={}) {
       catch { throw new Error('Önceki yayının sonucu doğrulanamadı. Çift paylaşımı önlemek için Instagram hesabınızı kontrol edin.'); }
       const status=String(state.status_code||state.status||'').toUpperCase();
       if(status==='PUBLISHED') {
-        post.publishStatus='PUBLISHED';post.publishPhase='CONFIRMED';post.publishedAt=new Date().toISOString();post.publishError='';
+        post.publishStatus='PUBLISHED';post.publishPhase='CONFIRMED';post.publishedAt=new Date().toISOString();post.publishError='';delete post.publishFailure;
         await savePosts(tenantId,posts);
         await addLog(tenantId,{type:'INSTAGRAM_POST_PUBLISHED',postId:post.id,reconciled:true});
         return post;
@@ -203,7 +203,7 @@ export async function publishPost(tenantId,postId,{manual=false}={}) {
       if(status!=='FINISHED') throw new Error('Önceki yayın henüz doğrulanamadı. İçeriği tekrar paylaşmadan önce Instagram hesabınızı kontrol edin.');
     }
     post.publishStatus='PUBLISHING';post.publishPhase='PREPARING';post.publishAttempts=Number(post.publishAttempts||0)+1;
-    post.publishStartedAt=new Date().toISOString();post.publishError='';
+    post.publishStartedAt=new Date().toISOString();post.publishError='';delete post.publishFailure;
     await savePosts(tenantId,posts);
     try {
       const result=await instagramPublishMedia({
@@ -220,6 +220,7 @@ export async function publishPost(tenantId,postId,{manual=false}={}) {
     } catch(error) {
       const settings=await getSettings(tenantId);
       post.publishError=error.message;
+      post.publishFailure={code:/^[A-Z_]{3,60}$/.test(String(error.code||''))?error.code:'INSTAGRAM_PUBLISH_FAILED',stage:post.publishPhase,providerFailure:{status:Number(error.status)||null,code:Number(error.providerCode)||null,subcode:Number(error.providerSubcode)||null}};
       if(post.publishPhase==='SUBMITTING') {
         post.publishStatus='RECONCILE';post.publishPhase='RECONCILE';
       } else if(post.publishAttempts<Number(post.publishMaxRetries||settings.publishMaxRetries||3)) {

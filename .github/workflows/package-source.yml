@@ -16,8 +16,7 @@ jobs:
           cp backend/src/*.js /tmp/pkg/backend/src/
           cp backend/package.json /tmp/pkg/backend/
           if [ -f backend/package-lock.json ]; then cp backend/package-lock.json /tmp/pkg/backend/; fi
-          printf '%s
-' 'AdVise AI direct-overwrite source package' > /tmp/pkg/README.txt
+          printf '%s\n' 'AdVise AI direct-overwrite source package' > /tmp/pkg/README.txt
           cd /tmp/pkg
           zip -qr /tmp/AdViseAI_CHANGED_FILES_DIRECT_OVERWRITE.zip mobile backend README.txt
       - uses: actions/upload-artifact@v4
