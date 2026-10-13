@@ -19,19 +19,19 @@ class _SocialAdsPageState extends State<SocialAdsPage> {
   Map<String, dynamic>? selected;
   List<String> availableCities = [];
   List<String> availableRegions = [];
-  Map<String,dynamic>? _preset;
+  Map<String,dynamic>? _preset=AdPresets.defaults(AdPresets.seeds.first);
   List<Map<String,dynamic>> _presets = [];
   final _presetResults = <String,Map<String,dynamic>>{};
   bool _resultsLoading=false;
   String? _resultsError;
-  Map<String,dynamic>? _radius;
-  String locationMode = 'COUNTRY';
+  Map<String,dynamic>? _radius={'latitude':40.7356,'longitude':31.6061,'radius':200,'distance_unit':'kilometer'};
+  String locationMode = 'RADIUS';
   Set<String> selectedLocations = {};
   bool loading = true;
   bool creating = false;
   String? error;
   int _step = 0;
-  String destination = 'INSTAGRAM_DIRECT';
+  String destination = 'WHATSAPP';
   bool strategyLoading = false;
   bool canOperate = false;
   Map<String, dynamic>? strategyReport;
@@ -46,7 +46,7 @@ class _SocialAdsPageState extends State<SocialAdsPage> {
       TextEditingController(text: 'Instagram mesaj kampanyası');
   final adSetName = TextEditingController(text: 'Instagram hedef kitle');
   final adName = TextEditingController(text: 'AdVise Instagram Reklamı');
-  final budget = TextEditingController(text: '150');
+  final budget = TextEditingController(text: '120');
   bool activateAd = false;
 
   @override
@@ -97,9 +97,10 @@ class _SocialAdsPageState extends State<SocialAdsPage> {
         }
         availableCities = List<String>.from(targeting['cities'] ?? const []);
         availableRegions = List<String>.from(targeting['regions'] ?? const []);
-        locationMode = targeting['mode']?.toString() ?? 'COUNTRY';
-        selectedLocations =
-            Set<String>.from(targeting['locations'] ?? const []);
+        if(_preset==null){
+          locationMode = targeting['mode']?.toString() ?? 'COUNTRY';
+          selectedLocations=Set<String>.from(targeting['locations']??const []);
+        }
         loading = false;
         if (selected != null &&
             !media.any((m) =>
@@ -676,9 +677,6 @@ String _presetCost(String id){
                                             decoration: const InputDecoration(labelText: 'Mesajlaşma kanalı'),
                                             items: const [
                                               DropdownMenuItem(
-                                                value: 'INSTAGRAM_DIRECT',
-                                                child: Text('Instagram Direct')),
-                                              DropdownMenuItem(
                                                 value: 'WHATSAPP',
                                                 child: Text('WhatsApp Business')),
                                             ],
@@ -877,7 +875,10 @@ String _presetCost(String id){
                                                 Text(
                                                     'Günlük bütçe: ₺${budget.text}'),
                                                 Text(
-                                                    'Bölge: $_targetingSummary')
+                                                    'Bölge: $_targetingSummary'),
+                                                Text('Kip: ${_preset?['name']??'Manuel'}'),
+                                                Text('Gösterim: ${_preset?['placement']??'AUTO'} · yaş 18–65'),
+                                                const Text('Oluşturulacak: kampanya + reklam grubu + creative + reklam. Hepsi PAUSED; otomatik mesaj yok.')
                                               ])),
                                           const SizedBox(height: 12),
                                           SwitchListTile.adaptive(
@@ -907,7 +908,7 @@ String _presetCost(String id){
         builder: (ctx) => AlertDialog(
                 title: const Text('Reklamı onayla'),
                 content: Text(
-                    "Günlük ₺${budget.text} bütçe ile $_targetingSummary hedefinde $_destinationLabel reklamı oluşturulacak.${activateAd ? ' Reklam hemen aktif edilecek.' : ' Reklam durdurulmuş durumda kalacak.'}"),
+                    "Günlük ₺${budget.text} bütçe ile $_targetingSummary hedefinde $_destinationLabel reklamı oluşturulacak. Kampanya, reklam grubu, creative ve reklam hazırlanır; otomatik yanıt eklenmez.${activateAd ? ' Reklam hemen aktif edilecek.' : ' Reklam durdurulmuş durumda kalacak.'}"),
                 actions: [
                   TextButton(
                       onPressed: () => Navigator.pop(ctx, false),
