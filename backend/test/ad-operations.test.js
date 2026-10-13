@@ -8,7 +8,7 @@ Object.assign(process.env,{DOTENV_CONFIG_PATH:path.join(fixture,'missing.env'),A
 const {runAdOperation,getAdOperation,operationFailure}=await import('../src/ad-operations.js');
 const {withTenantLock}=await import('../src/persistence.js');
 const {boundedRead}=await import('../src/operation-budget.js');
-const {callGemini,safeGeminiError}=await import('../src/ai.js');
+const {callGemini}=await import('../src/ai.js');
 const {adsPreflight}=await import('../src/meta.js');
 after(async()=>{assert.ok(fixture.startsWith(os.tmpdir()));await fs.rm(fixture,{recursive:true,force:true});});
 const requestId='fixture-request-id-0001';
@@ -51,22 +51,17 @@ test('cancelled lock waiter cannot allow a successor to overtake owner',async()=
   let third=false;const last=withTenantLock('busy',()=>{assert.equal(inside,false);third=true;});
   await new Promise(resolve=>setTimeout(resolve,15));assert.equal(third,false);release();await Promise.all([first,last]);assert.equal(third,true);
 });
-test('Gemini SDK that ignores timeout still terminates within aggregate budget',async()=>{
+test('retired Gemini cannot invoke even an injected client or leak provider payload',async()=>{
+  let calls=0;
+  const client={interactions:{create:async()=>{calls++;throw new Error('fixture-private-provider-payload');}}};
   const start=Date.now();
-  await assert.rejects(callGemini({prompt:'fixture',overallTimeoutMs:30},{client:{interactions:{create:()=>new Promise(()=>{})}}}),{code:'ETIMEDOUT'});
+  await assert.rejects(callGemini({prompt:'fixture',overallTimeoutMs:30},{client}),error=>{
+    assert.equal(error.code,'AI_REMOVED');
+    assert.ok(!error.message.includes('fixture-private-provider-payload'));
+    return true;
+  });
+  assert.equal(calls,0);
   assert.ok(Date.now()-start<1000);
-});
-test('Gemini SDK internal retries are disabled so quota errors reach model fallback promptly',async()=>{
-  let sdkOptions;
-  const result=await callGemini({prompt:'fixture',overallTimeoutMs:1000,maxAttempts:1},{client:{interactions:{create:async(_payload,options)=>{sdkOptions=options;return {status:'completed',output_text:'{"hook":"fixture"}'};}}}});
-  assert.equal(result.parsed.hook,'fixture');
-  assert.deepEqual(sdkOptions.retries,{strategy:'none'});
-  assert.equal(sdkOptions.maxRetries,undefined);
-});
-test('Gemini completed JSON returns model and malformed output never claims success',async()=>{
-  const result=await callGemini({prompt:'fixture',overallTimeoutMs:30},{client:{interactions:{create:async()=>({status:'completed',output_text:'{"hook":"fixture"}'})}}});assert.equal(result.parsed.hook,'fixture');assert.ok(result.model);
-  await assert.rejects(callGemini({prompt:'fixture',overallTimeoutMs:30},{client:{interactions:{create:async()=>({status:'completed',output_text:'{broken'})}}}));
-  for(const status of [401,403,429,503])assert.notEqual(safeGeminiError({status,message:'fixture provider error'}).message,'fixture provider error');
 });
 test('read timeout is bounded and supplies cancellation signal',async()=>{
   let signal;await assert.rejects(boundedRead(value=>{signal=value;return new Promise(()=>{});},10),{code:'ETIMEDOUT'});assert.equal(signal.aborted,true);

@@ -7,7 +7,7 @@ on:
 permissions:
   contents: read
 concurrency:
-  group: manual-content-tests
+  group: manual-content-tests-${{ github.ref }}
   cancel-in-progress: true
 jobs:
   backend:
