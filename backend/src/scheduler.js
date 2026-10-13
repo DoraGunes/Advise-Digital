@@ -4,7 +4,6 @@ import {createCampaign,createAdSet,uploadAdImage,createAdCreative,createAdCreati
 import {config} from './config.js';
 import {seedTimeScore} from './rules.js';
 import {optimizeAds} from './optimizer.js';
-import {runGeminiAdReview} from './gemini-ads.js';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import {withTenantLock} from './persistence.js';
@@ -354,7 +353,6 @@ export function startScheduler() {
         // The 12-hour ad decision engine must run from the scheduler as well;
         // the manual /api/automation/run endpoint is not sufficient for SaaS automation.
         if (tenant.id === 'system' || tenant.meta?.connected) await optimizeAds(tenant.id);
-        if (tenant.id === 'system' || tenant.meta?.connected) await runGeminiAdReview(tenant.id);
         await weeklySchedulerTick(tenant.id);
       }
     } catch(e) { console.error('[SCHEDULER]',e.message); }

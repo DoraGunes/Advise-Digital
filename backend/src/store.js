@@ -62,12 +62,12 @@ const defaults = {
   earlyMessageCostLimit: 2,
   earlyNoMessageSpendThreshold: 75,
   earlyBudgetReductionPercent: 30,
-  autoPublish: true,
+  autoPublish: false,
   enabled: false,
   autoBestTime: true,
   geminiAdsAuto: false,
   geminiAdsDailyCap: 0,
-  aiEnabled: true,
+  aiEnabled: false,
   aiTone: 'samimi ve güven veren',
   aiGoal: 'mesaj',
   adTargetingMode: 'COUNTRY',
@@ -385,6 +385,8 @@ async function _getSettings(tenantId = SYSTEM_TENANT_ID) {
   // that still carry the old 8 TL default are migrated to 2 TL automatically.
   if (Number(resolved.messageCostLimit) === 8) resolved.messageCostLimit = 2;
   if (Number(resolved.earlyMessageCostLimit) === 8) resolved.earlyMessageCostLimit = 2;
+  // Manual mode overrides old automation flags without migrating or erasing history.
+  Object.assign(resolved,{aiEnabled:false,geminiAdsAuto:false,enabled:false,autoPublish:false,autoBestTime:false});
   return clone(resolved);
 }
 
@@ -414,7 +416,7 @@ async function _saveSettings(tenantId, input) {
   next.enabled = Boolean(next.enabled);
   next.geminiAdsAuto = Boolean(next.geminiAdsAuto);
   next.geminiAdsDailyCap = Math.max(0, Math.min(100000, Number(next.geminiAdsDailyCap) || 0));
-  next.aiEnabled = next.aiEnabled !== false;
+  Object.assign(next,{aiEnabled:false,geminiAdsAuto:false,enabled:false,autoPublish:false,autoBestTime:false});
   next.autoMediaType = next.autoMediaType !== false;
   next.preventDuplicateContent = next.preventDuplicateContent !== false;
   next.publishMaxRetries = Math.max(1, Math.min(5, Number(next.publishMaxRetries || 3)));

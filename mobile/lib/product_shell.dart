@@ -63,7 +63,7 @@ class _ProductShellState extends State<ProductShell> {
   int _selected = 0;
   static const _labels = [
     'Ana Sayfa',
-    'AI Studio',
+    'İçerik Stüdyosu',
     'Reklamlar',
     'Plan',
     'Daha Fazla'

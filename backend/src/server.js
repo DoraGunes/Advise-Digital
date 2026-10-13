@@ -1,4 +1,5 @@
 import {withOperationBudget} from './operation-budget.js';
+import {buildManualMemory,MANUAL_DISABLED_ROUTES} from './manual-memory.js';
 import {normalizeCover,MAX_COVER_BYTES} from './cover-image.js';
 import {normalizeInstagramImage} from './instagram-image.js';
 import {runAdOperation,getAdOperation,operationFailure} from './ad-operations.js';
@@ -23,10 +24,10 @@ import {startScheduler, scheduleUploadedPost, scheduleUploadedPosts, publishDueP
 import {analyticsSummary, aiInsights, billingSummary, brandingSummary, saveBranding, notificationPrefs, saveNotificationPrefs, securityOverview, planCatalog, adminOverview} from './v78.js';
 import {dbHealth} from './db.js';
 import {aiAdvisor, performanceSummary, getAlerts, createAlert, markAlert, getLeads, createLead, updateLead, deleteLead, analyzeCreative, getCreatives, simulateBudget, createExperiment, getExperiments, updateExperiment, buildUtm, reportPack, agencyOverview} from './pro.js';
-import {generateContentPack, generateCaption, generateCaptionVariants, scoreCreative, aiStatus} from './ai.js';
+import {aiStatus} from './ai.js';
 import {buildHashtagStrategy} from './hashtag-strategy.js';
 import {getPerformanceMemorySummary,recommendPublishTime} from './performance-memory.js';
-import {learnFromGeneration, linkGenerationToPost, getMemorySummary, getCopyStyleRecommendation} from './ai-memory.js';
+import {getMemorySummary, getCopyStyleRecommendation} from './ai-memory.js';
 import {runGeminiAdReview, applyGeminiAdDecision} from './gemini-ads.js';
 import {withTenantLock} from './persistence.js';
 import {tenantCredentials,metaReady,budgetGuard,activationGuard,withAdAccountLock} from './automation-safety.js';
@@ -169,10 +170,11 @@ app.get('/health', (_req, res) => res.json({
   version: config.appVersion,
   apiVersion:16,
   minClientVersion:'14.0.0',
-  capabilities:{productExperience:true,productOverview:true,productReporting:true,onboarding:true,scheduledPublishing:true,geminiAdReview:true,safeAutomationV16:true,campaignStrategy:true,adCreateSaga:true,adsPreflight:true},
+  capabilities:{productExperience:true,productOverview:true,productReporting:true,onboarding:true,scheduledPublishing:true,geminiAdReview:true,safeAutomationV16:true,campaignStrategy:true,adCreateSaga:true,adsPreflight:true,manualContent:true,localMemory:true},
   buildMarker: 'ADVISE_PRODUCT_V16_2026_10_05',
   uploadMode: 'EXTENSION_AWARE',
-  aiImageMode: 'GEMINI_INTERACTIONS_MULTIMODAL'
+  aiImageMode: 'DISABLED',
+  contentMode: 'MANUAL'
 }));
 
 app.post('/api/auth/login', async (req, res) => {
@@ -202,6 +204,12 @@ app.use('/api/ai/content-pack-from-file', (req, res, next) => {
 
 app.get('/api/meta/oauth/callback',metaOAuthCallback);
 app.use('/api', authMiddleware);
+// Reject retired actions before multipart upload, tenant mutation or provider invocation.
+app.use('/api',(req,res,next)=>{
+  const route='/' + req.path.toLowerCase().split('/').filter(Boolean).join('/');
+  if(MANUAL_DISABLED_ROUTES.includes(route))return res.status(410).json({ok:false,code:'AI_REMOVED',mode:'MANUAL',error:'AI ve otomatik reklam yönetimi kaldırıldı. İçeriği ve reklamı elle hazırlayın.'});
+  next();
+});
 app.use('/api', (req,res,next)=>{
   const originalJson=res.json.bind(res);
   const safe=value=>{
@@ -437,7 +445,7 @@ app.post('/api/ads/create',allowRoles('ADMIN','CUSTOMER_ADMIN','MANAGER','OPERAT
     const locations=[...new Set((Array.isArray(raw)?raw:[]).map(String))].sort();
     if(!['COUNTRY','CITY','REGION'].includes(locationMode))throw Object.assign(new Error('Geçerli hedefleme türü seçin.'),{code:'VALIDATION_FAILED'});
     if(locationMode!=='COUNTRY')provinceNamesForTargeting(locationMode,locations);
-    const campaignName=String(req.body?.campaignName||'AdVise AI Kampanyası').trim().slice(0,120),adSetName=String(req.body?.adSetName||'AdVise AI Ad Set').trim().slice(0,120),adName=String(req.body?.adName||'AdVise AI Reklamı').trim().slice(0,120);
+    const campaignName=String(req.body?.campaignName||'AdVise Kampanyası').trim().slice(0,120),adSetName=String(req.body?.adSetName||'AdVise Reklam Grubu').trim().slice(0,120),adName=String(req.body?.adName||'AdVise Reklamı').trim().slice(0,120);
     const activate=req.body?.activate===true;
     const destination=String(req.body?.destination||'INSTAGRAM_DIRECT').trim().toUpperCase();
     if(!['INSTAGRAM_DIRECT','WHATSAPP'].includes(destination))throw Object.assign(new Error('Geçerli mesajlaşma kanalı seçin.'),{code:'META_DESTINATION_INVALID'});
@@ -469,7 +477,7 @@ app.post('/api/ads/create',allowRoles('ADMIN','CUSTOMER_ADMIN','MANAGER','OPERAT
       },
       complete:async(operation,audience)=>{
         await saveSettings(tenantId,{adTargetingMode:locationMode,adTargetingLocations:locationMode==='COUNTRY'?[]:locations});
-        await addLog(tenantId,{type:'WEEKLY_LAUNCH',source:'APP_AD_CREATE',actorId:req.user.id,adId:operation.ids.ad,adSetId:operation.ids.adset,campaignId:operation.ids.campaign,instagramMediaId:mediaId,requestId,correlationId:operation.correlationId,launchAt:new Date().toISOString(),selectionScore:1});
+        await addLog(tenantId,{type:'WEEKLY_LAUNCH',source:'APP_AD_CREATE',actorId:req.user.id,adId:operation.ids.ad,adSetId:operation.ids.adset,campaignId:operation.ids.campaign,instagramMediaId:mediaId,requestId,correlationId:operation.correlationId,launchAt:new Date().toISOString(),selectionScore:1,dailyBudget,destination,locationMode,locations,adStatus:activate?'ACTIVE':'PAUSED'});
         return {ok:true,requestId,correlationId:operation.correlationId,campaign:{id:operation.ids.campaign},adset:{id:operation.ids.adset},creative:{id:operation.ids.creative},ad:{id:operation.ids.ad,status:activate?'ACTIVE':'PAUSED'},activated:activate,contactChannel:destination,targeting:{mode:audience.locationMode,locations:audience.locations}};
       }
     }));
@@ -619,154 +627,6 @@ app.post('/api/ai/hashtags', async (req, res) => {
     }));
   } catch(e) { res.status(400).json({error:e.message}); }
 });
-async function enrichStudioDecision(tenantId,result,mediaType='AUTO') {
-  let timing={recommended:null,sampleSize:0,confidence:{score:0,label:'NONE'},freshness:'UNKNOWN',reason:'Bu tenant ve format için ölçülmüş performans örneği henüz yok.'};
-  try { timing=await recommendPublishTime(tenantId,{mode:'ORGANIC',mediaType:result?.recommendedFormat||mediaType}); } catch {}
-  const next={...result};
-  if(timing?.recommended&&Number.isInteger(Number(timing.recommended.hour))) {
-    const hour=String(Number(timing.recommended.hour)).padStart(2,'0');
-    next.recommendedPostTime=hour+':00';
-    next.recommendedPublishTime=hour+':00';
-    next.recommendedPostTimeReason=timing.reason;
-  }
-  next.decisionMeta={
-    ...(result?.decisionMeta||{}),
-    timingReason:next.recommendedPostTimeReason||timing.reason||'',
-    timingSource:timing?.recommended?'TENANT_PERFORMANCE_MEMORY':'GENERATION_HYPOTHESIS',
-    timingSampleSize:Number(timing?.sampleSize||0),
-    timingConfidence:timing?.confidence||{score:0,label:'NONE'},
-    timingFreshness:timing?.freshness||'UNKNOWN'
-  };
-  return next;
-}
-
-app.post('/api/ai/content-pack', async (req, res) => {
-  try {
-    const settings=await getSettings(req.user.tenantId);
-    if(settings.aiEnabled===false) return res.json({source:'DISABLED',message:'AI modu kapalı.',recommendedFormat:String(req.body?.mediaType||'IMAGE').toUpperCase()==='VIDEO'?'REELS':'POST'});
-    const history=await getLogs(req.user.tenantId, 20);
-    const posts=await getPosts(req.user.tenantId);
-    const generated=await generateContentPack({...req.body, tone:req.body?.tone||settings.aiTone, goal:'WhatsApp mesajı', adTargeting:adTargetingPrompt(settings), language:req.body?.language||settings.aiLanguage, timezone:config.timezone, tenantId:req.user.tenantId, history, businessName:req.tenant?.companyName || req.tenant?.name || '', locations:settings.adTargetingLocations, recentHashtagSets:recentHashtagSets(posts)});
-    const result=await enrichStudioDecision(req.user.tenantId,generated,req.body?.mediaType||'AUTO');
-    await addLog(req.user.tenantId,{type:'AI_CONTENT_GENERATED',source:result.source,mediaType:req.body?.mediaType||'AUTO'});
-    const generation = ['GEMINI','GEMINI_REGENERATED'].includes(result.source)
-      ? await learnFromGeneration(req.user.tenantId, result, {postId: String(req.body?.postId || '').trim(), mediaType: req.body?.mediaType || 'AUTO'})
-      : null;
-    res.json(generation ? {...result, memoryGenerationId: generation.id} : result);
-  } catch(e) { res.status(400).json({error:e.message}); }
-});
-app.post('/api/ai/content-pack-from-file', upload.single('image'), async (req, res) => {
-  let filePath = '';
-  try {
-    if (!req.file) return res.status(400).json({error: 'AI görsel analizi için bir görsel gerekli.'});
-    filePath = req.file.path;
-
-    const settings = await getSettings(req.user.tenantId);
-    if (settings.aiEnabled === false) {
-      return res.json({
-        source: 'DISABLED',
-        message: 'AI modu kapalı.',
-        recommendedFormat: String(req.body?.mediaType || 'IMAGE').toUpperCase() === 'VIDEO' ? 'REELS' : 'POST'
-      });
-    }
-
-    const kind = mediaKind(req.file);
-    const ext = fileExtension(req.file.originalname);
-    const visionMimeByExt = {
-      '.jpg': 'image/jpeg',
-      '.jpeg': 'image/jpeg',
-      '.jfif': 'image/jpeg',
-      '.png': 'image/png',
-      '.webp': 'image/webp',
-      '.gif': 'image/gif'
-    };
-    const visionMime = String(req.file.mimetype || '').startsWith('image/')
-      ? String(req.file.mimetype).toLowerCase()
-      : (visionMimeByExt[ext] || '');
-
-    const publicUrl = publicBaseUrlForRequest(req) + '/uploads/' + encodeURIComponent(req.file.filename);
-    const rawBuffer = kind === 'IMAGE' ? await fs.readFile(req.file.path) : null;
-    const imageDataUrl = rawBuffer && visionMime
-      ? `data:${visionMime};base64,${rawBuffer.toString('base64')}`
-      : '';
-
-    const history = await getLogs(req.user.tenantId, 20);
-    const posts = await getPosts(req.user.tenantId);
-    console.log('[AI MEDIA]', {
-      originalName: req.file.originalname,
-      mimetype: req.file.mimetype,
-      kind,
-      size: req.file.size || 0,
-      visionMime: visionMime || '-',
-      hasImageDataUrl: Boolean(imageDataUrl)
-    });
-
-    const generated = await generateContentPack({
-      title: req.body?.title || req.file.originalname,
-      context: req.body?.context || '',
-      tone: req.body?.tone || settings.aiTone,
-      goal: 'WhatsApp mesajı',
-      adTargeting: adTargetingPrompt(settings),
-      language: req.body?.language || settings.aiLanguage,
-      mediaType: req.body?.mediaType || (kind === 'VIDEO' ? 'REELS' : 'AUTO'),
-      imageUrl: '',
-      imageDataUrl: kind === 'IMAGE' ? imageDataUrl : '',
-      tenantId: req.user.tenantId,
-      filePath: req.file.path,
-      mimeType: kind === 'IMAGE' ? (visionMime || req.file.mimetype) : (req.file.mimetype || 'video/mp4'),
-      timezone: config.timezone,
-      history,
-      hashtagMode: req.body?.hashtagMode,
-      contentUse: req.body?.contentUse,
-      businessName: req.tenant?.companyName || req.tenant?.name || '',
-      locations: settings.adTargetingLocations,
-      recentHashtagSets: recentHashtagSets(posts),
-      mediaNote: kind === 'VIDEO'
-        ? 'Video Gemini tarafından içerik, sahne ve görünen bilgiler açısından analiz edilecek.'
-        : visionMime ? '' : 'Görsel dosyası kabul edildi; Gemini uygun medya tipini mümkün olduğunca kendisi analiz eder.'
-    })
-    const result = await enrichStudioDecision(req.user.tenantId, generated, req.body?.mediaType || (kind === 'VIDEO' ? 'REELS' : 'AUTO'));;
-
-    if (!['GEMINI','GEMINI_REGENERATED'].includes(result.source)) {
-      console.error('[AI MEDIA NOT GEMINI]', result.source, result.error || 'Gemini anahtarı/çağrısı kullanılamadı.');
-      return res.status(502).json({
-        error: result.error || 'Gemini görsel analizi çalışmadı.',
-        source: result.source,
-        code: `GEMINI_${result.errorCategory||'UNAVAILABLE'}`,
-        stage: result.errorCategory==='INVALID_OUTPUT'?'STRUCTURED_PARSE':result.errorCategory==='TIMEOUT'?'GEMINI_PROVIDER':result.errorCategory==='QUOTA_OR_RATE_LIMIT'?'GEMINI_QUOTA':'GEMINI_PROVIDER',
-        correlationId: result.correlationId,
-        retryable: ['TIMEOUT','NETWORK_ERROR','PROVIDER_ERROR','INVALID_OUTPUT'].includes(result.errorCategory)
-      });
-    }
-
-    await addLog(req.user.tenantId, {
-      type: 'AI_CONTENT_GENERATED',
-      source: result.source,
-      mediaType: req.body?.mediaType || 'AUTO',
-      visualAnalysis: true
-    });
-    const generation = await learnFromGeneration(req.user.tenantId, result, {postId: String(req.body?.postId || '').trim(), mediaType: kind});
-
-    res.json({...result, visualAnalysis: true, memoryGenerationId: generation.id});
-  } catch (e) {
-    res.status(400).json({error: e.message});
-  } finally {
-    if (filePath) await fs.rm(filePath, {force:true}).catch(() => {});
-  }
-});
-
-app.post('/api/ai/caption', async (req, res) => {
-  try {
-    const settings=await getSettings(req.user.tenantId);
-    if(settings.aiEnabled===false) return res.status(403).json({error:'AI modu kapalı.'});
-    const history=await getLogs(req.user.tenantId, 20);
-    const posts=await getPosts(req.user.tenantId);
-    res.json(await generateCaption({...req.body,tone:req.body?.tone||settings.aiTone,goal:'WhatsApp mesajı',adTargeting:adTargetingPrompt(settings),language:req.body?.language||settings.aiLanguage,timezone:config.timezone,tenantId:req.user.tenantId,history,businessName:req.tenant?.companyName || req.tenant?.name || '',locations:settings.adTargetingLocations,recentHashtagSets:recentHashtagSets(posts)}));
-  } catch(e) { res.status(400).json({error:e.message}); }
-});
-app.post('/api/ai/caption-variants', async (req,res)=>{ try { res.json(await generateCaptionVariants(req.body||{})); } catch(e) { res.status(400).json({error:e.message}); } });
-app.post('/api/ai/creative-score', async (req,res)=>{ try { res.json(await scoreCreative(req.body||{})); } catch(e) { res.status(400).json({error:e.message}); } });
-
 app.get('/api/settings', async (req, res) => res.json(await getSettings(req.user.tenantId)));
 app.put('/api/settings', allowRoles('ADMIN', 'CUSTOMER_ADMIN'), async (req, res) => {
   try {
@@ -820,10 +680,26 @@ app.post('/api/automation/run', async (req, res) => {
 });
 app.get('/api/logs', async (req, res) => res.json({data: await getLogs(req.user.tenantId, req.query.limit || 200)}));
 
+app.get('/api/memory',async(req,res)=>{
+  try {
+    const tenantId=req.user.tenantId;
+    const [posts,logs,performance,organic,paid]=await Promise.all([
+      getPosts(tenantId),getLogs(tenantId,500),getPerformanceMemorySummary(tenantId),
+      recommendPublishTime(tenantId,{mode:'ORGANIC',mediaType:req.query.mediaType}),
+      recommendPublishTime(tenantId,{mode:'PAID',mediaType:req.query.mediaType})
+    ]);
+    res.json(buildManualMemory(posts,logs,performance,{organic,paid}));
+  } catch { res.status(503).json({error:'Yerel hafıza okunamadı. Kayıtlar değiştirilmedi.'}); }
+});
+
 app.get('/api/posts', async (req, res) => res.json({data: await getPosts(req.user.tenantId)}));
 app.post('/api/posts', upload.single('image'), async (req, res) => {
   try {
     if (!req.file) return res.status(400).json({error: 'Görsel veya video gerekli.'});
+    if(req.body?.scheduleAt && (!Number.isFinite(Date.parse(req.body.scheduleAt)) || Date.parse(req.body.scheduleAt)<=Date.now())) {
+      await fs.rm(req.file.path,{force:true});
+      return res.status(400).json({error:'Planlanan paylaşım zamanı gelecekte olmalı.'});
+    }
     const tenantId=req.user.tenantId;
     const settings=await getSettings(tenantId);
     const posts=await getPosts(tenantId);
@@ -846,9 +722,7 @@ app.post('/api/posts', upload.single('image'), async (req, res) => {
     }
     const requestedMediaType=String(req.body?.mediaType||'AUTO').toUpperCase();
     const mediaType=mediaKind(req.file)==='VIDEO'?'REELS':(requestedMediaType==='CAROUSEL'?'CAROUSEL':'POST');
-    const requestedAuto=String(req.body?.autoPublish ?? 'true').toLowerCase()!=='false';
-    const useAI=String(req.body?.useAI ?? 'true').toLowerCase()!=='false';
-    const memoryGenerationId=String(req.body?.memoryGenerationId || '').trim();
+    const requestedAuto=false;
     const post={
       id:`post_${Date.now()}`,
       tenantId,
@@ -862,54 +736,17 @@ app.post('/api/posts', upload.single('image'), async (req, res) => {
       mimeType:publishMimeType,
       mediaType,
       format:mediaType,
-      memoryGenerationId,
       aiGenerated:false,
       performanceScore:0,
       createdAt:new Date().toISOString()
     };
-    if(useAI && settings.aiEnabled!==false && !post.caption) {
-      const history=await getLogs(tenantId, 20);
-      let pack;
-      try { pack=await generateContentPack({title:post.title,context:req.body?.aiContext||'',tone:settings.aiTone,goal:'WhatsApp mesajı',adTargeting:adTargetingPrompt(settings),language:settings.aiLanguage,mediaType,timezone:config.timezone,tenantId,history,imageUrl:mediaType==='POST' && /^https:\/\//i.test(post.publicUrl)?post.publicUrl:'',
-        filePath:post.filePath,
-        mimeType:post.mimeType}); } catch(aiError) {
-        // Do not lose the draft because Gemini is temporarily unavailable.
-        post.aiStatus='FAILED';
-        post.aiGenerated=false;
-        post.aiError='AI metni üretilemedi. Paylaşmadan önce metni gözden geçirin.';
-        post.caption=post.title;
-        post.autoPublish=false;
-      }
-      if(pack) {
-      post.aiGenerated=true;
-      post.aiMemoryPack=pack;
-      post.aiSource=pack.source;
-      post.aiHook=String(pack.hook||'').trim();
-      post.aiCta=String(pack.cta||'').trim();
-      post.aiHashtags=Array.isArray(pack.hashtags)?pack.hashtags:[];
-      post.aiRecommendedPostTime=pack.recommendedPostTime||'';
-      post.aiRecommendedPostTimeReason=pack.recommendedPostTimeReason||'';
-      post.aiCreativeScore=Number(pack.creativeScore||0);
-      post.caption=[
-        post.aiHook,
-        String(pack.caption||'').trim(),
-        post.aiCta,
-        post.aiHashtags.join(' ')
-      ].filter(Boolean).join('\n\n');
-      post.aiStatus='READY';
-      }
-    }
     if(post.autoPublish || req.body?.scheduleAt) {
       await scheduleUploadedPost(post,tenantId,req.body?.scheduleAt||'');
       if (!post.autoPublish) post.publishStatus='READY';
     } else post.publishStatus='MANUAL';
-    const memoryPack = post.aiMemoryPack;
-    delete post.aiMemoryPack;
     posts.unshift(post);
     await savePosts(tenantId,posts);
     await addLog(tenantId,{type:'POST_UPLOADED',postId:post.id,title:post.title,mediaType,aiGenerated:post.aiGenerated}).catch(()=>console.error('[POST_UPLOAD_LOG_FAILED]'));
-    if (post.aiGenerated && memoryPack && ['GEMINI','GEMINI_REGENERATED'].includes(memoryPack.source)) await learnFromGeneration(tenantId, memoryPack, {postId:post.id}).catch(()=>console.error('[POST_UPLOAD_MEMORY_FAILED]'));
-    else if (memoryGenerationId) await linkGenerationToPost(tenantId, memoryGenerationId, post.id, {caption:post.caption}).catch(()=>console.error('[POST_UPLOAD_MEMORY_FAILED]'));
     res.status(201).json(post);
   } catch (e) { res.status(500).json({error:e.message}); }
 });
@@ -926,10 +763,7 @@ app.post('/api/posts/bulk', upload.array('files', 20), async (req, res) => {
     const accepted=[];
     const skippedReasons=[];
     const seenHashes=new Set(existing.map(x=>x.fileHash).filter(Boolean));
-    const useAI=String(req.body?.useAI ?? 'true').toLowerCase()!=='false';
-    const requestedAuto=String(req.body?.autoPublish ?? 'true').toLowerCase()!=='false';
-    const aiContext=String(req.body?.aiContext || '').trim();
-    const aiHistory=useAI && settings.aiEnabled!==false ? await getLogs(tenantId,20) : [];
+    const requestedAuto=false;
 
     for(const file of files) {
       try {
@@ -970,50 +804,6 @@ app.post('/api/posts/bulk', upload.array('files', 20), async (req, res) => {
           createdAt:new Date().toISOString()
         };
 
-        if(useAI && settings.aiEnabled!==false) {
-          let pack;
-          try { pack=await generateContentPack({
-            title:post.title,
-            context:aiContext,
-            tone:settings.aiTone,
-            goal:'WhatsApp mesajı',
-            adTargeting:adTargetingPrompt(settings),
-            language:settings.aiLanguage,
-            mediaType,
-            timezone:config.timezone,
-            tenantId,
-            history:aiHistory,
-            imageUrl:mediaType==='POST' && /^https:\/\//i.test(post.publicUrl) ? post.publicUrl : '',
-            filePath:post.filePath,
-            mimeType:post.mimeType
-          }); } catch(aiError) {
-            // Caption generation may fail independently. Preserve uploaded media
-            // and the queue slot instead of silently discarding the file.
-            post.aiGenerated=false;
-            post.aiStatus='FAILED';
-            post.caption=post.title;
-            post.aiError='AI metni üretilemedi. İçeriği düzenleyerek devam edin.';
-          }
-          if(pack) {
-          post.aiGenerated=true;
-          post.aiMemoryPack=pack;
-          post.aiSource=pack.source;
-          post.aiHook=String(pack.hook||'').trim();
-          post.aiCta=String(pack.cta||'').trim();
-          post.aiHashtags=Array.isArray(pack.hashtags)?pack.hashtags:[];
-          post.aiRecommendedPostTime=pack.recommendedPostTime||'';
-          post.aiRecommendedPostTimeReason=pack.recommendedPostTimeReason||'';
-          post.aiCreativeScore=Number(pack.creativeScore||0);
-          post.caption=[
-            post.aiHook,
-            String(pack.caption||'').trim(),
-            post.aiCta,
-            post.aiHashtags.join(' ')
-          ].filter(Boolean).join('\\n\\n');
-          post.aiStatus='READY';
-          }
-        }
-
         accepted.push(post);
       } catch(fileError) {
         skippedReasons.push({
@@ -1043,19 +833,12 @@ app.post('/api/posts/bulk', upload.array('files', 20), async (req, res) => {
       for(const post of accepted) post.publishStatus='MANUAL';
     }
 
-    const memoryPacks = new Map();
-    for (const post of accepted) {
-      if (post.aiMemoryPack) memoryPacks.set(post.id, post.aiMemoryPack);
-      delete post.aiMemoryPack;
-    }
     const nextPosts=[...accepted,...existing];
     await savePosts(tenantId,nextPosts);
     postsSaved=true;
 
     for(const post of accepted) {
-      const memoryPack = memoryPacks.get(post.id);
       await addLog(tenantId,{type:'POST_UPLOADED',postId:post.id,title:post.title,mediaType:post.mediaType,aiGenerated:post.aiGenerated,bulk:true}).catch(()=>console.error('[POST_UPLOAD_LOG_FAILED]'));
-      if (post.aiGenerated && memoryPack && ['GEMINI','GEMINI_REGENERATED'].includes(memoryPack.source)) await learnFromGeneration(tenantId, memoryPack, {postId:post.id}).catch(()=>console.error('[POST_UPLOAD_MEMORY_FAILED]'));
     }
 
     res.status(201).json({
@@ -1099,6 +882,7 @@ app.post('/api/posts/:id/queue', async (req, res) => {
     if (!post) return res.status(404).json({error:'İçerik bulunamadı.'});
     if (postPublicationProtected(post)) return res.status(409).json({error:'Yayınlanmış veya yayın sonucu beklenen içerik tekrar kuyruğa alınamaz.'});
     const requestedTime = String(req.body?.scheduleAt || '').trim();
+    if(!requestedTime)return res.status(400).json({error:'Yayın saatini elle seçin.'});
     await scheduleUploadedPost(post, tenantId, requestedTime);
     post.autoPublish = settings.autoPublish !== false;
     if (!post.autoPublish) post.publishStatus = 'READY';

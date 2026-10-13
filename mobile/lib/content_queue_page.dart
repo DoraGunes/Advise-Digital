@@ -13,14 +13,11 @@ class ContentQueuePage extends StatefulWidget {
 }
 
 class _ContentQueuePageState extends State<ContentQueuePage> {
-  final TextEditingController _aiContext = TextEditingController();
 
   List<XFile> _selected = [];
   List<dynamic> _queued = [];
   bool _loading = false;
-  bool _autoPublish = true;
-  bool _useAI = true;
-  bool _initialLoading = true, _canEdit = false, _canConfigure = false;
+  bool _initialLoading = true, _canEdit = false;
   String? _error;
   String _view = 'ALL', _search = '';
   int _visibleLimit = 30;
@@ -34,7 +31,6 @@ class _ContentQueuePageState extends State<ContentQueuePage> {
 
   @override
   void dispose() {
-    _aiContext.dispose();
     super.dispose();
   }
 
@@ -43,18 +39,11 @@ class _ContentQueuePageState extends State<ContentQueuePage> {
       final data = await Api.posts();
       final me = await Api.me();
       final role = (me['user'] as Map?)?['role'];
-      var autoPublish = _autoPublish;
-      try {
-        final settings = await Api.settings();
-        autoPublish = settings['autoPublish'] != false;
-      } catch (_) {}
       if (!mounted) return;
       setState(() {
         _queued = data;
-        _autoPublish = autoPublish;
         _canEdit =
             ['ADMIN', 'CUSTOMER_ADMIN', 'MANAGER', 'OPERATOR'].contains(role);
-        _canConfigure = ['ADMIN', 'CUSTOMER_ADMIN'].contains(role);
         _error = null;
         _initialLoading = false;
       });
@@ -64,19 +53,6 @@ class _ContentQueuePageState extends State<ContentQueuePage> {
           _error = AppError.message(e);
           _initialLoading = false;
         });
-    }
-  }
-
-  Future<void> _setAutoPublish(bool value) async {
-    if (!_canConfigure || _loading) return;
-    setState(() => _loading = true);
-    try {
-      await Api.saveSettings({'autoPublish': value});
-      if (mounted) setState(() => _autoPublish = value);
-    } catch (e) {
-      if (mounted) _snack('Otomatik yayın ayarı kaydedilemedi: $e');
-    } finally {
-      if (mounted) setState(() => _loading = false);
     }
   }
 
@@ -106,9 +82,8 @@ class _ContentQueuePageState extends State<ContentQueuePage> {
       final result = await Api.uploadPostsBulk(
         _selected.map((x) => x.path).toList(),
         mediaFiles: _selected,
-        autoPublish: _autoPublish,
-        useAI: _useAI,
-        aiContext: _aiContext.text,
+        autoPublish: false,
+        useAI: false,
       );
 
       if (!mounted) return;
@@ -134,7 +109,7 @@ class _ContentQueuePageState extends State<ContentQueuePage> {
           title: const Text('Kuyruk hazır'),
           content: Text(scheduled
               ? '$count içerik kuyruğa alındı. $skipped içerik atlandı. Yayın saatleri seçtiğin sıraya göre planlandı.'
-              : '$count içerik taslak olarak kaydedildi. $skipped içerik atlandı. Otomatik yayın açık olduğunda tek dokunuşla sıraya alabilirsin.'),
+              : '$count içerik taslak olarak kaydedildi. $skipped içerik atlandı. Metni düzenleyip yayın saatini elle seçebilirsin.'),
           actions: [
             FilledButton(
               onPressed: () => Navigator.pop(ctx),
@@ -862,37 +837,8 @@ class _ContentQueuePageState extends State<ContentQueuePage> {
                                       ),
                                     ],
                                     const SizedBox(height: 8),
-                                    TextField(
-                                      controller: _aiContext,
-                                      maxLines: 3,
-                                      decoration: const InputDecoration(
-                                        labelText:
-                                            'AI için ortak bilgi (opsiyonel)',
-                                        hintText:
-                                            'Kampanya, ürün veya hizmet bilgisi',
-                                      ),
-                                    ),
-                                    SwitchListTile(
-                                      contentPadding: EdgeInsets.zero,
-                                      title: const Text('AI metin üretimi'),
-                                      subtitle: const Text(
-                                        'Her içerik için caption, hook, CTA ve hashtag',
-                                      ),
-                                      value: _useAI,
-                                      onChanged: _loading
-                                          ? null
-                                          : (v) => setState(() => _useAI = v),
-                                    ),
-                                    SwitchListTile(
-                                      contentPadding: EdgeInsets.zero,
-                                      title: const Text('Otomatik yayınla'),
-                                      subtitle: const Text(
-                                        'Saatinde otomatik Instagram paylaşımı için aç',
-                                      ),
-                                      value: _autoPublish,
-                                      onChanged: _loading || !_canConfigure
-                                          ? null
-                                          : _setAutoPublish,
+                                    const Text(
+                                      'Metni ve yayın saatini her içerikte elle düzenleyin. Kaydetme paylaşım başlatmaz.',
                                     ),
                                     const SizedBox(height: 6),
                                     SizedBox(
@@ -912,9 +858,7 @@ class _ContentQueuePageState extends State<ContentQueuePage> {
                                         label: Text(
                                           _loading
                                               ? 'İçerikler hazırlanıyor…'
-                                              : _useAI
-                                                  ? 'AI ile hazırla ve planla'
-                                                  : 'İçerikleri planla',
+                                              : 'İçerikleri taslak kaydet',
                                         ),
                                       ),
                                     ),

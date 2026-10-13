@@ -38,7 +38,7 @@ class _SocialAdsPageState extends State<SocialAdsPage> {
   final campaignName =
       TextEditingController(text: 'Instagram mesaj kampanyası');
   final adSetName = TextEditingController(text: 'Instagram hedef kitle');
-  final adName = TextEditingController(text: 'AdVise AI Instagram Reklamı');
+  final adName = TextEditingController(text: 'AdVise Instagram Reklamı');
   final budget = TextEditingController(text: '150');
   bool activateAd = false;
 
@@ -591,7 +591,7 @@ class _SocialAdsPageState extends State<SocialAdsPage> {
                                             const ProductEmptyState(
                                                 title: 'Gönderi bulunamadı',
                                                 body:
-                                                    'Önce AI Studio’dan içerik yayınla veya Meta bağlantısını kontrol et.',
+                                                    'Önce İçerik Stüdyosu’ndan içerik yayınla veya Meta bağlantısını kontrol et.',
                                                 icon: Icons
                                                     .photo_library_outlined),
                                           SizedBox(
@@ -687,7 +687,7 @@ class _SocialAdsPageState extends State<SocialAdsPage> {
                                           title:
                                               'Hedef kitleyi nasıl seçiyoruz?',
                                           body:
-                                              'Seçtiğin il veya bölgeler bu kampanyanın konum hedefini oluşturur. Gemini içerik önerilerinde kaydettiğin bu tercihi dikkate alır; gösterim sonuçları Meta tarafından belirlenir.',
+                                              'Seçtiğin il veya bölgeler bu kampanyanın konum hedefini oluşturur. Seçimlerini sen belirlersin; gösterim sonuçları Meta tarafından belirlenir.',
                                           icon: Icons.psychology_outlined),
                                       ExpansionTile(
                                           title:
@@ -716,7 +716,7 @@ class _SocialAdsPageState extends State<SocialAdsPage> {
                                           ]),
                                     ])),
                                 Step(
-                                    title: const Text('AI önerisi'),
+                                    title: const Text('Bağlantı ve geçmiş'),
                                     isActive: _step >= 3,
                                     content: _strategyCard()),
                                 Step(
@@ -806,13 +806,7 @@ class _SocialAdsPageState extends State<SocialAdsPage> {
       strategyReport = null;
     });
     try {
-      final response = await Api.productStrategy({
-        'instagramMediaId': selected!['id'],
-        'title': selected!['caption']?.toString() ?? campaignName.text,
-        'dailyBudget': double.tryParse(budget.text.replaceAll(',', '.')) ?? 0,
-        'locationMode': locationMode,
-        'locations': selectedLocations.toList(),
-      });
+      final response = await Api.localMemory();
       if (mounted) setState(() => strategyReport = response);
     } catch (e) {
       if (mounted)
@@ -862,133 +856,34 @@ class _SocialAdsPageState extends State<SocialAdsPage> {
   }
 
   Widget _strategyCard() {
-    final raw = strategyReport?['strategy'];
-    final strategy =
-        raw is Map ? Map<String, dynamic>.from(raw) : <String, dynamic>{};
-    final available =
-        strategyReport?['available'] == true && strategy.isNotEmpty;
-    final audience =
-        strategy['audience'] is Map ? strategy['audience'] as Map : {};
-    final geography =
-        strategy['geography'] is Map ? strategy['geography'] as Map : {};
-    final planBudget =
-        strategy['budget'] is Map ? strategy['budget'] as Map : {};
-    final budgetRange = strategy['dailyBudgetRange'] is Map
-        ? strategy['dailyBudgetRange'] as Map
-        : {};
-    final creative =
-        strategy['creative'] is Map ? strategy['creative'] as Map : {};
-    final schedule = strategy['timing'] is Map
-        ? strategy['timing'] as Map
-        : (strategy['schedule'] is Map ? strategy['schedule'] as Map : {});
-    final placements =
-        strategy['placements'] is List ? strategy['placements'] as List : [];
-    final assumptions =
-        strategy['assumptions'] is List ? strategy['assumptions'] as List : [];
-    final missing = strategy['missingPrerequisites'] is List
-        ? strategy['missingPrerequisites'] as List
-        : [];
-    return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+    final performance = strategyReport?['performance'] is Map
+      ? strategyReport!['performance'] as Map : {};
+    final timing = strategyReport?['timing'] is Map
+      ? strategyReport!['timing'] as Map : {};
+    final paid = timing['paid'] is Map ? timing['paid'] as Map : {};
+    return Column(crossAxisAlignment: CrossAxisAlignment.start,children: [
       OutlinedButton.icon(
-          onPressed:
-              _preflightLoading || creating || !canOperate ? null : _checkMeta,
-          icon: const Icon(Icons.verified_user_outlined),
-          label: Text(_preflightLoading
-              ? 'Bağlantı kontrol ediliyor…'
-              : 'Meta bağlantısını kontrol et')),
-      if (_preflightMessage != null)
-        Padding(
-            padding: const EdgeInsets.symmetric(vertical: 12),
-            child: Text(_preflightMessage!)),
-      const ProductInsightCard(
-          title: 'Bir test planı hazırlayalım',
-          body:
-              'Gemini işletme bilgilerini, seçtiğin içeriği, gerçek performansı ve Hafıza Sarayı’nı birlikte değerlendirir. Bu adım reklam oluşturmaz.',
-          icon: Icons.auto_awesome),
-      const SizedBox(height: 16),
-      FilledButton.tonalIcon(
-          onPressed: strategyLoading || creating || !canOperate
-              ? null
-              : _requestStrategy,
-          icon: const Icon(Icons.psychology_outlined),
-          label: Text(strategyLoading
-              ? 'Strateji hazırlanıyor…'
-              : 'AI kampanya önerisi al')),
+        onPressed: _preflightLoading || creating || !canOperate ? null : _checkMeta,
+        icon: const Icon(Icons.verified_user_outlined),
+        label: Text(_preflightLoading ? 'Bağlantı kontrol ediliyor…'
+          : 'Meta bağlantısını kontrol et')),
+      if (_preflightMessage != null) Text(_preflightMessage!),
+      const SizedBox(height: 12),
+      const Text('Bütçe, hedef ve içeriği sen seçersin. Geçmişi okumak reklam oluşturmaz veya ayar değiştirmez.'),
+      OutlinedButton.icon(
+        onPressed: strategyLoading || creating ? null : _requestStrategy,
+        icon: const Icon(Icons.history),
+        label: Text(strategyLoading ? 'Geçmiş okunuyor…' : 'Kendi reklam geçmişimi göster')),
       if (strategyReport != null) ...[
-        const SizedBox(height: 16),
-        if (!available)
-          ProductErrorState(
-              message: AppError.message(strategyReport!['error'] ??
-                  'AI önerisi şu anda hazırlanamadı.'),
-              onRetry: strategyLoading || !canOperate ? null : _requestStrategy)
-        else
-          ProductSurface(
-              child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                const ProductStatusChip(
-                    label: 'Gemini önerisi · Onay bekliyor', tone: 'ai'),
-                const SizedBox(height: 16),
-                Text('${strategy['goal'] ?? strategy['objective'] ?? 'WhatsApp mesajları'}',
-                    style: Theme.of(context).textTheme.titleLarge),
-                const SizedBox(height: 12),
-                Text(
-                    'Hedef kitle: ${strategy['audienceHypothesis'] ?? audience['description'] ?? _targetingSummary}'),
-                Text(
-                    'Test bütçesi: ${budgetRange['min'] ?? planBudget['dailyBudget'] ?? budget.text}–${budgetRange['max'] ?? planBudget['dailyBudget'] ?? budget.text} TL / gün'),
-                Text(
-                    'İçerik: ${strategy['recommendedCreativeFormat'] ?? creative['format'] ?? 'Gönderi'} · ${strategy['primaryTextAngle'] ?? creative['angle'] ?? ''}'),
-                if ((strategy['headline'] ?? strategy['hook']) != null)
-                  Text('Açılış: ${strategy['headline'] ?? strategy['hook']}'),
-                Text(
-                    'Önerilen saat: ${schedule['recommendedTime'] ?? '—'} · Türkiye saati'),
-                if (schedule['reason'] != null) Text('${schedule['reason']}'),
-                Text(
-                    'İlk değerlendirme: ${strategy['testDuration'] ?? strategy['testDurationDays'] ?? '—'} günlük test'),
-                Text(
-                    'Güven: ${strategy['confidenceLabel'] ?? 'LOW'} (${strategy['confidence'] ?? 0}/100)'),
-                const SizedBox(height: 12),
-                if ((strategy['rationaleSummary']?.toString() ?? '').isNotEmpty)
-                  Text(strategy['rationaleSummary'].toString()),
-                const SizedBox(height: 8),
-                ExpansionTile(
-                    tilePadding: EdgeInsets.zero,
-                    title: const Text('Planın detayları'),
-                    children: [
-                      ListTile(
-                          contentPadding: EdgeInsets.zero,
-                          title: const Text('Optimizasyon'),
-                          subtitle: Text(
-                              '${strategy['optimizationGoal'] ?? 'CONVERSATIONS'} → ${strategy['destination'] ?? 'WHATSAPP'}')),
-                      ListTile(
-                          contentPadding: EdgeInsets.zero,
-                          title: const Text('Coğrafya'),
-                          subtitle: Text(
-                              '${geography['locationMode'] ?? audience['locationMode'] ?? locationMode} · ${((geography['locations'] ?? audience['locations']) is List ? (geography['locations'] ?? audience['locations']) as List : selectedLocations.toList()).join(', ')}')),
-                      if (placements.isNotEmpty)
-                        ListTile(
-                            contentPadding: EdgeInsets.zero,
-                            title: const Text('Placement'),
-                            subtitle: Text(placements.join(', '))),
-                      for (final item in assumptions)
-                        Padding(
-                            padding: const EdgeInsets.only(bottom: 6),
-                            child: Text('Varsayım: $item')),
-                      for (final item in missing)
-                        Padding(
-                            padding: const EdgeInsets.only(bottom: 6),
-                            child: Text('Eksik veri: $item')),
-                    ]),
-                for (final warning in (strategy['warnings'] is List
-                    ? strategy['warnings'] as List
-                    : []))
-                  Padding(
-                      padding: const EdgeInsets.only(bottom: 6),
-                      child: Text('Not: $warning')),
-                const SizedBox(height: 12),
-                const Text(
-                    'Öneri harcama veya sonuç garantisi değildir. Bütçe ve bölge seçimlerini kontrol edip sonraki adımda açıkça onayla.'),
-              ])),
+        if (strategyReport!['error'] != null) Text('${strategyReport!['error']}')
+        else ...[
+          Text('Ölçülmüş reklam örneği: ${performance['paidCount'] ?? 0}'),
+          Text('${paid['reason'] ?? 'Saat geçmişi henüz ölçülmedi.'}'),
+          Text('Saat örneği: ${paid['sampleSize'] ?? 0}'),
+          for (final row in (paid['evidence'] is List ? paid['evidence'] as List : []))
+            if (row is Map)
+              Text('Gün ${row['weekday']} · ${row['hour']}:00 · ${row['sampleSize']} örnek'),
+        ],
       ],
     ]);
   }
