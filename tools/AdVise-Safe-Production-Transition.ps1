@@ -41,6 +41,7 @@ function Same-Snapshot($Left,$Right) {
  $a=@($Left | ForEach-Object {$_.relative+'|'+$_.size+'|'+$_.hash})
  $b=@($Right | ForEach-Object {$_.relative+'|'+$_.size+'|'+$_.hash})
  if($a.Count -ne $b.Count){return $false}
+ if($a.Count -eq 0){return $true}
  return @((Compare-Object $a $b)).Count -eq 0
 }
 function Copy-Tree([string]$From,[string]$To,[string]$Log,[string[]]$Exclude=@()) {
@@ -171,6 +172,7 @@ function Stop-VerifiedBackend([string]$Birth) {
  $p=Get-Process -Id $ExpectedPid
  if([Math]::Abs(($p.StartTime.ToUniversalTime()-$v.process.CreationDate.ToUniversalTime()).TotalMilliseconds) -gt 1){throw 'PID_CHANGED'}
  # Only the checked process object is terminated; never taskkill/all-node.
+ $journal.stopRequested=$true;Save-Journal
  $p.Kill()
  if(!$p.WaitForExit(10000)){throw 'STOP_FAILED'}
  $left=@(Get-NetTCPConnection -State Listen -LocalPort 3001 -ErrorAction SilentlyContinue)
@@ -372,7 +374,7 @@ try {
    if(Test-Path -LiteralPath $journalFile){throw 'TRANSITION_ALREADY_EXISTS'}
    $work=Join-Path $backup ('transition-'+[guid]::NewGuid().ToString('N'))
    New-Item -ItemType Directory -Path (Join-Path $work 'old-code') | Out-Null
-   $journal=@{work=$work;oldCode=(Join-Path $work 'old-code');parts=@();status='PREPARED';currentPid=0;currentBirth='';baseline=@()}
+   $journal=@{work=$work;oldCode=(Join-Path $work 'old-code');parts=@();status='PREPARED';stopRequested=$false;currentPid=0;currentBirth='';baseline=@()}
    Save-Journal
    $phase='STOP_OLD'
    Stop-VerifiedBackend $receipt.oldCreationDate
@@ -403,7 +405,7 @@ try {
  $reason=@('PATH_INVALID','BACKUP_NOT_PRIVATE','BACKUP_INVALID','BACKUP_CORRUPT','ENV_CHANGED','PID_CHANGED','NODE_CHANGED','STAGE_CHANGED','STAGE_DEPENDENCIES_MISSING','OLD_CODE_CHANGED','OPERATION_IN_PROGRESS','PUBLISH_IN_PROGRESS','ACTIVE_CONNECTIONS','PORT_BUSY','STOP_FAILED','CUTOVER_BACKUP_FAILED','INSTALLED_CODE_CHANGED','HEALTH_FAILED','AUTOMATION_NOT_DISABLED','TOKEN_PROBE_FAILED','API_CHECK_FAILED','CONNECTION_CHECK_FAILED','RECORD_CHECK_FAILED','RUNTIME_CHANGED','JOURNAL_INVALID','OLD_CODE_MISSING','ROLLBACK_CODE_CHECK_FAILED','TRANSITION_ALREADY_EXISTS','ADMIN_REQUIRED','REPARSE_PATH','COPY_FAILED','PROCESS_UNVERIFIED','BACKEND_PATH_MISMATCH','LAUNCH_UNVERIFIED')
  $code=if($reason -ccontains $_.Exception.Message){$_.Exception.Message}else{'TRANSITION_CHECK_FAILED'}
  'TRANSITION_FAILED=True PHASE='+$phase+' CODE='+$code
- if($stopped -and $journal) {
+ if(($stopped -or ($journal -and $journal.stopRequested)) -and $journal) {
   try {Recover-OldBackend;'TRANSITION_RESULT=ROLLED_BACK'}
   catch {'TRANSITION_RESULT=RECOVERY_REQUIRED';'NO_RUNTIME_RESTORE_PERFORMED=True'}
  } else {'TRANSITION_RESULT=NOT_APPLIED'}
