@@ -49,6 +49,7 @@ function Invoke-StageProcess([string]$Executable,[string]$Arguments,[string]$Wor
   $process=New-Object Diagnostics.Process
   $process.StartInfo=$info
   try {
+    'STAGE_CHILD executableExists='+(Test-Path -LiteralPath $info.FileName -PathType Leaf)+' workingDirectoryExists='+(Test-Path -LiteralPath $info.WorkingDirectory -PathType Container)+' nodeExecutable='+([IO.Path]::GetFileName($info.FileName) -ieq 'node.exe')
     [void]$process.Start()
     $stdout=$process.StandardOutput.ReadToEndAsync()
     $stderr=$process.StandardError.ReadToEndAsync()
