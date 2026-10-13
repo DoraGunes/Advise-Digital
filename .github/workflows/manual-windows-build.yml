@@ -1,0 +1,60 @@
+name: Manual Windows 16.1.0 Build
+on:
+  push:
+    branches: [build/manual-windows-16-1-2026-10-13]
+    paths: [.github/workflows/manual-windows-build.yml]
+permissions:
+  contents: read
+jobs:
+  windows:
+    runs-on: windows-latest
+    defaults:
+      run:
+        working-directory: mobile
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: d41b003fa773663710762d9e3157edd49c601a0d
+      - name: Verify approved source and version
+        shell: pwsh
+        run: |
+          if ((git rev-parse HEAD).Trim() -cne 'd41b003fa773663710762d9e3157edd49c601a0d') { throw 'Source revision mismatch' }
+          if (!(Select-String -Path pubspec.yaml -Pattern '^version: 16\.1\.0\+18$' -Quiet)) { throw 'App version mismatch' }
+          'APPROVED_SOURCE=True VERSION=16.1.0+18'
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.47.5'
+          channel: stable
+          cache: true
+      - run: flutter pub get
+      - run: flutter config --enable-windows-desktop
+      - name: Build only approved Windows client
+        run: flutter build windows --release --dart-define=ADVISE_API_URL=https://advisedigital.poyrazteknikservis.com.tr
+      - name: Verify Windows bundle
+        shell: pwsh
+        run: |
+          $bundle='build/windows/x64/runner/Release'
+          foreach($name in @('advise_digital.exe','flutter_windows.dll','data/icudtl.dat','data/flutter_assets/AssetManifest.bin')) {
+            if (!(Test-Path (Join-Path $bundle $name))) { throw ('Bundle file missing: '+$name) }
+          }
+          $exe=Join-Path $bundle 'advise_digital.exe'
+          $v=(Get-Item $exe).VersionInfo
+          if ($v.FileMajorPart -ne 16 -or $v.FileMinorPart -ne 1 -or $v.FileBuildPart -ne 0 -or $v.FilePrivatePart -ne 18) { throw 'Executable version mismatch' }
+          $hash=(Get-FileHash $exe -Algorithm SHA256).Hash
+          'WINDOWS_BUNDLE=True FILE_VERSION='+$v.FileVersion
+          'WINDOWS_EXE_SHA256='+$hash
+          @(
+            'AdVise Digital Windows 16.1.0+18',
+            'Source: d41b003fa773663710762d9e3157edd49c601a0d',
+            'Default API: https://advisedigital.poyrazteknikservis.com.tr',
+            'Extract all files together. Close the previous client, then run advise_digital.exe.',
+            'This package does not update or restart your backend.',
+            'Local Memory requires the separately approved manual-mode backend update.',
+            'Selecting media does not upload it. Saving, publishing and creating ads are separate actions.'
+          ) | Set-Content (Join-Path $bundle 'README-WINDOWS.txt') -Encoding UTF8
+      - uses: actions/upload-artifact@v4
+        with:
+          name: AdVise-Digital-Windows-16.1.0-18
+          path: mobile/build/windows/x64/runner/Release/
+          if-no-files-found: error
+          retention-days: 30
