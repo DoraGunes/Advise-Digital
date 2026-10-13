@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'api.dart';
 import 'media_access.dart';
@@ -14,6 +15,18 @@ class ContentQueuePage extends StatefulWidget {
 
 class _ContentQueuePageState extends State<ContentQueuePage> {
 
+  final _publicationPending = <String>{};
+  final _watching = <String>{};
+  final _publicationTimers = <Timer, Completer<void>>{};
+  Future<void> _publicationPause() {
+    final done = Completer<void>();
+    late Timer timer;
+    timer = Timer(const Duration(seconds: 3), () {
+      _publicationTimers.remove(timer); done.complete();
+    });
+    _publicationTimers[timer] = done;
+    return done.future;
+  }
   List<XFile> _selected = [];
   List<dynamic> _queued = [];
   bool _loading = false;
@@ -31,6 +44,11 @@ class _ContentQueuePageState extends State<ContentQueuePage> {
 
   @override
   void dispose() {
+    for (final entry in _publicationTimers.entries) {
+      entry.key.cancel();
+      if (!entry.value.isCompleted) entry.value.complete();
+    }
+    _publicationTimers.clear();
     super.dispose();
   }
 
@@ -39,14 +57,29 @@ class _ContentQueuePageState extends State<ContentQueuePage> {
       final data = await Api.posts();
       final me = await Api.me();
       final role = (me['user'] as Map?)?['role'];
+      final pending = await Api.pendingPublications();
+      for (final row in data.whereType<Map>()) {
+        final id = row['id']?.toString() ?? '';
+        if (row['publishStatus'] == 'PUBLISHED') {
+          await Api.clearConfirmedPublication(id);
+          pending.remove(id);
+        } else if (['PUBLISHING','RECONCILE','PUBLISH_UNKNOWN'].contains(row['publishStatus'])) {
+          pending.add(id);
+        }
+      }
       if (!mounted) return;
       setState(() {
-        _queued = data;
+        _publicationPending..clear()..addAll(pending);
+        _queued = data.map((row) => row is Map && pending.contains(row['id']?.toString())
+          ? {...row,'publishStatus':'PUBLISH_UNKNOWN'} : row).toList();
         _canEdit =
             ['ADMIN', 'CUSTOMER_ADMIN', 'MANAGER', 'OPERATOR'].contains(role);
         _error = null;
         _initialLoading = false;
       });
+      for (final id in pending) {
+        unawaited(_watchPublication(id));
+      }
     } catch (e) {
       if (mounted)
         setState(() {
@@ -317,35 +350,57 @@ class _ContentQueuePageState extends State<ContentQueuePage> {
     }
   }
 
+  void _publicationUpdate(Map<String,dynamic> row) {
+    if (!mounted) return;
+    final id = row['id']?.toString();
+    setState(() {
+      if (row['publishStatus'] == 'PUBLISHED') _publicationPending.remove(id);
+      _queued = _queued.map((old) => old is Map && old['id']?.toString() == id
+        ? {...old,...row} : old).toList();
+    });
+  }
+
+  Future<void> _watchPublication(String id) async {
+    if (!_watching.add(id)) return;
+    try {
+      final result = await Api.checkPublication(id,
+        onUpdate: _publicationUpdate,cancelled: () => !mounted,pause: _publicationPause);
+      _publicationUpdate(result);
+    } catch (_) {
+      // Persisted pending markers keep actions blocked when GET is unavailable.
+    } finally {
+      if (mounted) setState(() => _watching.remove(id));
+      else _watching.remove(id);
+    }
+  }
+
   Future<void> _publishPost(Map<String, dynamic> post) async {
     if (!_editable(post) || _loading) return;
     final accepted = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
         title: const Text('Instagram’da paylaş'),
-        content: const Text(
-            'Bu içerik bağlı Instagram hesabında hemen yayınlanacak. Devam edilsin mi?'),
+        content: const Text('Bu içerik bağlı Instagram hesabında hemen yayınlanacak. Devam edilsin mi?'),
         actions: [
-          TextButton(
-              onPressed: () => Navigator.pop(ctx, false),
-              child: const Text('VAZGEÇ')),
-          FilledButton(
-              onPressed: () => Navigator.pop(ctx, true),
-              child: const Text('ŞİMDİ PAYLAŞ')),
+          TextButton(onPressed: () => Navigator.pop(ctx,false),child: const Text('VAZGEÇ')),
+          FilledButton(onPressed: () => Navigator.pop(ctx,true),child: const Text('ŞİMDİ PAYLAŞ')),
         ],
       ),
     );
-    if (accepted != true) return;
-    setState(() => _loading = true);
+    if (accepted != true || !mounted || _loading) return;
+    final id = post['id'].toString();
+    setState(() { _loading = true; _publicationPending.add(id); });
+    _publicationUpdate({...post,'publishStatus':'PUBLISHING'});
     try {
-      final result = await Api.publishPost(post['id'].toString());
-      await _loadQueue();
-      if (mounted)
-        _snack(result['publishStatus'] == 'PUBLISHED'
-            ? 'Instagram paylaşımı tamamlandı.'
-            : 'Instagram yayın sonucu doğrulanıyor. İçerik yeniden gönderilmeyecek.');
-    } catch (e) {
-      if (mounted) _snack(AppError.message(e));
+      final result = await Api.publishPost(id,
+        onUpdate: _publicationUpdate,cancelled: () => !mounted,pause: _publicationPause);
+      _publicationUpdate(result);
+      if (mounted) _snack(result['publishStatus'] == 'PUBLISHED'
+        ? 'Instagram paylaşımı tamamlandı.'
+        : 'Yayın sonucu henüz doğrulanamadı. Tekrar paylaşılmadı; yalnız durum kontrolü yapılabilir.');
+    } catch (_) {
+      _publicationUpdate({...post,'publishStatus':'PUBLISH_UNKNOWN'});
+      if (mounted) _snack('Yayın sonucu doğrulanamadı. Yeniden paylaşmadan durumunu kontrol edin.');
     } finally {
       if (mounted) setState(() => _loading = false);
     }
@@ -623,6 +678,12 @@ class _ContentQueuePageState extends State<ContentQueuePage> {
                   tooltip: 'İçeriği sil',
                   icon: const Icon(Icons.delete_outline_rounded)),
           ]),
+          if (_publicationPending.contains(post['id']?.toString()))
+            OutlinedButton.icon(
+              onPressed: _loading || _watching.contains(post['id']?.toString())
+                ? null : () => _watchPublication(post['id'].toString()),
+              icon: const Icon(Icons.refresh),
+              label: const Text('Yayın durumunu kontrol et')),
           if (['PUBLISHING', 'RECONCILE', 'PUBLISH_UNKNOWN'].contains(status) ||
               post['publishAmbiguous'] == true)
             const Padding(
@@ -656,6 +717,7 @@ class _ContentQueuePageState extends State<ContentQueuePage> {
 
   bool _editable(Map<String, dynamic> post) =>
       _canEdit &&
+      !_publicationPending.contains(post['id']?.toString()) &&
       !['PUBLISHED', 'PUBLISHING', 'RECONCILE', 'PUBLISH_UNKNOWN']
           .contains(post['publishStatus']?.toString().toUpperCase()) &&
       post['publishAmbiguous'] != true;
