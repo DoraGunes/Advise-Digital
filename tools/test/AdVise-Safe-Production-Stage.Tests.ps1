@@ -52,6 +52,7 @@ try {
   $manifest=Get-Content -LiteralPath (Join-Path $stage 'stage.json') -Raw | ConvertFrom-Json
   if(!$manifest.stagingOnly -or $manifest.revision -cne '162e259ee3dc938d492b15bc5d3f56115ae85696'){throw 'Wrong manifest.'}
   $code=Join-Path $stage 'code'
+  if(!(Test-Path -LiteralPath (Join-Path $stage 'npm-cache') -PathType Container)){throw 'npm cache was not isolated.'}
   foreach($path in @('.env','data','uploads')){
     if(Test-Path -LiteralPath (Join-Path $code $path)){throw 'Production runtime was copied.'}
   }
@@ -65,6 +66,7 @@ try {
   'STAGE_TEST_NO_SECRET_COPY_OR_STDOUT=PASS'
   'STAGE_TEST_CALLER_ENV_UNCHANGED=PASS'
   'STAGE_TEST_WINDOWS_INSTALL_NATIVE_JPEG=PASS'
+  'STAGE_TEST_NPM_CACHE_ISOLATED=PASS'
 } finally {
   $env:META_ACCESS_TOKEN=$callerToken
   $env:ADVISE_DATA_DIR=$callerData
