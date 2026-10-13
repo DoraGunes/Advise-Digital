@@ -592,6 +592,15 @@ class Api {
     }));
   }
 
+  static Future<Map<String,dynamic>> adPresetPreflight({required String presetId,required double dailyBudget,
+    required String locationMode,List<String> locations=const [],Map<String,dynamic>? radius,String? instagramMediaId})async{
+    await _requireCapability('adPresets',feature:'Kayıtlı reklam kipleri');
+    return Map<String,dynamic>.from(await _request('GET','/api/ads/presets/preflight',
+      timeout:const Duration(seconds:45),query:{
+       'presetId':presetId,'presetVersion':'1','dailyBudget':'$dailyBudget','locationMode':locationMode,
+       'locations':jsonEncode(locations),if(radius!=null)'radius':jsonEncode(radius),
+       if(instagramMediaId!=null)'instagramMediaId':instagramMediaId}));
+  }
   static Future<Map<String,dynamic>> adPresetResults() async => Map<String,dynamic>.from(await _request('GET','/api/ads/presets/results',timeout:const Duration(seconds:45)));
 
   static Future<Map<String, dynamic>> adsPreflight({String destination = 'INSTAGRAM_DIRECT'}) async {

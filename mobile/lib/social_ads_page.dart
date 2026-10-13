@@ -951,7 +951,11 @@ String _presetCost(String id){
       _preflightMessage = null;
     });
     try {
-      final result = await Api.adsPreflight(destination: destination);
+      final result = _preset==null ? await Api.adsPreflight(destination: destination)
+        :await Api.adPresetPreflight(presetId:'${_preset!['id']}',
+          dailyBudget:double.tryParse(budget.text.replaceAll(',','.'))??0,
+          locationMode:locationMode,locations:selectedLocations.toList(),radius:_radius,
+          instagramMediaId:_selectedPostId);
       final settings = await Api.settings();
       final cap = (settings['geminiAdsDailyCap'] as num?)?.toDouble() ?? 0;
       final checkedDestination =
@@ -972,7 +976,7 @@ String _presetCost(String id){
             ? 'Meta bağlantısı doğrulanamadı.'
             : cap <= 0
                 ? 'Meta bağlantıları doğrulandı ancak günlük reklam limiti ayarlanmamış. Daha Fazla > Otomasyon bölümünden günlük hesap bütçe sınırını tanımlayın.'
-                : 'Meta bağlantıları doğrulandı. ${result['currency']} · ${result['timezone']} · $destinationLabel · Günlük hesap sınırı ₺$cap');
+                : 'Meta bağlantıları doğrulandı. ${result['currency']} · ${result['timezone']} · $destinationLabel · Günlük hesap sınırı ₺$cap\n${_preset==null?'':'Kip, bütçe ve bölge doğrulandı. İçerik: ${result['mediaVerified']==true?'doğrulandı':'henüz seçilmedi'}. Otomatik yanıt yok.'}');
     } catch (error) {
       if (mounted) setState(() => _preflightMessage = AppError.message(error));
     } finally {

@@ -468,12 +468,12 @@ export async function metaHealth(credentials={}) {
 
 export async function instagramPublishImage(args={}) { return instagramPublishMedia({...args,mediaType:'IMAGE'}); }
 
-export async function validateRadiusTargeting(radius,credentials={}){
+export async function validateRadiusTargeting(radius,credentials={},extraTargeting={}){
  const c=requireMeta(credentials);
  const geo_locations={custom_locations:[radius]};
  try{
   const response=await request('act_'+c.adAccountId+'/delivery_estimate',{
-   credentials:c,query:{optimization_goal:'CONVERSATIONS',targeting_spec:JSON.stringify({geo_locations,age_min:18,age_max:65})}});
+   credentials:c,query:{optimization_goal:'CONVERSATIONS',targeting_spec:JSON.stringify({...extraTargeting,geo_locations,age_min:18,age_max:65})}});
   if(!Array.isArray(response?.data)||!response.data.length)throw new Error('Empty estimate');
   return {geo_locations,locationMode:'RADIUS',locations:['Bolu merkez '+radius.radius+' km']};
  }catch(error){

@@ -434,6 +434,32 @@ app.get('/api/ads/operations/:id',allowRoles('ADMIN','CUSTOMER_ADMIN','MANAGER',
   try {const operation=await getAdOperation(req.user.tenantId,req.params.id);if(!operation)return res.status(404).json({error:'İşlem bulunamadı.'});const {requestId,status,stage,ids,failure,providerFailure,result,correlationId}=operation;res.json({requestId,status,stage,ids,failure,providerFailure:providerFailure?{status:providerFailure.status||null,code:providerFailure.code||null,subcode:providerFailure.subcode||null,trace:providerFailure.trace||null}:null,result,correlationId});}
   catch{res.status(500).json({error:'İşlem kaydı okunamadı.'});}
 });
+app.get('/api/ads/presets/preflight',async(req,res)=>{
+ try{
+  const tenantId=req.user.tenantId,tenant=await getTenant(tenantId),credentials=tenantCredentials(tenantId,tenant),settings=await getSettings(tenantId);
+  const input={presetId:req.query.presetId,presetVersion:Number(req.query.presetVersion),destination:'WHATSAPP',activate:false,
+   dailyBudget:Number(req.query.dailyBudget),locationMode:req.query.locationMode,
+   radius:req.query.radius?JSON.parse(req.query.radius):undefined};
+  const policy=presetPolicy(input,settings);
+  if(!policy)throw Object.assign(new Error('Reklam kipi seçin.'),{code:'AD_PRESET_INVALID'});
+  const ready=await adsPreflight(credentials,{destination:'WHATSAPP'});
+  await budgetGuard(credentials,policy.settings,{nextBudget:input.dailyBudget,creating:true});
+  const locations=req.query.locations?JSON.parse(req.query.locations):[];
+  const audience=input.locationMode==='RADIUS'
+   ?await validateRadiusTargeting(policy.radius,credentials,presetTargeting(policy.preset,{}))
+   :await resolveAdGeoTargeting(input.locationMode,locations,credentials);
+  let mediaVerified=false;
+  if(req.query.instagramMediaId){
+   const media=await getInstagramMedia(credentials,100);
+   const selected=(media.data||[]).find(row=>String(row.id)===String(req.query.instagramMediaId));
+   if(!selected)throw Object.assign(new Error('İçerik bu Instagram hesabına ait değil.'),{code:'META_MEDIA_MISMATCH'});
+   assertPresetMedia(policy.preset,selected);mediaVerified=true;
+  }
+  res.json({...ready,ok:true,mediaVerified,presetId:policy.preset.id,presetVersion:AD_PRESET_VERSION,
+   accountDailyCap:policy.settings.geminiAdsDailyCap,perAdCap:120,automaticReply:false,initialStatus:'PAUSED',
+   targeting:{mode:audience.locationMode,locations:audience.locations,radius:policy.radius}});
+ }catch(error){res.status(422).json(operationFailure(error,'preflight',crypto.randomUUID()));}
+});
 app.get('/api/ads/presets/results',async(req,res)=>{
  try{
   const tenantId=req.user.tenantId,tenant=await getTenant(tenantId),credentials=tenantCredentials(tenantId,tenant);
@@ -494,7 +520,7 @@ app.post('/api/ads/create',allowRoles('ADMIN','CUSTOMER_ADMIN','MANAGER','OPERAT
         if(policy)assertPresetMedia(policy.preset,(media.data||[]).find(row=>String(row.id)===mediaId));
         const ads=await getAds(credentials);
         if(!operation.ids.ad&&(ads.data||[]).length>=Number(req.tenant.limits?.maxAds||0))throw Object.assign(new Error('Paketinizin reklam limitine ulaşıldı.'),{code:'AD_LIMIT_REACHED'});
-        if(locationMode==='RADIUS')return validateRadiusTargeting(policy.radius,credentials);
+        if(locationMode==='RADIUS')return validateRadiusTargeting(policy.radius,credentials,presetTargeting(policy.preset,{}));
         return resolveAdGeoTargeting(locationMode,locations,credentials);
       },
       complete:async(operation,audience)=>{

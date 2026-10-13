@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'package:url_launcher/url_launcher.dart';
 import 'package:flutter/material.dart';
 import 'api.dart';
 import 'media_access.dart';
@@ -251,7 +252,7 @@ class _ContentQueuePageState extends State<ContentQueuePage> {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  if (isImage && cover.startsWith('http'))
+                  if ((isImage || '${post['coverPublicUrl']??''}'.isNotEmpty) && cover.startsWith('https://'))
                     ClipRRect(
                         borderRadius: BorderRadius.circular(14),
                         child: Image.network(cover,
@@ -261,6 +262,16 @@ class _ContentQueuePageState extends State<ContentQueuePage> {
                             errorBuilder: (_, __, ___) => _mediaPlaceholder()))
                   else
                     _mediaPlaceholder(),
+                  if(!isImage) TextButton.icon(
+                    icon:const Icon(Icons.play_circle_outline),
+                    label:const Text('Reels videosunu aç'),
+                    onPressed:() async{
+                      final uri=Uri.tryParse('${post['publicUrl']??''}');
+                      if(uri==null||uri.scheme!='https'){_snack('Güvenli video adresi yok.');return;}
+                      try{
+                        if(!await launchUrl(uri,mode:LaunchMode.externalApplication)&&mounted)_snack('Video oynatıcısı açılamadı.');
+                      }catch(_){if(mounted)_snack('Video oynatıcısı açılamadı. İçerik kaydı değişmedi.');}
+                    }),
                   const SizedBox(height: 12),
                   Text(post['title']?.toString() ?? 'Yeni gönderi',
                       style: const TextStyle(
