@@ -248,14 +248,21 @@ function Assert-ReadOnlyApi {
   if($me.user.tenantId -cne 'system' -or $me.user.role -cne 'ADMIN'){throw 'API_CHECK_FAILED'}
   $tenants=Get-Content -LiteralPath (Join-Path $runtimeData 'tenants.json') -Raw -Encoding UTF8 | ConvertFrom-Json
   $saved=$tenants | Where-Object {$_.id -ceq 'system'} | Select-Object -First 1
-  if(!$saved.meta.connected -or !$meta.connected -or !$meta.metaTokenReady -or !$meta.instagramTokenReady){throw 'CONNECTION_CHECK_FAILED'}
+  # /api/meta/status tokenReady flags see the sanitized publicTenant object.
+  # Read token presence only as booleans from the protected local record.
+  $hasMetaToken=[bool]($saved.meta.accessToken -or $saved.meta.metaAccessToken)
+  $hasInstagramToken=[bool]$saved.meta.instagramAccessToken
+  if(!$saved.meta.connected -or !$meta.connected -or !$hasMetaToken -or !$hasInstagramToken -or
+     $me.tenant.id -cne 'system' -or !$me.tenant.meta.hasAccessToken -or !$me.tenant.meta.hasInstagramAccessToken){throw 'CONNECTION_CHECK_FAILED'}
   foreach($key in @('adAccountId','pageId','instagramUserId','source')){
    if([string]$meta.$key -cne [string]$saved.meta.$key){throw 'CONNECTION_CHECK_FAILED'}
   }
   $local=Get-Content -LiteralPath (Join-Path $runtimeData 'posts.json') -Raw -Encoding UTF8 | ConvertFrom-Json
-  $localIds=@($local | ForEach-Object {$_.id});$apiIds=@($posts.data | ForEach-Object {$_.id})
-  if($localIds.Count -ne $apiIds.Count -or @(Compare-Object $localIds $apiIds).Count){throw 'RECORD_CHECK_FAILED'}
- } finally {$token=$null;$headers=$null;$me=$null;$meta=$null;$posts=$null}
+  # Match store.getPosts('system'): absent/empty tenantId belongs to system.
+  $localIds=@($local | Where-Object {!$_.tenantId -or ([string]$_.tenantId -ceq 'system')} | ForEach-Object {$_.id})
+  $apiIds=@($posts.data | ForEach-Object {$_.id})
+  if($localIds.Count -ne $apiIds.Count -or ($localIds.Count -gt 0 -and @(Compare-Object $localIds $apiIds).Count)){throw 'RECORD_CHECK_FAILED'}
+ } finally {$token=$null;$headers=$null;$me=$null;$meta=$null;$posts=$null;$saved=$null;$tenants=$null;$local=$null}
 }
 function Snapshot-QuiescedRuntime {
  $baseline=@()
