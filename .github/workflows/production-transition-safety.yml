@@ -1,0 +1,30 @@
+name: AdVise Production Transition Safety
+on:
+  push:
+    branches: [ops/manual-campaign-rollout-2026-10-13]
+permissions:
+  contents: read
+concurrency:
+  group: advise-production-transition-safety
+  cancel-in-progress: true
+jobs:
+  transition:
+    name: Windows PowerShell 5 deploy and rollback fixture checks
+    runs-on: windows-latest
+    steps:
+      - name: Preserve source bytes for Git blob checks
+        shell: powershell
+        run: git config --global core.autocrlf false
+      - uses: actions/checkout@v4
+      - name: Parse rollout scripts
+        shell: powershell
+        run: |
+          foreach($file in Get-ChildItem tools/AdVise-Safe-Production-*.ps1){
+            $tokens=$null;$errors=$null
+            [void][Management.Automation.Language.Parser]::ParseFile($file.FullName,[ref]$tokens,[ref]$errors)
+            if($errors.Count){throw 'Rollout script parse failed.'}
+          }
+      - name: Verify limited transition safety
+        shell: powershell
+        run: |
+          & (Join-Path $env:GITHUB_WORKSPACE 'tools/test/AdVise-Safe-Production-Transition.Tests.ps1') -TransitionScript (Join-Path $env:GITHUB_WORKSPACE 'tools/AdVise-Safe-Production-Transition.ps1')
