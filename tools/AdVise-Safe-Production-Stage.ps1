@@ -79,7 +79,15 @@ try {
      [string]::Equals($stage,$backend,[StringComparison]::OrdinalIgnoreCase) -or
      (Split-Path $stage -Leaf) -cnotmatch '^_advise-stage-162e259-[a-f0-9]{12}$'){throw 'UNSAFE_STAGE_PATH'}
   if(Test-Path -LiteralPath $stage){throw 'STAGE_ALREADY_EXISTS'}
-  $node=(Get-Command node.exe -CommandType Application).Source
+  $node=''
+  # Resolve the existing PATH entry literally, without culture-sensitive command discovery.
+  foreach($directory in ($env:PATH -split ';')) {
+    $directory=$directory.Trim().Trim('"')
+    if(!$directory){continue}
+    $candidate=Join-Path $directory 'node.exe'
+    if([IO.File]::Exists($candidate)){$node=[IO.Path]::GetFullPath($candidate);break}
+  }
+  if(!$node){throw 'NODE_NOT_FOUND'}
   $nodeDirectory=Split-Path $node -Parent
   $npm=Join-Path $nodeDirectory 'npm.cmd'
   if(!(Test-Path -LiteralPath $npm -PathType Leaf)){throw 'NPM_NOT_FOUND'}
@@ -141,7 +149,7 @@ try {
   'STAGE_PATH='+$stage
   'STAGE_READY=True REVISION=162e259'
 } catch {
-  $allowed=@('UNSAFE_PATH','BACKEND_NOT_FOUND','ENV_MISSING','UNSAFE_STAGE_PATH','STAGE_ALREADY_EXISTS','NPM_NOT_FOUND','NODE_VERSION_UNSUPPORTED','SOURCE_MANIFEST_FAILED','SOURCE_FILE_MISSING','SOURCE_HASH_FAILED','STAGING_CHILD_TIMEOUT','STAGING_CHILD_FAILED','UNEXPECTED_STAGE_ENV','PRODUCTION_ENV_CHANGED')
+  $allowed=@('UNSAFE_PATH','BACKEND_NOT_FOUND','ENV_MISSING','UNSAFE_STAGE_PATH','STAGE_ALREADY_EXISTS','NPM_NOT_FOUND','NODE_NOT_FOUND','NODE_VERSION_UNSUPPORTED','SOURCE_MANIFEST_FAILED','SOURCE_FILE_MISSING','SOURCE_HASH_FAILED','STAGING_CHILD_TIMEOUT','STAGING_CHILD_FAILED','UNEXPECTED_STAGE_ENV','PRODUCTION_ENV_CHANGED')
   if($allowed -ccontains $_.Exception.Message){$reason=$_.Exception.Message}
   if($script:lastChildState){$script:lastChildState}
   $inner=$_.Exception.InnerException
