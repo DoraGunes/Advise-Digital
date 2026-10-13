@@ -17,6 +17,16 @@ export const MEMORY_RESEARCH = Object.freeze({
   {id:'local',title:'Gerçek hizmet yerine göre seç',tags:['#BoluTeknikServis','#BoluTVTamiri']}
  ].map(set=>({...set,evidence:'EDITORIAL_CANDIDATE',accountSampleSize:0,
  reason:'İçerik ve hizmet konusuna uygun başlangıç adayı; popülerlik veya dönüşüm ölçümü yok.'})),
+ adDrafts:[
+ {id:'tv-whatsapp',title:'TV arıza danışma',caption:'Televizyonunuzun marka/modelini, arızasını ve bulunduğunuz ilçeyi WhatsApp’tan gönderin. Poyraz Teknik ile servis seçeneklerini birlikte değerlendirelim.'},
+ {id:'panel-whatsapp',title:'Panel ve ekran arızası',caption:'Ekran kırılması, çizgi veya görüntü kaybı mı var? Marka/model ve arızanın fotoğrafını WhatsApp’tan paylaşın; servis uygunluğunu değerlendirelim.'},
+ {id:'monitor-whatsapp',title:'Monitör teknik servis',caption:'Monitörünüzde görüntü sorunu mu var? Marka/model, arıza belirtisi ve ilçenizi WhatsApp’tan iletin.'},
+ {id:'reels-whatsapp',title:'Servis Reels tanıtımı',caption:'Teknik servis sürecimizi yakından görün. Cihazınızın marka/modeli ve arıza bilgisiyle WhatsApp’tan bize ulaşın.'}
+ ].map(draft=>({...draft,evidence:'UNTESTED_TEMPLATE',destination:'WHATSAPP',
+ dailyBudgetTry:120,accountDailyCapTry:200,initialStatus:'PAUSED',
+ requestedArea:{center:'Bolu merkez',radiusKm:200,regionalBoundary:false},
+ availability:'PREFLIGHT_REQUIRED',
+ note:'Metin taslağıdır; Meta nesnesi oluşturmaz. 200 km hedef desteği ve WhatsApp yetkisi doğrulanmadan kullanılamaz.'})),
  evaluation:{primaryMetric:'WhatsApp conversations',costGoalTry:[2,3],
  goalIsGuarantee:false,automaticBid:false,
  note:'Gerçek harcama ve ölçülmüş konuşma sayısı olmadan mesaj maliyeti hesaplanmaz. Organik paylaşım saatleri reklam saatinin kanıtı değildir.'}

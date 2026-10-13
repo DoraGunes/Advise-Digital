@@ -13,3 +13,17 @@ test('Research suggestions never masquerade as tenant results or launch actions'
  assert.equal(buildManualMemory().research.timing[0].hour,9);
  assert.equal(buildManualMemory().postCount,0);
 });
+
+test('Draft ads preserve explicit budgets and geography without promising provider availability',()=>{
+ const library=buildManualMemory().research;
+ assert.equal(library.adDrafts.length,4);
+ for(const draft of library.adDrafts){
+  assert.equal(draft.destination,'WHATSAPP');
+  assert.equal(draft.dailyBudgetTry,120);
+  assert.equal(draft.accountDailyCapTry,200);
+  assert.equal(draft.initialStatus,'PAUSED');
+  assert.equal(draft.requestedArea.radiusKm,200);
+  assert.equal(draft.availability,'PREFLIGHT_REQUIRED');
+  assert.equal(draft.evidence,'UNTESTED_TEMPLATE');
+ }
+});
