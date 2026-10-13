@@ -15,10 +15,15 @@ function Assert-PlainPath([string]$Path) {
   $item=$item.Parent
  }
 }
-function Snapshot([string]$Root) {
+function Snapshot([string]$Root,[string[]]$Exclude=@()) {
  Assert-PlainPath $Root
  $rows=@()
  foreach($item in Get-ChildItem -LiteralPath $Root -Recurse -Force) {
+  $ignored=$false
+  foreach($skip in $Exclude) {
+   if([string]::Equals($item.FullName,$skip,[StringComparison]::OrdinalIgnoreCase) -or $item.FullName.StartsWith($skip+'\',[StringComparison]::OrdinalIgnoreCase)){$ignored=$true;break}
+  }
+  if($ignored){continue}
   if(($item.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0){throw 'REPARSE_PATH'}
   if(!$item.PSIsContainer) {
    $rows+=@{relative=$item.FullName.Substring($Root.Length).TrimStart('\');hash=(Get-FileHash -LiteralPath $item.FullName -Algorithm SHA256).Hash;size=$item.Length}
@@ -32,8 +37,10 @@ function Same-Snapshot($Left,$Right) {
  if($a.Count -ne $b.Count){return $false}
  return @((Compare-Object $a $b)).Count -eq 0
 }
-function Copy-Tree([string]$From,[string]$To,[string]$Log) {
- & "$env:SystemRoot\System32\robocopy.exe" $From $To /E /COPY:DAT /DCOPY:DAT /R:1 /W:1 /XJ /NFL /NDL /NP /NJH /NJS *> $Log
+function Copy-Tree([string]$From,[string]$To,[string]$Log,[string[]]$Exclude=@()) {
+ $arguments=@($From,$To,'/E','/COPY:DAT','/DCOPY:DAT','/R:1','/W:1','/XJ','/NFL','/NDL','/NP','/NJH','/NJS')
+ if($Exclude.Count){$arguments+=@('/XD')+$Exclude}
+ & "$env:SystemRoot\System32\robocopy.exe" @arguments *> $Log
  if($LASTEXITCODE -ge 8){throw 'COPY_FAILED'}
 }
 function Protect-Directory([string]$Path) {
@@ -128,30 +135,32 @@ try {
  New-Item -ItemType Directory -Path $backup | Out-Null
  Protect-Directory $backup
  'BACKUP_PRIVATE_ACL=True'
- $sources=@(@{label='backend';path=$backend})
- # The running process's effective settings take priority; no .env values are printed.
  $data=$original.facts[1];$uploads=$original.facts[2]
  if(!$data){$data=Join-Path $backend 'data'}
  if(!$uploads){$uploads=Join-Path $backend 'uploads'}
+ $runtime=@()
  foreach($row in @(@{label='runtime-data';path=$data},@{label='runtime-uploads';path=$uploads})) {
   $resolved=if([IO.Path]::IsPathRooted($row.path)){[IO.Path]::GetFullPath($row.path)}else{[IO.Path]::GetFullPath((Join-Path $backend $row.path))}
   $resolved=$resolved.TrimEnd([char[]]@('\','/'))
   if(!(Test-Path -LiteralPath $resolved -PathType Container)){throw 'RUNTIME_PATH_UNVERIFIED'}
-  if(![string]::Equals($resolved,$backend,[StringComparison]::OrdinalIgnoreCase) -and !$resolved.StartsWith($backend+'\',[StringComparison]::OrdinalIgnoreCase)){
-   if($backup.StartsWith($resolved+'\',[StringComparison]::OrdinalIgnoreCase) -or $stage.StartsWith($resolved+'\',[StringComparison]::OrdinalIgnoreCase)){throw 'RUNTIME_PATH_UNVERIFIED'}
-   if($resolved.StartsWith($parent+'\_advise-',[StringComparison]::OrdinalIgnoreCase) -or [string]::Equals($resolved,$parent,[StringComparison]::OrdinalIgnoreCase)){throw 'RUNTIME_PATH_UNVERIFIED'}
-   $sources+=@{label=$row.label;path=$resolved}
-  }
+  Assert-PlainPath $resolved
+  if([string]::Equals($resolved,$backend,[StringComparison]::OrdinalIgnoreCase) -or
+     $backend.StartsWith($resolved+'\',[StringComparison]::OrdinalIgnoreCase) -or
+     $backup.StartsWith($resolved+'\',[StringComparison]::OrdinalIgnoreCase) -or
+     $stage.StartsWith($resolved+'\',[StringComparison]::OrdinalIgnoreCase)){throw 'RUNTIME_PATH_UNVERIFIED'}
+  $runtime+=@{label=$row.label;path=$resolved;exclude=@()}
  }
+ $sources=@(@{label='backend';path=$backend;exclude=@($runtime | ForEach-Object {$_.path})})+$runtime
  $phase='SNAPSHOT'
  $records=@()
  foreach($source in $sources) {
   $destination=Join-Path $backup $source.label
+  'BACKUP_SECTION='+$source.label
   $stable=$false
   for($attempt=1;$attempt -le 3;$attempt++) {
-   $before=Snapshot $source.path
-   Copy-Tree $source.path $destination (Join-Path $backup ($source.label+'-copy-local.log'))
-   $after=Snapshot $source.path
+   $before=Snapshot $source.path $source.exclude
+   Copy-Tree $source.path $destination (Join-Path $backup ($source.label+'-copy-local.log')) $source.exclude
+   $after=Snapshot $source.path $source.exclude
    $copied=Snapshot $destination
    if((Same-Snapshot $before $after) -and (Same-Snapshot $after $copied)){$stable=$true;break}
   }
