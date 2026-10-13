@@ -20,7 +20,7 @@ class _AiContentStudioPageState extends State<AiContentStudioPage> {
   String format = 'POST';
   DateTime? schedule;
   bool busy = false, canOperate = false, accessStarted = false;
-  bool uncertain = false;
+  bool uncertain = false, confirming = false;
   String? savedId, savedStatus, error;
   @override
   void didChangeDependencies() {
@@ -45,7 +45,7 @@ class _AiContentStudioPageState extends State<AiContentStudioPage> {
   }
   @override
   void dispose() { title.dispose(); caption.dispose(); super.dispose(); }
-  bool get editable => canOperate && !busy && savedId == null && !uncertain;
+  bool get editable => canOperate && !busy && !confirming && savedId == null && !uncertain;
   Future<void> _pick() async {
     if (!editable) return;
     try {
@@ -102,7 +102,7 @@ class _AiContentStudioPageState extends State<AiContentStudioPage> {
       setState(() => error = 'Yayın saati geçmişte kaldı. Yeni saat seçin.');
       return;
     }
-    setState(() { busy = true; error = null; });
+    setState(() { confirming = true; error = null; });
     try {
       final accepted = await showDialog<bool>(context: context, builder: (ctx) =>
         AlertDialog(title: const Text('İçeriği kaydet'),
@@ -116,6 +116,7 @@ class _AiContentStudioPageState extends State<AiContentStudioPage> {
               child: const Text('Yayın yapmadan kaydet')),
           ]));
       if (accepted != true || !mounted) return;
+      setState(() { confirming = false; busy = true; });
       final row = await Api.uploadPost(media!.path,
         title.text.trim().isEmpty ? media!.name : title.text.trim(),
         caption.text.trim(), '', mediaFile: media,
@@ -137,7 +138,7 @@ class _AiContentStudioPageState extends State<AiContentStudioPage> {
         uncertain = true;
       });
     } finally {
-      if (mounted) setState(() => busy = false);
+      if (mounted) setState(() { busy = false; confirming = false; });
     }
   }
   void _queue() => Navigator.push(context,

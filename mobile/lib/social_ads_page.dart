@@ -446,7 +446,7 @@ class _SocialAdsPageState extends State<SocialAdsPage> {
                     ? ProductErrorState(message: error!, onRetry: _load)
                     : LayoutBuilder(
                         builder: (ctx, size) => Stepper(
-                              type: size.maxWidth >= 900
+                              type: size.maxWidth >= 1300 && MediaQuery.textScalerOf(ctx).scale(1) <= 1.2
                                   ? StepperType.horizontal
                                   : StepperType.vertical,
                               currentStep: _step,
