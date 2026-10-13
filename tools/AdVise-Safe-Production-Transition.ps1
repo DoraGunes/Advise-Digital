@@ -259,8 +259,10 @@ function Assert-ReadOnlyApi {
 }
 function Snapshot-QuiescedRuntime {
  $baseline=@()
+ $snapshotRoot=Join-Path $journal.work ('runtime-snapshot-'+[guid]::NewGuid().ToString('N'))
+ New-Item -ItemType Directory -Path $snapshotRoot | Out-Null
  foreach($row in $runtimeRecords) {
-  $target=Join-Path $journal.work ('cutover-'+$row.label)
+  $target=Join-Path $snapshotRoot $row.label
   $before=Snapshot $row.source
   Copy-Tree $row.source $target (Join-Path $journal.work ($row.label+'-copy.log'))
   if(!(Same-Snapshot $before (Snapshot $row.source)) -or !(Same-Snapshot $before (Snapshot $target))){throw 'CUTOVER_BACKUP_FAILED'}
@@ -316,12 +318,15 @@ function Stop-StartedChild {
 }
 function Recover-OldBackend {
  Stop-StartedChild
+ # Snapshot the latest runtime for rollback; never restore an older data snapshot.
+ if(@($journal.parts | Where-Object {$_.moved}).Count -gt 0){Snapshot-QuiescedRuntime}
  Restore-CodeOnly
  $started=Start-Backend
  $journal.currentPid=$started.id;$journal.currentBirth=$started.birth
  $ExpectedPid=$started.id
  $journal.status='ROLLED_BACK';Save-Journal
  Assert-Health
+ if($journal.baseline.Count){Assert-RuntimePreserved}
  'ROLLBACK_CODE_ONLY=True'
  'ROLLBACK_HEALTH=True AUTOMATION_DISABLED=True'
  'CURRENT_PID='+$started.id
