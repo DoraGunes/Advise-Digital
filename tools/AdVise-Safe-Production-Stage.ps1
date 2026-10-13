@@ -36,10 +36,13 @@ function Invoke-StageProcess([string]$Executable,[string]$Arguments,[string]$Wor
   $info.RedirectStandardOutput=$true
   $info.RedirectStandardError=$true
   foreach($key in @($info.EnvironmentVariables.Keys)) {
-    if($key -match '^(META_|INSTAGRAM_|JWT_|ADMIN_|DATABASE_|GEMINI_|GOOGLE_|OPENAI_|ADVISE_|DOTENV_|NODE_OPTIONS$|PGPASSWORD$)') {
+    if($key -match '^(META_|INSTAGRAM_|JWT_|ADMIN_|DATABASE_|GEMINI_|GOOGLE_|OPENAI_|ADVISE_|DOTENV_|NPM_CONFIG_|NODE_OPTIONS$|PGPASSWORD$)') {
       $info.EnvironmentVariables.Remove([string]$key)
     }
   }
+  $info.EnvironmentVariables['NPM_CONFIG_CACHE']=Join-Path $stage 'npm-cache'
+  $info.EnvironmentVariables['NPM_CONFIG_USERCONFIG']=Join-Path $stage 'no-user.npmrc'
+  $info.EnvironmentVariables['NPM_CONFIG_GLOBALCONFIG']=Join-Path $stage 'no-global.npmrc'
   $info.EnvironmentVariables['CRON_ENABLED']='false'
   $info.EnvironmentVariables['ADVISE_NO_LISTEN']='true'
   $info.EnvironmentVariables['ADVISE_DATA_DIR']=Join-Path $stage 'isolated-data'
