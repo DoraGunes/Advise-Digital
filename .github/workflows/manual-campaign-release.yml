@@ -1,0 +1,117 @@
+name: Manual Campaigns Windows and Android 16.2
+on:
+  push:
+    branches: [build/manual-campaigns-16-2-2026-10-13]
+    paths: [.github/workflows/manual-campaign-release.yml]
+permissions:
+  contents: read
+jobs:
+  windows:
+    runs-on: windows-latest
+    timeout-minutes: 35
+    defaults:
+      run:
+        working-directory: mobile
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: cb6a908426c80752936d6cab40a0c645f641d4ea
+      - name: Verify pinned source
+        shell: pwsh
+        run: |
+          if ((git rev-parse HEAD).Trim() -cne 'cb6a908426c80752936d6cab40a0c645f641d4ea') { throw 'Source mismatch' }
+          if (!(Select-String -Path pubspec.yaml -Pattern '^version: 16\.2\.0\+19$' -Quiet)) { throw 'Version mismatch' }
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.47.5'
+          channel: stable
+          cache: true
+      - run: flutter pub get
+      - run: flutter config --enable-windows-desktop
+      - run: flutter build windows --release --dart-define=ADVISE_API_URL=https://advisedigital.poyrazteknikservis.com.tr
+      - name: Verify bundle and write instructions
+        shell: pwsh
+        run: |
+          $bundle='build/windows/x64/runner/Release'
+          foreach($name in @('advise_digital.exe','flutter_windows.dll','data/icudtl.dat','data/flutter_assets/AssetManifest.bin','data/flutter_assets/assets/memory_research.json')) {
+            if (!(Test-Path (Join-Path $bundle $name))) { throw ('Bundle missing: '+$name) }
+          }
+          $exe=Join-Path $bundle 'advise_digital.exe'
+          $v=(Get-Item $exe).VersionInfo
+          if ($v.FileMajorPart -ne 16 -or $v.FileMinorPart -ne 2 -or $v.FileBuildPart -ne 0 -or $v.FilePrivatePart -ne 19) { throw 'EXE version mismatch' }
+          'WINDOWS_VERSION='+$v.FileVersion
+          'WINDOWS_EXE_SHA256='+(Get-FileHash $exe -Algorithm SHA256).Hash
+          @(
+            'AdVise Digital 16.2.0+19 - Windows',
+            'Source: cb6a908426c80752936d6cab40a0c645f641d4ea',
+            'Default API: https://advisedigital.poyrazteknikservis.com.tr',
+            'Extract ALL files together; close the previous client, run advise_digital.exe.',
+            'Existing API and session preferences are preserved.',
+            'This package does not deploy or restart the backend.',
+            'Five campaign presets are WhatsApp/PAUSED, without automated reply payloads.',
+            'Creating preset ads and reading their costs require the separately approved 16.2 backend update.',
+            'The requested 200 km radius must pass provider preflight; there is no wider fallback.',
+            'Manual memory can read existing authenticated posts on an older backend.',
+            'Selecting/saving a preset does not create a Meta ad. Publishing and Meta writes require explicit confirmation.'
+          ) | Set-Content (Join-Path $bundle 'README-WINDOWS.txt') -Encoding UTF8
+      - uses: actions/upload-artifact@v4
+        with:
+          name: AdVise-Digital-Windows-16.2.0-19
+          path: mobile/build/windows/x64/runner/Release/
+          if-no-files-found: error
+          retention-days: 30
+  android:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    defaults:
+      run:
+        working-directory: mobile
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: cb6a908426c80752936d6cab40a0c645f641d4ea
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.47.5'
+          channel: stable
+          cache: true
+      - name: Verify pinned source
+        run: |
+          test "$(git rev-parse HEAD)" = 'cb6a908426c80752936d6cab40a0c645f641d4ea'
+          rg '^version: 16\.2\.0\+19$' pubspec.yaml
+          rg 'android.permission.INTERNET' android/app/src/main/AndroidManifest.xml
+      - run: flutter pub get
+      - run: flutter build apk --release --dart-define=ADVISE_API_URL=https://advisedigital.poyrazteknikservis.com.tr
+      - name: Verify APK and instructions
+        run: |
+          test -s build/app/outputs/flutter-apk/app-release.apk
+          mkdir -p build/verified-android
+          cp build/app/outputs/flutter-apk/app-release.apk build/verified-android/AdVise-Digital-16.2.0-19.apk
+          python3 - <<'PY'
+          import os,glob,subprocess,zipfile,hashlib,pathlib
+          p=pathlib.Path('build/verified-android/AdVise-Digital-16.2.0-19.apk')
+          root=os.environ.get('ANDROID_SDK_ROOT') or os.environ.get('ANDROID_HOME')
+          aapt=sorted(glob.glob(root+'/build-tools/*/aapt'))[-1]
+          badging=subprocess.check_output([aapt,'dump','badging',str(p)],text=True)
+          assert "versionName='16.2.0'" in badging and "versionCode='19'" in badging
+          assert "android.permission.INTERNET" in badging
+          with zipfile.ZipFile(p) as z:
+              assert 'assets/flutter_assets/assets/memory_research.json' in z.namelist()
+          print('ANDROID_APK_VERIFIED=True VERSION=16.2.0+19')
+          print('ANDROID_APK_SHA256='+hashlib.sha256(p.read_bytes()).hexdigest())
+          pathlib.Path('build/verified-android/README-ANDROID.txt').write_text(
+              'AdVise Digital 16.2.0+19\nSource: cb6a908426c80752936d6cab40a0c645f641d4ea\nDefault API: https://advisedigital.poyrazteknikservis.com.tr\n'
+              'Extract the APK and install it on your own Android device. This is a sideload test package using the project debug signing configuration, not a Play Store release.\n'
+              'No backend deploy/restart. Preset creation and cost readings require the separately approved backend update.\n'
+              'No automatic replies, activation or publishing. Existing API/session preferences are preserved.\n',encoding='utf-8')
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: AdVise-Digital-Android-16.2.0-19
+          path: mobile/build/verified-android/
+          if-no-files-found: error
+          retention-days: 30
