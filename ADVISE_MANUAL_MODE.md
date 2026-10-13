@@ -14,9 +14,9 @@ This branch changes preparation to manual mode. No production files, OAuth conne
 
 ## Validation
 
-The manual-content-verify workflow runs Node syntax, new manual-mode tests, selected existing Meta/queue/data safety regressions, Flutter analysis and manual/platform tests. It has no APK, EXE, Web build, deployment or provider-write job. All provider writes in retained regression tests are fixture mocks.
+The manual-content-verify workflow runs Node syntax, new manual-mode tests, the active backend regression suite, Flutter analysis and the active Flutter suite. It has no APK, EXE, Web build, deployment or provider-write job. All provider writes in retained regression tests are fixture mocks.
 
-Legacy Gemini-generation and automated-optimization tests describe retired behavior and are not the manual-mode acceptance suite. Historical fixtures remain in the repository. Whole legacy test-suite migration is separate from the acceptance results; do not claim that all previous tests passed.
+SDK/generation-only test suites are retired with the removed provider. Mixed regression suites are migrated to manual mode while retaining publication, storage, tenant, budget, request identity and UI safety checks. Historical AI memory fixtures remain valid read-only data.
 
 ## Rollout and rollback
 

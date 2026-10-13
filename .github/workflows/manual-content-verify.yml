@@ -26,7 +26,7 @@ jobs:
       - name: Syntax and manual-mode safety regressions
         run: |
           for file in src/*.js; do node --check "$file" || exit; done
-          node --test test/manual-content.test.js test/ad-operations.test.js test/system-oauth-credentials.test.js test/meta-destination.test.js test/instagram-failure-metadata.test.js test/instagram-image.test.js test/cover-image.test.js test/upload-durability.test.js test/performance-memory.test.js test/scheduler-regression.test.js
+          npm test
   flutter-tests:
     runs-on: ubuntu-latest
     defaults:
@@ -41,4 +41,4 @@ jobs:
           cache: true
       - run: flutter pub get
       - run: flutter analyze
-      - run: flutter test test/manual_content_test.dart test/api_platform_test.dart test/app_error_test.dart test/media_access_test.dart
+      - run: flutter test

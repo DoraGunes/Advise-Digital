@@ -151,6 +151,7 @@ class _AiContentStudioPageState extends State<AiContentStudioPage> {
     ]),
     body: SingleChildScrollView(padding: const EdgeInsets.all(20),
       child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        if (!canOperate) const Text('Görüntüleme yetkisi'),
         const Text('Fotoğraf veya Reels’i kendin hazırla',
           style: TextStyle(fontWeight: FontWeight.bold,fontSize: 22)),
         const Text('Metni ve yayın saatini sen seç. Kaydetme Instagram paylaşımı başlatmaz.'),

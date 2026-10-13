@@ -76,7 +76,7 @@ void main() {
       ThemeData? theme,
       bool mediaHasCaption = true}) async {
     Api.setHttpClientForTesting(MockClient((request) async {
-      if (request.url.path == '/api/product/strategy') return action();
+      if (request.url.path == '/api/memory') return action();
       if (request.url.path == '/api/ads/create' && createAction != null)
         return createAction(request);
       final dynamic data = switch (request.url.path) {
@@ -112,10 +112,10 @@ void main() {
         theme: theme ?? ProductTheme.light,
         home: const SocialAdsPage(initialMediaId: 'media-1')));
     await tester.pumpAndSettle();
-    await tester.ensureVisible(find.text('AI önerisi'));
-    await tester.tap(find.text('AI önerisi'));
+    await tester.ensureVisible(find.text('Bağlantı ve geçmiş'));
+    await tester.tap(find.text('Bağlantı ve geçmiş'));
     await tester.pumpAndSettle();
-    final button = find.text('AI kampanya önerisi al');
+    final button = find.text('Kendi reklam geçmişimi göster');
     await tester.ensureVisible(button);
     await tester.tap(button);
     await tester.pump();
@@ -139,7 +139,7 @@ void main() {
     'Dark': ProductTheme.dark,
     'Colorful': ProductTheme.colorful
   }.entries) {
-    testWidgets('${entry.key} AI error clears loading and retry succeeds',
+    testWidgets('${entry.key} history error clears loading and retry succeeds',
         (tester) async {
       var calls = 0;
       await openStrategy(tester, () async {
@@ -148,8 +148,9 @@ void main() {
             jsonEncode(calls == 1
                 ? {'code': 'ETIMEDOUT', 'stage': 'strategy'}
                 : {
+                    'performance': {'paidCount': 1},
+                    'timing': {'paid': {'reason':'Özgün ürün açılışı','sampleSize':1}},
                     'available': true,
-                    'source': 'GEMINI',
                     'strategy': {
                       'hook': 'Özgün ürün açılışı',
                       'budget': {},
@@ -164,7 +165,7 @@ void main() {
       await tester.pumpAndSettle();
       expect(find.text('Hazırlanıyor…'), findsNothing);
       expect(calls, 1);
-      final retry = find.text('AI kampanya önerisi al');
+      final retry = find.text('Kendi reklam geçmişimi göster');
       await tester.ensureVisible(retry);
       await tester.tap(retry);
       await tester.pumpAndSettle();
@@ -173,13 +174,13 @@ void main() {
       expect(tester.takeException(), isNull);
     });
   }
-  testWidgets('disposed AI widget does not update state after delayed response',
+  testWidgets('disposed history widget does not update state after delayed response',
       (tester) async {
     final response = Completer<http.Response>();
     await openStrategy(tester, () => response.future);
     await tester.pumpWidget(const MaterialApp(home: SizedBox()));
     response.complete(http.Response(
-        '{"available":false,"error":"Gemini geçici olarak yanıt vermiyor."}',
+        '{"available":false,"error":"Geçmiş geçici olarak okunamıyor."}',
         200,
         headers: {'content-type': 'application/json; charset=utf-8'}));
     await tester.pumpAndSettle();

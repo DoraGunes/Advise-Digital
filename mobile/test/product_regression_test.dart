@@ -60,7 +60,7 @@ void main() {
   });
 
   testWidgets(
-      'onboarding offers a real strategy request without Meta mutations',
+      'onboarding reads local history without AI or Meta mutations',
       (tester) async {
     SharedPreferences.setMockInitialValues({});
     Api.resetRuntimeForTesting();
@@ -91,7 +91,7 @@ void main() {
               'adAccount': true
             }
           },
-        '/api/product/strategy' => {
+        '/api/memory' => {
             'available': true,
             'source': 'GEMINI',
             'strategy': {
@@ -119,16 +119,16 @@ void main() {
             child: const ProductOnboardingPage())));
     await tester.pumpAndSettle();
     final analyzeButton = find.ancestor(
-        of: find.text('AI başlangıç önerisi al'),
+        of: find.text('Hafıza Sarayını görüntüle'),
         matching: find.byType(OutlinedButton));
     await tester.ensureVisible(analyzeButton);
     await tester.pumpAndSettle();
     await tester.tap(analyzeButton);
     await tester.pumpAndSettle();
-    await tester.ensureVisible(find.text('Gemini başlangıç önerisi'));
+    await tester.ensureVisible(find.text('Kendi içerik geçmişin'));
     await tester.pumpAndSettle();
-    expect(find.text('Gemini başlangıç önerisi'), findsOneWidget);
-    expect(mutations, ['/api/product/strategy']);
+    expect(find.text('Kendi içerik geçmişin'), findsOneWidget);
+    expect(mutations, isEmpty);
     expect(tester.takeException(), isNull);
   });
 }
