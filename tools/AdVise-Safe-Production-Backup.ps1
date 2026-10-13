@@ -138,6 +138,7 @@ try {
   $resolved=$resolved.TrimEnd([char[]]@('\','/'))
   if(!(Test-Path -LiteralPath $resolved -PathType Container)){throw 'RUNTIME_PATH_UNVERIFIED'}
   if(![string]::Equals($resolved,$backend,[StringComparison]::OrdinalIgnoreCase) -and !$resolved.StartsWith($backend+'\',[StringComparison]::OrdinalIgnoreCase)){
+   if($backup.StartsWith($resolved+'\',[StringComparison]::OrdinalIgnoreCase) -or $stage.StartsWith($resolved+'\',[StringComparison]::OrdinalIgnoreCase)){throw 'RUNTIME_PATH_UNVERIFIED'}
    if($resolved.StartsWith($parent+'\_advise-',[StringComparison]::OrdinalIgnoreCase) -or [string]::Equals($resolved,$parent,[StringComparison]::OrdinalIgnoreCase)){throw 'RUNTIME_PATH_UNVERIFIED'}
    $sources+=@{label=$row.label;path=$resolved}
   }
@@ -160,7 +161,7 @@ try {
  # Capture launcher/proxy/config files immediately beside backend, without copying staging.
  $configs=Join-Path $backup 'root-config'
  New-Item -ItemType Directory -Path $configs | Out-Null
- foreach($file in Get-ChildItem -LiteralPath $parent -Force -File | Where-Object {$_.Extension -match '^\.(bat|cmd|ps1|json|yaml|yml|toml|ini|config|conf|pem|crt|key|pfx)$' -or $_.Name -ceq 'Caddyfile'}) {
+ foreach($file in Get-ChildItem -LiteralPath $parent -Force -File | Where-Object {$_.Extension -match '^\.(bat|cmd|ps1|json|yaml|yml|toml|ini|config|conf|pem|crt|key|pfx)$' -or $_.Name -ceq 'Caddyfile' -or $_.Name -ceq 'ecosystem.config.js' -or $_.Name -ceq '.npmrc' -or $_.Name -cmatch '^\.env(?:\..+)?$'}) {
   Assert-PlainPath $file.FullName
   $target=Join-Path $configs $file.Name
   Copy-Item -LiteralPath $file.FullName -Destination $target
