@@ -317,6 +317,7 @@ function Stop-StartedChild {
  if(!$process.WaitForExit(10000)){throw 'STOP_FAILED'}
 }
 function Recover-OldBackend {
+ 'TRANSITION_PHASE=ROLLBACK'
  Stop-StartedChild
  # Snapshot the latest runtime for rollback; never restore an older data snapshot.
  if(@($journal.parts | Where-Object {$_.moved}).Count -gt 0){Snapshot-QuiescedRuntime}
@@ -376,25 +377,36 @@ try {
   Assert-Idle
   if($Mode -ceq 'Validate') {'TRANSITION_VALIDATED=True'}
   else {
-   if(Test-Path -LiteralPath $journalFile){throw 'TRANSITION_ALREADY_EXISTS'}
+   if(Test-Path -LiteralPath $journalFile){
+    $previous=Get-Content -LiteralPath $journalFile -Raw -Encoding UTF8 | ConvertFrom-Json
+    if($previous.status -ceq 'PREPARED' -and !$previous.stopRequested -and !$previous.currentPid -and @($previous.parts).Count -eq 0){
+     Move-Item -LiteralPath $journalFile -Destination (Join-Path $backup ('not-applied-'+[guid]::NewGuid().ToString('N')+'.json'))
+    }else{throw 'TRANSITION_ALREADY_EXISTS'}
+   }
    $work=Join-Path $backup ('transition-'+[guid]::NewGuid().ToString('N'))
    New-Item -ItemType Directory -Path (Join-Path $work 'old-code') | Out-Null
    $journal=@{work=$work;oldCode=(Join-Path $work 'old-code');parts=@();status='PREPARED';stopRequested=$false;currentPid=0;currentBirth='';baseline=@()}
    Save-Journal
+   'TRANSITION_PREFLIGHT=True'
    $phase='STOP_OLD'
+   'TRANSITION_PHASE=STOP_OLD'
    Stop-VerifiedBackend $receipt.oldCreationDate
    $stopped=$true
    $phase='CUTOVER_BACKUP'
+   'TRANSITION_PHASE=CUTOVER_BACKUP'
    Snapshot-QuiescedRuntime
    $phase='INSTALL_CODE'
+   'TRANSITION_PHASE=INSTALL_CODE'
    Swap-Code
    Assert-RuntimePreserved
    $phase='START_NEW'
+   'TRANSITION_PHASE=START_NEW'
    $started=Start-Backend
    $journal.currentPid=$started.id;$journal.currentBirth=$started.birth
    $ExpectedPid=$started.id
    Save-Journal
    $phase='READ_ONLY_SMOKE'
+   'TRANSITION_PHASE=READ_ONLY_SMOKE'
    Assert-Health
    Assert-ReadOnlyApi
    Assert-RuntimePreserved
