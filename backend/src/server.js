@@ -1,3 +1,4 @@
+import {AD_PRESETS,AD_PRESET_VERSION,presetPolicy,presetTargeting,assertPresetMedia} from './ad-presets.js';
 import {withOperationBudget} from './operation-budget.js';
 import {buildManualMemory,MANUAL_DISABLED_ROUTES} from './manual-memory.js';
 import {normalizeCover,MAX_COVER_BYTES} from './cover-image.js';
@@ -17,7 +18,7 @@ import {
   getTenant, updateTenant, getCustomerSummaries, adminStats, getUsersForTenant, getUserById, saveUser, publicUser,
   createLicense, getLicenses, assignLicense, deleteTenantCascade
 } from './store.js';
-import {getCampaigns, getAdSets, getAds, insights, setStatus, updateAdSetBudget, metaHealth, getInstagramMedia, createCampaign, createAdSet, createAdCreativeFromInstagramMedia, createAd, resolveAdGeoTargeting,resolveCredentials,adsPreflight} from './meta.js';
+import {getCampaigns, getAdSets, getAds, insights, setStatus, updateAdSetBudget, metaHealth, getInstagramMedia, createCampaign, createAdSet, createAdCreativeFromInstagramMedia, createAd, resolveAdGeoTargeting,resolveCredentials,adsPreflight,validateRadiusTargeting} from './meta.js';
 import {AD_CITIES, AD_REGIONS, provinceNamesForTargeting} from './ad-targeting.js';
 import {optimizeAds} from './optimizer.js';
 import {startScheduler, scheduleUploadedPost, scheduleUploadedPosts, publishDuePosts,publishPost,cancelScheduledPostState} from './scheduler.js';
@@ -166,11 +167,11 @@ app.use('/uploads', express.static(uploadDir));
 
 app.get('/health', (_req, res) => res.json({
   ok: true,
-  app: 'AdVise AI',
+  app: 'AdVise Digital',
   version: config.appVersion,
   apiVersion:16,
   minClientVersion:'14.0.0',
-  capabilities:{productExperience:true,productOverview:true,productReporting:true,onboarding:true,scheduledPublishing:true,geminiAdReview:true,safeAutomationV16:true,campaignStrategy:true,adCreateSaga:true,adsPreflight:true,manualContent:true,localMemory:true},
+  capabilities:{productExperience:true,productOverview:true,productReporting:true,onboarding:true,scheduledPublishing:true,geminiAdReview:false,safeAutomationV16:true,campaignStrategy:false,adCreateSaga:true,adPresets:true,adsPreflight:true,manualContent:true,localMemory:true},
   buildMarker: 'ADVISE_PRODUCT_V16_2026_10_05',
   uploadMode: 'EXTENSION_AWARE',
   aiImageMode: 'DISABLED',
@@ -432,6 +433,7 @@ app.get('/api/ads/operations/:id',allowRoles('ADMIN','CUSTOMER_ADMIN','MANAGER',
   try {const operation=await getAdOperation(req.user.tenantId,req.params.id);if(!operation)return res.status(404).json({error:'İşlem bulunamadı.'});const {requestId,status,stage,ids,failure,providerFailure,result,correlationId}=operation;res.json({requestId,status,stage,ids,failure,providerFailure:providerFailure?{status:providerFailure.status||null,code:providerFailure.code||null,subcode:providerFailure.subcode||null,trace:providerFailure.trace||null}:null,result,correlationId});}
   catch{res.status(500).json({error:'İşlem kaydı okunamadı.'});}
 });
+app.get('/api/ads/presets',(req,res)=>res.json({version:AD_PRESET_VERSION,data:AD_PRESETS,automaticReply:false}));
 app.post('/api/ads/create',allowRoles('ADMIN','CUSTOMER_ADMIN','MANAGER','OPERATOR'),async(req,res)=>{
   const tenantId=req.user.tenantId;
   const requestId=String(req.body?.requestId||'');
@@ -440,20 +442,21 @@ app.post('/api/ads/create',allowRoles('ADMIN','CUSTOMER_ADMIN','MANAGER','OPERAT
     const tenant=await getTenant(tenantId),credentials=tenantCredentials(tenantId,tenant),settings=await getSettings(tenantId);
     const mediaId=String(req.body?.instagramMediaId||'').trim(),dailyBudget=Number(req.body?.dailyBudget);
     if(!mediaId||!Number.isFinite(dailyBudget)||dailyBudget<1)throw Object.assign(new Error('Instagram gönderisi ve geçerli günlük bütçe gerekli.'),{code:'VALIDATION_FAILED'});
+    const policy=presetPolicy(req.body,settings);
     const locationMode=String(req.body?.locationMode||settings.adTargetingMode||'COUNTRY').toUpperCase();
     const raw=req.body?.locations??settings.adTargetingLocations??[];
     const locations=[...new Set((Array.isArray(raw)?raw:[]).map(String))].sort();
-    if(!['COUNTRY','CITY','REGION'].includes(locationMode))throw Object.assign(new Error('Geçerli hedefleme türü seçin.'),{code:'VALIDATION_FAILED'});
-    if(locationMode!=='COUNTRY')provinceNamesForTargeting(locationMode,locations);
+    if(!['COUNTRY','CITY','REGION',...(policy?['RADIUS']:[])].includes(locationMode))throw Object.assign(new Error('Geçerli hedefleme türü seçin.'),{code:'VALIDATION_FAILED'});
+    if(!['COUNTRY','RADIUS'].includes(locationMode))provinceNamesForTargeting(locationMode,locations);
     const campaignName=String(req.body?.campaignName||'AdVise Kampanyası').trim().slice(0,120),adSetName=String(req.body?.adSetName||'AdVise Reklam Grubu').trim().slice(0,120),adName=String(req.body?.adName||'AdVise Reklamı').trim().slice(0,120);
     const activate=req.body?.activate===true;
     const destination=String(req.body?.destination||'INSTAGRAM_DIRECT').trim().toUpperCase();
     if(!['INSTAGRAM_DIRECT','WHATSAPP'].includes(destination))throw Object.assign(new Error('Geçerli mesajlaşma kanalı seçin.'),{code:'META_DESTINATION_INVALID'});
-    const payload={mediaId,dailyBudget,locationMode,locations,campaignName,adSetName,adName,activate,destination,adAccountId:resolveCredentials(credentials).adAccountId,pageId:resolveCredentials(credentials).pageId,instagramId:resolveCredentials(credentials).metaInstagramUserId||resolveCredentials(credentials).instagramUserId};
+    const payload={presetId:policy?.preset.id||null,presetVersion:policy?AD_PRESET_VERSION:null,radius:policy?.radius||null,mediaId,dailyBudget,locationMode,locations,campaignName,adSetName,adName,activate,destination,adAccountId:resolveCredentials(credentials).adAccountId,pageId:resolveCredentials(credentials).pageId,instagramId:resolveCredentials(credentials).metaInstagramUserId||resolveCredentials(credentials).instagramUserId};
     const steps=[
       ['campaign',()=>createCampaign({name:campaignName,objective:'OUTCOME_ENGAGEMENT',status:'PAUSED',credentials})],
-      ['adset',(ids,audience)=>createAdSet({name:adSetName,campaignId:ids.campaign,dailyBudget,optimizationGoal:'CONVERSATIONS',billingEvent:'IMPRESSIONS',destinationType:destination,targeting:{geo_locations:audience.geo_locations},credentials})],
-      ['creative',()=>createAdCreativeFromInstagramMedia({name:adName,instagramMediaId:mediaId,instagramUserId:resolveCredentials(credentials).metaInstagramUserId||resolveCredentials(credentials).instagramUserId,pageId:resolveCredentials(credentials).pageId,credentials})],
+      ['adset',(ids,audience)=>createAdSet({name:adSetName,campaignId:ids.campaign,dailyBudget,optimizationGoal:'CONVERSATIONS',billingEvent:'IMPRESSIONS',destinationType:destination,targeting:policy?presetTargeting(policy.preset,audience.geo_locations):{geo_locations:audience.geo_locations},credentials})],
+      ['creative',()=>createAdCreativeFromInstagramMedia({name:adName,instagramMediaId:mediaId,instagramUserId:resolveCredentials(credentials).metaInstagramUserId||resolveCredentials(credentials).instagramUserId,pageId:resolveCredentials(credentials).pageId,destination,credentials})],
       ['ad',ids=>createAd({name:adName,adsetId:ids.adset,creativeId:ids.creative,status:'PAUSED',credentials})]
     ];
     if(activate)steps.push(['activation',async ids=>{
@@ -468,17 +471,19 @@ app.post('/api/ads/create',allowRoles('ADMIN','CUSTOMER_ADMIN','MANAGER','OPERAT
     const result=await withOperationBudget(70000,()=>runAdOperation({tenantId,requestId,payload,steps,
       prepare:async operation=>{
         await adsPreflight(credentials,{destination});
-        await budgetGuard(credentials,settings,{nextBudget:dailyBudget,creating:true});
+        await budgetGuard(credentials,policy?.settings||settings,{nextBudget:dailyBudget,creating:true});
         const media=await getInstagramMedia(credentials,100);
         if(!(media.data||[]).some(row=>String(row.id)===mediaId))throw Object.assign(new Error('Seçilen Instagram gönderisi bu hesaba ait değil.'),{code:'META_MEDIA_MISMATCH'});
+        if(policy)assertPresetMedia(policy.preset,(media.data||[]).find(row=>String(row.id)===mediaId));
         const ads=await getAds(credentials);
         if(!operation.ids.ad&&(ads.data||[]).length>=Number(req.tenant.limits?.maxAds||0))throw Object.assign(new Error('Paketinizin reklam limitine ulaşıldı.'),{code:'AD_LIMIT_REACHED'});
+        if(locationMode==='RADIUS')return validateRadiusTargeting(policy.radius,credentials);
         return resolveAdGeoTargeting(locationMode,locations,credentials);
       },
       complete:async(operation,audience)=>{
-        await saveSettings(tenantId,{adTargetingMode:locationMode,adTargetingLocations:locationMode==='COUNTRY'?[]:locations});
-        await addLog(tenantId,{type:'WEEKLY_LAUNCH',source:'APP_AD_CREATE',actorId:req.user.id,adId:operation.ids.ad,adSetId:operation.ids.adset,campaignId:operation.ids.campaign,instagramMediaId:mediaId,requestId,correlationId:operation.correlationId,launchAt:new Date().toISOString(),selectionScore:1,dailyBudget,destination,locationMode,locations,adStatus:activate?'ACTIVE':'PAUSED'});
-        return {ok:true,requestId,correlationId:operation.correlationId,campaign:{id:operation.ids.campaign},adset:{id:operation.ids.adset},creative:{id:operation.ids.creative},ad:{id:operation.ids.ad,status:activate?'ACTIVE':'PAUSED'},activated:activate,contactChannel:destination,targeting:{mode:audience.locationMode,locations:audience.locations}};
+        if(!policy)await saveSettings(tenantId,{adTargetingMode:locationMode,adTargetingLocations:locationMode==='COUNTRY'?[]:locations});
+        await addLog(tenantId,{type:'WEEKLY_LAUNCH',source:'APP_AD_CREATE',presetId:policy?.preset.id||null,presetVersion:policy?AD_PRESET_VERSION:null,radius:policy?.radius||null,actorId:req.user.id,adId:operation.ids.ad,adSetId:operation.ids.adset,campaignId:operation.ids.campaign,instagramMediaId:mediaId,requestId,correlationId:operation.correlationId,launchAt:new Date().toISOString(),selectionScore:1,dailyBudget,destination,locationMode,locations,adStatus:activate?'ACTIVE':'PAUSED'});
+        return {ok:true,requestId,correlationId:operation.correlationId,campaign:{id:operation.ids.campaign},adset:{id:operation.ids.adset},creative:{id:operation.ids.creative},ad:{id:operation.ids.ad,status:activate?'ACTIVE':'PAUSED'},activated:activate,contactChannel:destination,targeting:{mode:audience.locationMode,locations:audience.locations,radius:policy?.radius||null}};
       }
     }));
     res.status(201).json(result);

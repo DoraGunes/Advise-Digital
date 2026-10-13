@@ -11,6 +11,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'app_error.dart';
 import 'publication_tracker.dart';
 import 'config.dart';
+import 'manual_memory_local.dart';
 
 class ApiException implements Exception, UserFacingFailure {
   final int? statusCode;
@@ -564,11 +565,18 @@ class Api {
     required String requestId,
     String locationMode = 'COUNTRY',
     List<String> locations = const [],
+    String? presetId,
+    Map<String,dynamic>? radius,
   }) async {
+    if(presetId != null) await _requireCapability('adPresets',feature:'Kayıtlı reklam kipleri');
     await _requireCapability('adCreateSaga',
         feature: 'Güvenli reklam oluşturma');
     return Map<String, dynamic>.from(
         await _request('POST', '/api/ads/create', body: {
+      if(presetId != null) 'presetId':presetId,
+      if(presetId != null) 'presetVersion':1,
+      if(presetId != null) 'autoReply':false,
+      if(radius != null) 'radius':radius,
       'requestId': requestId,
       'instagramMediaId': instagramMediaId,
       'campaignName': campaignName,
@@ -971,8 +979,13 @@ class Api {
         'pageId': pageId,
         'adAccountId': adAccountId,
       }));
-  static Future<Map<String, dynamic>> localMemory({String mediaType = ''}) async =>
-      Map<String, dynamic>.from(await _request('GET', '/api/memory', query: {'mediaType': mediaType}));
+  static Future<Map<String, dynamic>> localMemory({String mediaType = ''}) async {
+    try{return Map<String,dynamic>.from(await _request('GET','/api/memory',query:{'mediaType':mediaType}));}
+    on ApiException catch(e){
+      if(e.statusCode!=404&&e.statusCode!=410)rethrow;
+      return localMemoryFromPosts(await posts());
+    }
+  }
   static Future<Map<String, dynamic>> aiStatus() async =>
       Map<String, dynamic>.from(await _request('GET', '/api/ai/status'));
   static Future<Map<String, dynamic>> aiMemory() async =>

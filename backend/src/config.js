@@ -36,7 +36,7 @@ export const config = {
   databaseUrl: (process.env.DATABASE_URL || '').trim(),
   dbSsl: String(process.env.DB_SSL ?? 'false').toLowerCase() === 'true',
   environment: process.env.NODE_ENV || 'development',
-  appVersion: '16.1.0',
+  appVersion: '16.2.0',
   messageActionTypes: (process.env.MESSAGE_ACTION_TYPES ||
     'onsite_conversion.messaging_conversation_started_7d,messaging_conversation_started_7d')
     .split(',')

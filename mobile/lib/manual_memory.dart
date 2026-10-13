@@ -92,22 +92,10 @@ class _ManualMemoryPanelState extends State<ManualMemoryPanel> {
                 child: const Text('Hashtagleri taslağa kopyala (mevcut metni değiştirir)')),
           ],
         const SizedBox(height: 12),
-        const Text('WhatsApp reklam metni taslakları — henüz Meta’da denenmedi',
-          style: TextStyle(fontWeight: FontWeight.bold)),
-        for (final row in (research['adDrafts'] is List ? research['adDrafts'] as List : []))
-          if (row is Map) Card(child: Padding(padding: const EdgeInsets.all(12),
-            child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-              Text('${row['title']}'),
-              Text('${row['caption']}'),
-              Text('120 TL/reklam · hesap toplam üst sınırı 200 TL/gün · hedef WhatsApp'),
-              Text('${row['note']}'),
-              if (widget.onUseCaption != null)
-                TextButton(onPressed: () => widget.onUseCaption!('${row['caption']}'),
-                  child: const Text('Yalnız metni taslağa kopyala')),
-            ]))),
         for (final row in (research['sources'] is List ? research['sources'] as List : []))
           if (row is Map) SelectableText('Kaynak: ${row['title']} · ${row['url']} · ${row['publishedAt']}'),
         const SizedBox(height: 16),
+        if(data['source']=='CLIENT_READ_ONLY_HISTORY') const Text('Hafıza mevcut sunucunun kendi gönderi kayıtlarından hazırlanıyor. Merkezi reklam ölçümü henüz yok.'),
         Text('İçerik: ${data['postCount'] ?? 0} · Yayınlanan: ${data['publishedCount'] ?? 0} · Ölçüm: ${performance['recordCount'] ?? 0}'),
         for (final mode in ['organic', 'paid']) ...[
           const SizedBox(height: 12),
