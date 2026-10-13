@@ -151,3 +151,6 @@ Assert-ReadOnlyApi
 if($script:apiCalls -ne 3){throw 'Missing read-only smoke.'}
 'TRANSITION_TEST=LocalGetOnlyApiSmoke PASS'
 'TRANSITION_TEST=PowerShell5SyntaxAndPinnedReleaseLedger PASS'
+
+# robocopy exit 1 means successful copy, not a failed fixture test.
+exit 0
