@@ -287,7 +287,6 @@ export async function createAdCreative({name,instagramActorId,pageId,imageHash,m
   const page=pageId||c.pageId;
   if(actor) objectStorySpec.instagram_user_id=actor;
   if(page) objectStorySpec.page_id=page;
-  if(destination==='WHATSAPP')body.call_to_action={type:'WHATSAPP_MESSAGE',value:{app_destination:'WHATSAPP'}};
   return request(`act_${c.adAccountId}/adcreatives`,{method:'POST',credentials:c,body:{name,object_story_spec:objectStorySpec}});
 }
 
@@ -398,6 +397,7 @@ export async function createAdCreativeFromInstagramMedia({name,instagramMediaId,
     object_story_spec:{page_id:identity.pageId}
   };
 
+  if(destination==='WHATSAPP')body.call_to_action={type:'WHATSAPP_MESSAGE',value:{app_destination:'WHATSAPP'}};
   return request(`act_${c.adAccountId}/adcreatives`,{method:'POST',credentials:c,body,timeoutMs:15000});
 }
 

@@ -1,3 +1,4 @@
+import {summarizePresetResults} from './ad-preset-results.js';
 import {AD_PRESETS,AD_PRESET_VERSION,presetPolicy,presetTargeting,assertPresetMedia} from './ad-presets.js';
 import {withOperationBudget} from './operation-budget.js';
 import {buildManualMemory,MANUAL_DISABLED_ROUTES} from './manual-memory.js';
@@ -18,7 +19,7 @@ import {
   getTenant, updateTenant, getCustomerSummaries, adminStats, getUsersForTenant, getUserById, saveUser, publicUser,
   createLicense, getLicenses, assignLicense, deleteTenantCascade
 } from './store.js';
-import {getCampaigns, getAdSets, getAds, insights, setStatus, updateAdSetBudget, metaHealth, getInstagramMedia, createCampaign, createAdSet, createAdCreativeFromInstagramMedia, createAd, resolveAdGeoTargeting,resolveCredentials,adsPreflight,validateRadiusTargeting} from './meta.js';
+import {getCampaigns, getAdSets, getAds, insights, setStatus, updateAdSetBudget, metaHealth, getInstagramMedia, createCampaign, createAdSet, createAdCreativeFromInstagramMedia, createAd, resolveAdGeoTargeting,resolveCredentials,adsPreflight,validateRadiusTargeting,getMetaAccount} from './meta.js';
 import {AD_CITIES, AD_REGIONS, provinceNamesForTargeting} from './ad-targeting.js';
 import {optimizeAds} from './optimizer.js';
 import {startScheduler, scheduleUploadedPost, scheduleUploadedPosts, publishDuePosts,publishPost,cancelScheduledPostState} from './scheduler.js';
@@ -432,6 +433,22 @@ app.get('/api/ads/preflight',allowRoles('ADMIN','CUSTOMER_ADMIN','MANAGER','OPER
 app.get('/api/ads/operations/:id',allowRoles('ADMIN','CUSTOMER_ADMIN','MANAGER','OPERATOR'),async(req,res)=>{
   try {const operation=await getAdOperation(req.user.tenantId,req.params.id);if(!operation)return res.status(404).json({error:'İşlem bulunamadı.'});const {requestId,status,stage,ids,failure,providerFailure,result,correlationId}=operation;res.json({requestId,status,stage,ids,failure,providerFailure:providerFailure?{status:providerFailure.status||null,code:providerFailure.code||null,subcode:providerFailure.subcode||null,trace:providerFailure.trace||null}:null,result,correlationId});}
   catch{res.status(500).json({error:'İşlem kaydı okunamadı.'});}
+});
+app.get('/api/ads/presets/results',async(req,res)=>{
+ try{
+  const tenantId=req.user.tenantId,tenant=await getTenant(tenantId),credentials=tenantCredentials(tenantId,tenant);
+  const currency=String((await getMetaAccount(credentials)).currency||'');
+  const logs=await getLogs(tenantId,500);
+  const own=[...new Map(logs.filter(row=>row.source==='APP_AD_CREATE'&&row.destination==='WHATSAPP'&&row.presetId&&row.adId)
+    .map(row=>[row.adId,row])).values()].slice(0,10);
+  const records=[];
+  for(const row of own){
+   try{const result=await insights(row.adId,'ad',7,credentials);
+    records.push({presetId:row.presetId,adId:row.adId,currency,available:true,data:result.data||[]});
+   }catch{records.push({presetId:row.presetId,adId:row.adId,currency,available:false});}
+  }
+  res.json({data:summarizePresetResults(records),windowDays:7,source:'META_INSIGHTS'});
+ }catch{res.status(503).json({error:'Ölçülmüş reklam sonuçları şu anda okunamadı. Ayarlar değiştirilmedi.'});}
 });
 app.get('/api/ads/presets',(req,res)=>res.json({version:AD_PRESET_VERSION,data:AD_PRESETS,automaticReply:false}));
 app.post('/api/ads/create',allowRoles('ADMIN','CUSTOMER_ADMIN','MANAGER','OPERATOR'),async(req,res)=>{

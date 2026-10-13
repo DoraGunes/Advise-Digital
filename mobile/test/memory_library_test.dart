@@ -18,7 +18,7 @@ void main(){
     : {'postCount':0,'posts':[],'research':{
       'disclaimer':'Bu hesapta denenmedi.',
       'hashtagSets':[{'title':'TV','tags':['#TVTamiri'],'reason':'Deneme adayı'}],
-      'adDrafts':[{'title':'TV WhatsApp','caption':'Marka ve model gönderin','note':'Ön kontrol gerekli'}],
+      'learning':{},
       'sources':[{'title':'Araştırma','url':'https://example.com/study','publishedAt':'2026-10-13'}]
      }};
    return http.Response(jsonEncode(body),200,headers:{'content-type':'application/json; charset=utf-8'});
@@ -32,9 +32,9 @@ void main(){
   expect(find.text('Bu hesapta denenmedi.'),findsOneWidget);
   expect(find.text('Henüz kaydedilmiş içerik yok.'),findsOneWidget);
   expect(copied,isNull);
-  final button=find.text('Yalnız metni taslağa kopyala');
+  final button=find.text('Hashtagleri taslağa kopyala (mevcut metni değiştirir)');
   await tester.ensureVisible(button);await tester.tap(button);await tester.pumpAndSettle();
-  expect(copied,'Marka ve model gönderin');
+  expect(copied,'#TVTamiri');
   expect(calls.where((call)=>!call.startsWith('GET ')),isEmpty);
  });
 }

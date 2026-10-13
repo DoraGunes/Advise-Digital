@@ -21,6 +21,9 @@ class _SocialAdsPageState extends State<SocialAdsPage> {
   List<String> availableRegions = [];
   Map<String,dynamic>? _preset;
   List<Map<String,dynamic>> _presets = [];
+  final _presetResults = <String,Map<String,dynamic>>{};
+  bool _resultsLoading=false;
+  String? _resultsError;
   Map<String,dynamic>? _radius;
   String locationMode = 'COUNTRY';
   Set<String> selectedLocations = {};
@@ -297,11 +300,15 @@ class _SocialAdsPageState extends State<SocialAdsPage> {
   Widget _presetPicker()=>Column(crossAxisAlignment:CrossAxisAlignment.start,children:[
     const Text('Hazır reklam kipleri',style:TextStyle(fontSize:18,fontWeight:FontWeight.bold)),
     const Text('Hedef, bütçe, bölge ve gösterim alanları birlikte yüklenir. Otomatik mesaj yok. Seçmek Meta reklamı oluşturmaz.'),
+    OutlinedButton.icon(onPressed:_resultsLoading||creating?null:_readPresetResults,
+      icon:const Icon(Icons.analytics_outlined),
+      label:Text(_resultsLoading?'Meta sonuçları okunuyor…':'Ölçülmüş mesaj maliyetlerini oku')),
+    if(_resultsError!=null)Text(_resultsError!),
     const SizedBox(height:8),
     for(final row in _presets) Card(child:ListTile(
       leading:Icon(row['media']=='VIDEO'?Icons.video_library_outlined:Icons.tune),
       title:Text('${row['name']}'),
-      subtitle:Text('WhatsApp · ${row['dailyBudget']} TL/gün · ${row['placement']} · PAUSED\nMesaj maliyeti: henüz ölçülmedi'),
+      subtitle:Text('WhatsApp · ${row['dailyBudget']} TL/gün · ${row['placement']} · PAUSED\nMesaj maliyeti: ${_presetCost(row['id'].toString())}'),
       selected:_preset?['name']==row['name'],
       trailing:const Icon(Icons.chevron_right),
       onTap:creating||!canOperate?null:()=>_applyPreset(row))),
@@ -312,6 +319,26 @@ class _SocialAdsPageState extends State<SocialAdsPage> {
         label:const Text('Bu ayarları kendi kipim olarak kaydet')),
     ],
   ]);
+String _presetCost(String id){
+    final row=_presetResults[id];
+    if(row?['status']!='MEASURED'||row?['costPerConversation']==null)return 'henüz ölçülmedi';
+    return '${row!['costPerConversation']} TL · son 7 gün · ${row['conversations']} Meta konuşması';
+  }
+  Future<void> _readPresetResults() async{
+    setState((){_resultsLoading=true;_resultsError=null;});
+    try{
+      final result=await Api.adPresetResults();
+      final rows=result['data'] is List?result['data'] as List:[];
+      if(mounted)setState((){
+        _presetResults.clear();
+        for(final row in rows.whereType<Map>()){
+          _presetResults['${row['presetId']}']=Map<String,dynamic>.from(row);
+        }
+      });
+    }catch(e){if(mounted)setState(()=>_resultsError='Sonuçlar okunamadı; maliyet tahmin edilmiyor. ${AppError.message(e)}');}
+    finally{if(mounted)setState(()=>_resultsLoading=false);}
+  }
+
   void _applyPreset(Map<String,dynamic> row){
     setState((){
       _preset=Map<String,dynamic>.from(row);destination='WHATSAPP';
@@ -322,6 +349,12 @@ class _SocialAdsPageState extends State<SocialAdsPage> {
       campaignName.text='${row['name']}';adSetName.text='${row['name']} · hedef';
       adName.text='${row['name']} · içerik';
       _adRequestId=null;_adFailure=null;_preflightMessage=null;_created=false;
+      if(row['instagramMediaId']!=null){
+        selected=null;
+        for(final item in media.whereType<Map>()){
+          if(item['id']==row['instagramMediaId'])selected=Map<String,dynamic>.from(item);
+        }
+      }
       if(selected!=null&&!AdPresets.accepts(row,selected!))selected=null;
     });
   }
@@ -337,7 +370,8 @@ class _SocialAdsPageState extends State<SocialAdsPage> {
         final scope='${await Api.baseUrl()}:$_accountScope';
         await AdPresets.save(scope,{..._preset!,'name':name.text.trim(),
           'dailyBudget':double.tryParse(budget.text.replaceAll(',','.')),
-          'locationMode':locationMode,'locations':selectedLocations.toList(),'radius':_radius});
+          'locationMode':locationMode,'locations':selectedLocations.toList(),'radius':_radius,
+          'instagramMediaId':_selectedPostId});
         final rows=await AdPresets.load(scope);
         if(mounted){setState(()=>_presets=rows);_snack('Ayar kipi bu cihaz ve hesap için kaydedildi. Meta reklamı oluşturulmadı.');}
       }catch(_){if(mounted)_snack('Kip kaydedilemedi. Günlük bütçe 50–120 TL olmalı.');}

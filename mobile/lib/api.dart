@@ -31,6 +31,8 @@ class ApiException implements Exception, UserFacingFailure {
   @override
   String get userMessage {
     const known = {
+      'AD_RADIUS_UNAVAILABLE':'Meta seçilen yarıçapı doğrulayamadı. Hedef genişletilmedi ve reklam oluşturulmadı. Farklı yarıçap veya hizmet illerini açıkça seçin.',
+      'AD_PRESET_INVALID':'Reklam kipi ayarları geçersiz. WhatsApp hedefi, bölge ve 50–120 TL bütçeyi kontrol edin.',
       'META_SESSION_EXPIRED':
           'Meta bağlantısının süresi dolmuş. Bağlantılar ekranından yeniden bağlayın.',
       'META_PERMISSION_DENIED':
@@ -589,6 +591,8 @@ class Api {
       'locations': locations,
     }));
   }
+
+  static Future<Map<String,dynamic>> adPresetResults() async => Map<String,dynamic>.from(await _request('GET','/api/ads/presets/results',timeout:const Duration(seconds:45)));
 
   static Future<Map<String, dynamic>> adsPreflight({String destination = 'INSTAGRAM_DIRECT'}) async {
     await _requireCapability('adsPreflight', feature: 'Meta bağlantı kontrolü');

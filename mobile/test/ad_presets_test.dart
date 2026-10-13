@@ -7,6 +7,7 @@ import 'package:advise_digital/ad_presets.dart';
 import 'package:advise_digital/api.dart';
 import 'package:advise_digital/manual_memory_local.dart';
 void main(){
+ TestWidgetsFlutterBinding.ensureInitialized();
  setUp((){SharedPreferences.setMockInitialValues({});Api.resetRuntimeForTesting();});
  tearDown((){Api.setHttpClientForTesting(null);Api.resetRuntimeForTesting();});
  test('Saved campaign configuration survives restart and stays scoped, paused and without auto-replies',()async{
