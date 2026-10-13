@@ -41,6 +41,7 @@ class _ManualMemoryPanelState extends State<ManualMemoryPanel> {
     final timing = data['timing'] is Map ? data['timing'] as Map : {};
     final posts = data['posts'] is List ? data['posts'] as List : [];
     final ads = data['adHistory'] is List ? data['adHistory'] as List : [];
+    final research = data['research'] is Map ? data['research'] as Map : {};
     return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
       Row(children: [
         const Expanded(child: Text('Kendi kayıtlarından Hafıza Sarayı',
@@ -53,6 +54,21 @@ class _ManualMemoryPanelState extends State<ManualMemoryPanel> {
       if (loading) const LinearProgressIndicator()
       else if (error != null) Text(error!)
       else ...[
+        const Text('Araştırma kitaplığı — henüz bu hesapta denenmedi', style: TextStyle(fontWeight: FontWeight.bold)),
+        Text('${research['disclaimer'] ?? 'Sunucu araştırma kitaplığı henüz yok.'}'),
+        for (final row in (research['timing'] is List ? research['timing'] as List : []))
+          if (row is Map) Text('Deneme saati: gün ${row['weekday']} · ${row['hour']}:00 · ${row['timezone']} · hesap örneği: 0'),
+        for (final row in (research['hashtagSets'] is List ? research['hashtagSets'] as List : []))
+          if (row is Map) ...[
+            Text('${row['title']}: ${row['tags'] is List ? (row['tags'] as List).join(' ') : ''}'),
+            Text('${row['reason'] ?? ''}'),
+            if (widget.onUseCaption != null && row['tags'] is List)
+              TextButton(onPressed: () => widget.onUseCaption!((row['tags'] as List).join(' ')),
+                child: const Text('Hashtagleri taslağa kopyala (mevcut metni değiştirir)')),
+          ],
+        for (final row in (research['sources'] is List ? research['sources'] as List : []))
+          if (row is Map) SelectableText('Kaynak: ${row['title']} · ${row['url']} · ${row['publishedAt']}'),
+        const SizedBox(height: 16),
         Text('İçerik: ${data['postCount'] ?? 0} · Yayınlanan: ${data['publishedCount'] ?? 0} · Ölçüm: ${performance['recordCount'] ?? 0}'),
         for (final mode in ['organic', 'paid']) ...[
           const SizedBox(height: 12),

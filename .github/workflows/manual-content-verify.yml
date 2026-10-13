@@ -1,9 +1,9 @@
 name: Manual Content and Local Memory Tests
 on:
   pull_request:
-    branches: [fix/ads-queue-independent-audit-2026-10-12]
-  push:
     branches: [feat/manual-content-local-memory-2026-10-13]
+  push:
+    branches: [fix/publication-tracking-ad-presets-2026-10-13]
 permissions:
   contents: read
 concurrency:
