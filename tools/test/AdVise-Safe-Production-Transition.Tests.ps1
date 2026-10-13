@@ -57,7 +57,7 @@ function Get-VerifiedProcess {
 }
 function Stop-VerifiedBackend([string]$Birth) {
  $v=Get-VerifiedProcess;Assert-Birth $v $Birth;Assert-Idle
- if($script:case -ceq 'StopDenied'){throw 'ACTIVE_CONNECTIONS'}
+ if($script:fixtureScenario -ceq 'StopDenied'){throw 'ACTIVE_CONNECTIONS'}
  $script:state.stops++;$script:state.alive=$false
 }
 function Start-Backend {
@@ -72,20 +72,20 @@ function Stop-StartedChild {
 }
 function Assert-Health {
  if(!$script:state.alive){throw 'HEALTH_FAILED'}
- if($script:case -ceq 'RecoveryPidDrift'){$script:state.pid=9999;throw 'HEALTH_FAILED'}
- if($script:case -ceq 'HealthFail' -and (Get-Content (Join-Path $backend 'src/server.js') -Raw) -ceq 'new code'){throw 'HEALTH_FAILED'}
+ if($script:fixtureScenario -ceq 'RecoveryPidDrift'){$script:state.pid=9999;throw 'HEALTH_FAILED'}
+ if($script:fixtureScenario -ceq 'HealthFail' -and (Get-Content (Join-Path $backend 'src/server.js') -Raw) -ceq 'new code'){throw 'HEALTH_FAILED'}
 }
 function Assert-ReadOnlyApi {
  $script:state.smokes++
- if($script:case -ceq 'RuntimeChanged'){[IO.File]::WriteAllText((Join-Path $runtimeData 'new-current-record.json'),'keep current record')}
+ if($script:fixtureScenario -ceq 'RuntimeChanged'){[IO.File]::WriteAllText((Join-Path $runtimeData 'new-current-record.json'),'keep current record')}
 }
 function Copy-Tree([string]$From,[string]$To,[string]$Log,[string[]]$Exclude=@()) {
- if($script:case -ceq 'CopyFail' -and $To -ceq (Join-Path $backend 'src') -and $From.StartsWith($stage,[StringComparison]::OrdinalIgnoreCase)){throw 'COPY_FAILED'}
+ if($script:fixtureScenario -ceq 'CopyFail' -and $To -ceq (Join-Path $backend 'src') -and $From.StartsWith($stage,[StringComparison]::OrdinalIgnoreCase)){throw 'COPY_FAILED'}
  & $script:RealCopy $From $To $Log $Exclude
 }
 '@
 function Invoke-Fixture($f,[string]$Mode,[string]$Case) {
- $script:case=$Case
+ $script:fixtureScenario=$Case
  $actualLedger=[regex]::Match($source,'(?s)\$releaseFiles=@''\r?\n(.*?)\r?\n''@').Groups[1].Value
  if(!$actualLedger){throw 'Ledger block not found.'}
  $newLedger=$f.ledger | ConvertTo-Json -Compress
