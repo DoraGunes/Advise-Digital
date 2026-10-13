@@ -142,6 +142,9 @@ try {
 } catch {
   $allowed=@('UNSAFE_PATH','BACKEND_NOT_FOUND','ENV_MISSING','UNSAFE_STAGE_PATH','STAGE_ALREADY_EXISTS','NPM_NOT_FOUND','NODE_VERSION_UNSUPPORTED','SOURCE_MANIFEST_FAILED','SOURCE_FILE_MISSING','SOURCE_HASH_FAILED','STAGING_CHILD_TIMEOUT','STAGING_CHILD_FAILED','UNEXPECTED_STAGE_ENV','PRODUCTION_ENV_CHANGED')
   if($allowed -ccontains $_.Exception.Message){$reason=$_.Exception.Message}
-  'STAGE_READY=False REASON='+$reason+' PHASE='+$phase+' LINE='+[int]$_.InvocationInfo.ScriptLineNumber
+  $inner=$_.Exception.InnerException
+  $type=if($inner){$inner.GetType().Name}else{$_.Exception.GetType().Name}
+  $native=if($inner -is [ComponentModel.Win32Exception]){$inner.NativeErrorCode}else{0}
+  'STAGE_READY=False REASON='+$reason+' PHASE='+$phase+' LINE='+[int]$_.InvocationInfo.ScriptLineNumber+' TYPE='+$type+' NATIVE='+$native
 }
 'STAGING_ONLY_DONE'
