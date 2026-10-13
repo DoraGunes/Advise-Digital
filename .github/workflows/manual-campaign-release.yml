@@ -7,6 +7,7 @@ permissions:
   contents: read
 jobs:
   windows:
+    if: contains(github.event.head_commit.message, '[android-only]') == false
     runs-on: windows-latest
     timeout-minutes: 35
     defaults:
@@ -82,8 +83,8 @@ jobs:
       - name: Verify pinned source
         run: |
           test "$(git rev-parse HEAD)" = 'cb6a908426c80752936d6cab40a0c645f641d4ea'
-          rg '^version: 16\.2\.0\+19$' pubspec.yaml
-          rg 'android.permission.INTERNET' android/app/src/main/AndroidManifest.xml
+          grep -E '^version: 16\.2\.0\+19$' pubspec.yaml
+          grep -F 'android.permission.INTERNET' android/app/src/main/AndroidManifest.xml
       - run: flutter pub get
       - run: flutter build apk --release --dart-define=ADVISE_API_URL=https://advisedigital.poyrazteknikservis.com.tr
       - name: Verify APK and instructions
