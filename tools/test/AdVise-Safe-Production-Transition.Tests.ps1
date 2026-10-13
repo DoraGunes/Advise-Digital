@@ -26,7 +26,7 @@ function New-Fixture([string]$Name) {
  'data/ad_operations.json'='[{"status":"FAILED","stage":"preflight"}]'
  'data/posts.json'='[{"id":"photo","publishStatus":"PUBLISHED","publishPhase":"CONFIRMED"}]'
  'data/users.json'='[{"id":"admin","role":"ADMIN","tenantId":"system","active":true}]'
- 'data/tenants.json'='[{"id":"system","meta":{"connected":true,"accessToken":"PRIVATE_FIXTURE_SECRET_NEVER_PRINT","source":"OAUTH","adAccountId":"fixture-ad","pageId":"fixture-page","instagramUserId":"fixture-ig"}}]'
+ 'data/tenants.json'='[{"id":"system","meta":{"connected":true,"accessToken":"PRIVATE_FIXTURE_SECRET_NEVER_PRINT","instagramAccessToken":"PRIVATE_FIXTURE_SECRET_NEVER_PRINT","source":"OAUTH","adAccountId":"fixture-ad","pageId":"fixture-page","instagramUserId":"fixture-ig"}}]'
  'uploads/photo.jpg'='original media'
  }
  foreach($name in $files.Keys){[IO.File]::WriteAllText((Join-Path $backend $name),$files[$name])}
@@ -152,15 +152,49 @@ function Invoke-RestMethod {
  if($Method -cne 'Get' -or !$Uri.StartsWith('http://127.0.0.1:3001/')){throw 'Non-read-only request.'}
  $script:apiCalls++
  switch($Uri){
- 'http://127.0.0.1:3001/api/me' {return @{user=@{tenantId='system';role='ADMIN'}}}
- 'http://127.0.0.1:3001/api/meta/status' {return @{connected=$true;metaTokenReady=$true;instagramTokenReady=$true;source='OAUTH';adAccountId='fixture-ad';pageId='fixture-page';instagramUserId='fixture-ig'}}
- 'http://127.0.0.1:3001/api/posts' {return @{data=@(@{id='photo'})}}
+ 'http://127.0.0.1:3001/api/me' {return @{user=@{tenantId='system';role='ADMIN'};tenant=@{id='system';meta=@{hasAccessToken=$true;hasInstagramAccessToken=$true}}}}
+ 'http://127.0.0.1:3001/api/meta/status' {return @{connected=$true;metaTokenReady=$false;instagramTokenReady=$false;source='OAUTH';adAccountId='fixture-ad';pageId='fixture-page';instagramUserId='fixture-ig'}}
+ 'http://127.0.0.1:3001/api/posts' {return @{data=$script:apiPosts}}
  default {throw 'Unexpected API endpoint.'}
  }
 }
+$script:apiPosts=@(@{id='photo'})
 Assert-ReadOnlyApi
 if($script:apiCalls -ne 3){throw 'Missing read-only smoke.'}
 'TRANSITION_TEST=LocalGetOnlyApiSmoke PASS'
+
+# TokenReady=False in the sanitized status response must not reject local-only OAuth.
+'TRANSITION_TEST=SanitizedStatusWithLocalOnlyOAuthTokens PASS'
+$postsPath=Join-Path $runtimeData 'posts.json'
+$mixed=@(@{id='photo';tenantId='system'},@{id='legacy'},@{id='null-tenant';tenantId=$null},@{id='empty-tenant';tenantId=''},@{id='customer';tenantId='customer-a'})
+$mixed | ConvertTo-Json -Depth 5 | Set-Content $postsPath -Encoding UTF8
+$script:apiPosts=@(@{id='photo'},@{id='legacy'},@{id='null-tenant'},@{id='empty-tenant'})
+Assert-ReadOnlyApi
+'TRANSITION_TEST=SystemAndLegacyPostsExcludeOtherTenant PASS'
+function Assert-SmokeRejected([string]$Expected) {
+ $caught=''
+ try {Assert-ReadOnlyApi}catch{$caught=$_.Exception.Message}
+ if($caught -cne $Expected){throw ('Unexpected smoke rejection category: '+$caught)}
+}
+$script:apiPosts=@(@{id='photo'},@{id='legacy'},@{id='null-tenant'},@{id='empty-tenant'},@{id='customer'})
+Assert-SmokeRejected 'RECORD_CHECK_FAILED'
+'TRANSITION_TEST=OtherTenantApiLeakRejected PASS'
+$script:apiPosts=@(@{id='photo'})
+Assert-SmokeRejected 'RECORD_CHECK_FAILED'
+'TRANSITION_TEST=MissingSystemPostsRejected PASS'
+[IO.File]::WriteAllText($postsPath,'[{"id":"customer","tenantId":"customer-a"}]')
+$script:apiPosts=@()
+Assert-ReadOnlyApi
+'TRANSITION_TEST=EmptySystemQueueWithOtherTenantPosts PASS'
+$tenantPath=Join-Path $runtimeData 'tenants.json'
+$tenantBytes=[IO.File]::ReadAllBytes($tenantPath)
+$tenantRows=Get-Content $tenantPath -Raw | ConvertFrom-Json
+$system=$tenantRows | Where-Object {$_.id -ceq 'system'} | Select-Object -First 1
+$system.meta.accessToken='';$system.meta.instagramAccessToken=''
+$tenantRows | ConvertTo-Json -Depth 8 | Set-Content $tenantPath -Encoding UTF8
+Assert-SmokeRejected 'CONNECTION_CHECK_FAILED'
+[IO.File]::WriteAllBytes($tenantPath,$tenantBytes)
+'TRANSITION_TEST=MissingLocalTokensRejectedDespitePublicFlags PASS'
 'TRANSITION_TEST=PowerShell5SyntaxAndPinnedReleaseLedger PASS'
 
 # robocopy exit 1 means successful copy, not a failed fixture test.
