@@ -12,6 +12,9 @@ jobs:
     name: Windows PowerShell 5 deploy and rollback fixture checks
     runs-on: windows-latest
     steps:
+      - name: Preserve source bytes for Git blob checks
+        shell: powershell
+        run: git config --global core.autocrlf false
       - uses: actions/checkout@v4
       - name: Verify limited transition safety
         shell: powershell
