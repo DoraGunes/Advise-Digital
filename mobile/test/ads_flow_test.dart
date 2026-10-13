@@ -139,13 +139,13 @@ void main() {
     'Dark': ProductTheme.dark,
     'Colorful': ProductTheme.colorful
   }.entries) {
-    testWidgets('${entry.key} history error clears loading and retry succeeds',
+    testWidgets('${entry.key} bounded history read retry clears loading and manual retry succeeds',
         (tester) async {
       var calls = 0;
       await openStrategy(tester, () async {
         calls++;
         return http.Response(
-            jsonEncode(calls == 1
+            jsonEncode(calls <= 2
                 ? {'code': 'ETIMEDOUT', 'stage': 'strategy'}
                 : {
                     'performance': {'paidCount': 1},
@@ -159,17 +159,19 @@ void main() {
                       'schedule': {}
                     }
                   }),
-            calls == 1 ? 504 : 200,
+            calls <= 2 ? 504 : 200,
             headers: {'content-type': 'application/json; charset=utf-8'});
       }, theme: entry.value);
       await tester.pumpAndSettle();
-      expect(find.text('Hazırlanıyor…'), findsNothing);
-      expect(calls, 1);
+      await tester.pump(const Duration(seconds: 1));
+      await tester.pumpAndSettle();
+      expect(find.text('Geçmiş okunuyor…'), findsNothing);
+      expect(calls, 2);
       final retry = find.text('Kendi reklam geçmişimi göster');
       await tester.ensureVisible(retry);
       await tester.tap(retry);
       await tester.pumpAndSettle();
-      expect(calls, 2);
+      expect(calls, 3);
       expect(find.textContaining('Özgün ürün açılışı'), findsOneWidget);
       expect(tester.takeException(), isNull);
     });
