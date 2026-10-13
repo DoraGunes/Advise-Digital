@@ -9,6 +9,7 @@ $revision='162e259ee3dc938d492b15bc5d3f56115ae85696'
 $repository='DoraGunes/Advise-Digital'
 $stage=''
 $reason='PREPARATION_FAILED'
+$phase='PATH_GUARD'
 
 function Assert-NoReparse([string]$Path) {
   $item=Get-Item -LiteralPath $Path
@@ -84,10 +85,12 @@ try {
   New-Item -ItemType Directory -Path $stage | Out-Null
   $code=Join-Path $stage 'code'
   New-Item -ItemType Directory -Path (Join-Path $code 'src') | Out-Null
+  $phase='NODE_PROBE'
   $version=Invoke-StageProcess $node '--version' $code 'node-version-local.log'
   if($version -notmatch '^v(\d+)\.' ){throw 'NODE_VERSION_UNSUPPORTED'}
   if([int]$Matches[1] -lt 20){throw 'NODE_VERSION_UNSUPPORTED'}
   [Net.ServicePointManager]::SecurityProtocol=[Net.ServicePointManager]::SecurityProtocol -bor [Net.SecurityProtocolType]::Tls12
+  $phase='SOURCE_DOWNLOAD'
   $tree=Invoke-RestMethod ('https://api.github.com/repos/'+$repository+'/git/trees/'+$revision+'?recursive=1') -Headers @{'User-Agent'='AdVise-Staging'} -TimeoutSec 60
   if($tree.sha -cne $revision -or $tree.truncated){throw 'SOURCE_MANIFEST_FAILED'}
   $files=@($tree.tree | Where-Object {$_.type -ceq 'blob' -and $_.path -cmatch '^backend/(src/[A-Za-z0-9_-]+\.js|package(?:-lock)?\.json)$'})
@@ -95,6 +98,7 @@ try {
   $zip=Join-Path $stage 'source.zip'
   Invoke-WebRequest -UseBasicParsing ('https://github.com/'+$repository+'/archive/'+$revision+'.zip') -OutFile $zip -TimeoutSec 300
   Add-Type -AssemblyName System.IO.Compression.FileSystem
+  $phase='SOURCE_EXTRACT'
   $archive=[IO.Compression.ZipFile]::OpenRead($zip)
   try {
     $root=($archive.Entries[0].FullName -split '/')[0]
@@ -109,11 +113,14 @@ try {
   'STAGE_SOURCE_VERIFIED=True'
   # Only npm.cmd ci is launched, through the Windows command interpreter.
   $arguments='/d /s /c ""'+$npm+'" ci --no-audit --no-fund"'
+  $phase='DEPENDENCY_INSTALL'
   [void](Invoke-StageProcess $env:ComSpec $arguments $code 'install-local.log')
   'STAGE_WINDOWS_DEPENDENCIES=True'
+  $phase='SYNTAX_CHECK'
   foreach($file in Get-ChildItem -LiteralPath (Join-Path $code 'src') -Filter '*.js' -File) {
     [void](Invoke-StageProcess $node ('--check "'+$file.FullName+'"') $code 'syntax-local.log')
   }
+  $phase='NATIVE_PROBE'
   $nativeProbe=Join-Path $code 'native-probe.mjs'
   [IO.File]::WriteAllText($nativeProbe,"import sharp from 'sharp'; await sharp({create:{width:1,height:1,channels:3,background:'#ffffff'}}).jpeg().toBuffer();")
   [void](Invoke-StageProcess $node ('"'+$nativeProbe+'"') $code 'native-local.log')
@@ -124,6 +131,7 @@ try {
   }
   if(Test-Path -LiteralPath (Join-Path $code '.env')){throw 'UNEXPECTED_STAGE_ENV'}
   if((Get-FileHash -LiteralPath $envFile -Algorithm SHA256).Hash -cne $envBefore){throw 'PRODUCTION_ENV_CHANGED'}
+  $phase='MANIFEST'
   $manifest=@{
     revision=$revision; backend=$backend; nodePath=$node; envHash=$envBefore
     sourceFiles=@($files | Select-Object path,sha); stagingOnly=$true
@@ -134,6 +142,6 @@ try {
 } catch {
   $allowed=@('UNSAFE_PATH','BACKEND_NOT_FOUND','ENV_MISSING','UNSAFE_STAGE_PATH','STAGE_ALREADY_EXISTS','NPM_NOT_FOUND','NODE_VERSION_UNSUPPORTED','SOURCE_MANIFEST_FAILED','SOURCE_FILE_MISSING','SOURCE_HASH_FAILED','STAGING_CHILD_TIMEOUT','STAGING_CHILD_FAILED','UNEXPECTED_STAGE_ENV','PRODUCTION_ENV_CHANGED')
   if($allowed -ccontains $_.Exception.Message){$reason=$_.Exception.Message}
-  'STAGE_READY=False REASON='+$reason
+  'STAGE_READY=False REASON='+$reason+' PHASE='+$phase+' LINE='+[int]$_.InvocationInfo.ScriptLineNumber
 }
 'STAGING_ONLY_DONE'
