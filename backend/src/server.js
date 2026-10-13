@@ -1,5 +1,5 @@
 import {summarizePresetResults} from './ad-preset-results.js';
-import {AD_PRESETS,AD_PRESET_VERSION,presetPolicy,presetTargeting,assertPresetMedia} from './ad-presets.js';
+import {AD_PRESETS,AD_PRESET_VERSION,presetPolicy,presetTargeting,assertPresetMedia,presetBudgetLimits} from './ad-presets.js';
 import {withOperationBudget} from './operation-budget.js';
 import {buildManualMemory,MANUAL_DISABLED_ROUTES} from './manual-memory.js';
 import {normalizeCover,MAX_COVER_BYTES} from './cover-image.js';
@@ -514,7 +514,7 @@ app.post('/api/ads/create',allowRoles('ADMIN','CUSTOMER_ADMIN','MANAGER','OPERAT
     const result=await withOperationBudget(70000,()=>runAdOperation({tenantId,requestId,payload,steps,
       prepare:async operation=>{
         await adsPreflight(credentials,{destination});
-        await budgetGuard(credentials,policy?.settings||settings,{nextBudget:dailyBudget,creating:true});
+        await budgetGuard(credentials,policy?.settings||presetBudgetLimits(settings),{nextBudget:dailyBudget,creating:true});
         const media=await getInstagramMedia(credentials,100);
         if(!(media.data||[]).some(row=>String(row.id)===mediaId))throw Object.assign(new Error('Seçilen Instagram gönderisi bu hesaba ait değil.'),{code:'META_MEDIA_MISMATCH'});
         if(policy)assertPresetMedia(policy.preset,(media.data||[]).find(row=>String(row.id)===mediaId));
@@ -524,6 +524,7 @@ app.post('/api/ads/create',allowRoles('ADMIN','CUSTOMER_ADMIN','MANAGER','OPERAT
         return resolveAdGeoTargeting(locationMode,locations,credentials);
       },
       complete:async(operation,audience)=>{
+        if(policy)await saveSettings(tenantId,{manualAdPresetLimits:true});
         if(!policy)await saveSettings(tenantId,{adTargetingMode:locationMode,adTargetingLocations:locationMode==='COUNTRY'?[]:locations});
         await addLog(tenantId,{type:'WEEKLY_LAUNCH',source:'APP_AD_CREATE',presetId:policy?.preset.id||null,presetVersion:policy?AD_PRESET_VERSION:null,radius:policy?.radius||null,actorId:req.user.id,adId:operation.ids.ad,adSetId:operation.ids.adset,campaignId:operation.ids.campaign,instagramMediaId:mediaId,requestId,correlationId:operation.correlationId,launchAt:new Date().toISOString(),selectionScore:1,dailyBudget,destination,locationMode,locations,adStatus:activate?'ACTIVE':'PAUSED'});
         return {ok:true,requestId,correlationId:operation.correlationId,campaign:{id:operation.ids.campaign},adset:{id:operation.ids.adset},creative:{id:operation.ids.creative},ad:{id:operation.ids.ad,status:activate?'ACTIVE':'PAUSED'},activated:activate,contactChannel:destination,targeting:{mode:audience.locationMode,locations:audience.locations,radius:policy?.radius||null}};
@@ -550,7 +551,7 @@ app.post('/api/status/:id', allowRoles('ADMIN','CUSTOMER_ADMIN','MANAGER','OPERA
     const status = String(req.body?.status || '').toUpperCase();
     const tenant = await getTenant(req.user.tenantId);
     const credentials = tenantCredentials(req.user.tenantId,tenant);
-    if(status==='ACTIVE')await activationGuard(credentials||{},await getSettings(req.user.tenantId),req.params.id);
+    if(status==='ACTIVE')await activationGuard(credentials||{},presetBudgetLimits(await getSettings(req.user.tenantId)),req.params.id);
     const result=await setStatus(req.params.id, status, credentials || {});
     await addLog(req.user.tenantId,{type:'META_STATUS_CHANGED',id:String(req.params.id),status,source:'USER_ACTION',actorId:req.user.id});
     res.json(result);
@@ -565,7 +566,7 @@ app.post('/api/budget/:id', allowRoles('ADMIN','CUSTOMER_ADMIN','MANAGER','OPERA
     const tenant = await getTenant(tenantId);
     const credentials = tenantCredentials(tenantId,tenant);
     const settings = await getSettings(tenantId);
-    await budgetGuard(credentials || {}, settings, {adSetId:req.params.id, nextBudget:budget});
+    await budgetGuard(credentials || {}, presetBudgetLimits(settings), {adSetId:req.params.id, nextBudget:budget});
     const result=await updateAdSetBudget(req.params.id, budget, credentials || {});
     await addLog(tenantId,{type:'META_BUDGET_CHANGED',actorId:req.user.id,adSetId:String(req.params.id),dailyBudget:Math.round(budget*100)/100,source:'USER_ACTION'});
     res.json(result);

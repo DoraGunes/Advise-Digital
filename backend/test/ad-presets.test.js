@@ -1,5 +1,5 @@
 import test from 'node:test';import assert from 'node:assert/strict';
-import {AD_PRESETS,presetPolicy,presetTargeting,assertPresetMedia} from '../src/ad-presets.js';
+import {AD_PRESETS,presetPolicy,presetTargeting,assertPresetMedia,presetBudgetLimits} from '../src/ad-presets.js';
 const input={presetId:'service-all',presetVersion:1,destination:'WHATSAPP',activate:false,dailyBudget:120,locationMode:'RADIUS'};
 test('Five campaign presets apply destination, budget ceilings and provider-specific placements',()=>{
  assert.equal(AD_PRESETS.length,5);
@@ -18,4 +18,11 @@ test('Preset cannot silently widen region, become ACTIVE, change destination or 
  assert.throws(()=>assertPresetMedia(AD_PRESETS[3],{media_type:'IMAGE'}),{code:'AD_PRESET_INVALID'});
  assert.doesNotThrow(()=>assertPresetMedia(AD_PRESETS[3],{media_type:'VIDEO'}));
  assert.equal(presetPolicy({...input,radius:{radius:200,greeting:'do not forward'}},{}).radius.greeting,undefined);
+});
+
+test('Future manual activation and budget updates keep the preset account guard without enabling an unset cap',()=>{
+ const settings={manualAdPresetLimits:true,maxDailyBudget:500,geminiAdsDailyCap:300};
+ assert.equal(presetBudgetLimits(settings).maxDailyBudget,120);
+ assert.equal(presetBudgetLimits(settings).geminiAdsDailyCap,200);
+ assert.equal(presetBudgetLimits({...settings,geminiAdsDailyCap:0}).geminiAdsDailyCap,0);
 });

@@ -42,3 +42,10 @@ export function assertPresetMedia(preset,row){
  const type=String(row?.media_type||'').toUpperCase();
  if(preset.media!=='ANY'&&type!==preset.media)reject(preset.media==='VIDEO'?'Bu kip için yayınlanmış Reels/video seçin.':'Bu kip için yayınlanmış tek fotoğraf seçin.');
 }
+
+export function presetBudgetLimits(settings){
+ if(!settings.manualAdPresetLimits)return settings;
+ const cap=Number(settings.geminiAdsDailyCap||0);
+ return {...settings,maxDailyBudget:Math.min(Number(settings.maxDailyBudget)||120,120),
+  geminiAdsDailyCap:cap>0?Math.min(cap,200):0};
+}
