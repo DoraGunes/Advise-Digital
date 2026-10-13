@@ -12,6 +12,7 @@ foreach($f in $releaseFiles) {
  if((Blob-Hash (Join-Path (Join-Path $env:GITHUB_WORKSPACE 'backend') $f.path)) -cne $f.sha){throw 'Pinned release ledger mismatch.'}
 }
 $script:RealCopy=(Get-Command Copy-Tree).ScriptBlock
+$script:RealNewFeatures=(Get-Command Assert-NewFeatures).ScriptBlock
 function New-Fixture([string]$Name) {
  $base=Join-Path $root $Name
  $backend=Join-Path $base 'backend';$stage=Join-Path $base 'stage';$backup=Join-Path $base 'backup'
@@ -75,6 +76,9 @@ function Assert-Health {
  if($script:fixtureScenario -ceq 'RecoveryPidDrift'){$script:state.pid=9999;throw 'HEALTH_FAILED'}
  if($script:fixtureScenario -ceq 'HealthFail' -and (Get-Content (Join-Path $backend 'src/server.js') -Raw) -ceq 'new code'){throw 'HEALTH_FAILED'}
 }
+function Assert-NewFeatures {
+ if($script:fixtureScenario -ceq 'NewFeaturesFail'){throw 'NEW_FEATURES_FAILED'}
+}
 function Assert-ReadOnlyApi {
  $script:state.smokes++
  if($script:fixtureScenario -ceq 'RuntimeChanged'){[IO.File]::WriteAllText((Join-Path $runtimeData 'new-current-record.json'),'keep current record')}
@@ -98,7 +102,7 @@ function Invoke-Fixture($f,[string]$Mode,[string]$Case) {
  if((Get-Content (Join-Path $f.backend 'uploads/photo.jpg') -Raw) -cne 'original media'){throw 'Upload changed.'}
  return $text
 }
-foreach($case in @('DeployAndRollback','CopyFail','HealthFail','RuntimeChanged','StageTamper','PidDrift','OperationBusy','BackupCorrupt','RetryBeforeStop','RecoveryPidDrift')) {
+foreach($case in @('DeployAndRollback','CopyFail','NewFeaturesFail','HealthFail','RuntimeChanged','StageTamper','PidDrift','OperationBusy','BackupCorrupt','RetryBeforeStop','RecoveryPidDrift')) {
  $f=New-Fixture $case
  $script:state=@{alive=$true;pid=1796;birth=$f.birth;stops=0;starts=0;smokes=0}
  if($case -ceq 'StageTamper'){[IO.File]::WriteAllText((Join-Path $f.stage 'code/src/server.js'),'tampered')}
@@ -152,6 +156,9 @@ function Invoke-RestMethod {
  if($Method -cne 'Get' -or !$Uri.StartsWith('http://127.0.0.1:3001/')){throw 'Non-read-only request.'}
  $script:apiCalls++
  switch($Uri){
+ 'http://127.0.0.1:3001/health' {return @{ok=$true;version='16.2.0';aiImageMode='DISABLED';capabilities=@{adPresets=$script:featurePresent;localMemory=$true}}}
+ 'http://127.0.0.1:3001/api/ads/presets' {return @{version=1;automaticReply=$false;data=@(1,2,3,4,5)}}
+ 'http://127.0.0.1:3001/api/memory' {return @{mode='MANUAL';source='LOCAL_HISTORY'}}
  'http://127.0.0.1:3001/api/me' {return @{user=@{tenantId='system';role='ADMIN'};tenant=@{id='system';meta=@{hasAccessToken=$true;hasInstagramAccessToken=$true}}}}
  'http://127.0.0.1:3001/api/meta/status' {return @{connected=$true;metaTokenReady=$false;instagramTokenReady=$false;source='OAUTH';adAccountId='fixture-ad';pageId='fixture-page';instagramUserId='fixture-ig'}}
  'http://127.0.0.1:3001/api/posts' {return @{data=$script:apiPosts}}
@@ -195,6 +202,14 @@ $tenantRows | ConvertTo-Json -Depth 8 | Set-Content $tenantPath -Encoding UTF8
 Assert-SmokeRejected 'CONNECTION_CHECK_FAILED'
 [IO.File]::WriteAllBytes($tenantPath,$tenantBytes)
 'TRANSITION_TEST=MissingLocalTokensRejectedDespitePublicFlags PASS'
+$script:featurePresent=$true
+& $script:RealNewFeatures
+'TRANSITION_TEST=NewFeaturesGetOnlySmoke PASS'
+$script:featurePresent=$false
+$caught=''
+try{& $script:RealNewFeatures}catch{$caught=$_.Exception.Message}
+if($caught -cne 'NEW_FEATURES_FAILED'){throw 'Missing preset capability was accepted.'}
+'TRANSITION_TEST=MissingNewCapabilityRejected PASS'
 'TRANSITION_TEST=PowerShell5SyntaxAndPinnedReleaseLedger PASS'
 
 # robocopy exit 1 means successful copy, not a failed fixture test.

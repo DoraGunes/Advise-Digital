@@ -28,3 +28,7 @@ jobs:
         shell: powershell
         run: |
           & (Join-Path $env:GITHUB_WORKSPACE 'tools/test/AdVise-Safe-Production-Transition.Tests.ps1') -TransitionScript (Join-Path $env:GITHUB_WORKSPACE 'tools/AdVise-Safe-Production-Transition.ps1')
+      - name: Verify staging guards
+        shell: powershell
+        run: |
+          & (Join-Path $env:GITHUB_WORKSPACE 'tools/test/AdVise-Safe-Production-Stage.Tests.ps1') -StageScript (Join-Path $env:GITHUB_WORKSPACE 'tools/AdVise-Safe-Production-Stage.ps1')
