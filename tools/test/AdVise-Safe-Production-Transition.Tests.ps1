@@ -57,6 +57,7 @@ function Get-VerifiedProcess {
 }
 function Stop-VerifiedBackend([string]$Birth) {
  $v=Get-VerifiedProcess;Assert-Birth $v $Birth;Assert-Idle
+ if($script:case -ceq 'StopDenied'){throw 'ACTIVE_CONNECTIONS'}
  $script:state.stops++;$script:state.alive=$false
 }
 function Start-Backend {
@@ -71,6 +72,7 @@ function Stop-StartedChild {
 }
 function Assert-Health {
  if(!$script:state.alive){throw 'HEALTH_FAILED'}
+ if($script:case -ceq 'RecoveryPidDrift'){$script:state.pid=9999;throw 'HEALTH_FAILED'}
  if($script:case -ceq 'HealthFail' -and (Get-Content (Join-Path $backend 'src/server.js') -Raw) -ceq 'new code'){throw 'HEALTH_FAILED'}
 }
 function Assert-ReadOnlyApi {
@@ -96,15 +98,23 @@ function Invoke-Fixture($f,[string]$Mode,[string]$Case) {
  if((Get-Content (Join-Path $f.backend 'uploads/photo.jpg') -Raw) -cne 'original media'){throw 'Upload changed.'}
  return $text
 }
-foreach($case in @('DeployAndRollback','CopyFail','HealthFail','RuntimeChanged','StageTamper','PidDrift')) {
+foreach($case in @('DeployAndRollback','CopyFail','HealthFail','RuntimeChanged','StageTamper','PidDrift','OperationBusy','BackupCorrupt','RetryBeforeStop','RecoveryPidDrift')) {
  $f=New-Fixture $case
  $script:state=@{alive=$true;pid=1796;birth=$f.birth;stops=0;starts=0;smokes=0}
  if($case -ceq 'StageTamper'){[IO.File]::WriteAllText((Join-Path $f.stage 'code/src/server.js'),'tampered')}
  if($case -ceq 'PidDrift'){$script:state.pid=9999}
+ if($case -ceq 'OperationBusy'){[IO.File]::WriteAllText((Join-Path $f.backend 'data/ad_operations.json'),'[{"status":"RUNNING"}]')}
+ if($case -ceq 'BackupCorrupt'){[IO.File]::WriteAllText((Join-Path $f.backup 'backend/src/server.js'),'corrupt backup')}
+ if($case -ceq 'RetryBeforeStop'){
+  $first=Invoke-Fixture $f 'Deploy' 'StopDenied'
+  if(!$first.Contains('TRANSITION_RESULT=NOT_APPLIED') -or $script:state.stops -ne 0){throw 'Unsafe stop-denied result.'}
+ }
  $result=Invoke-Fixture $f 'Deploy' $case
- if($case -cin @('StageTamper','PidDrift')) {
+ if($case -cin @('StageTamper','PidDrift','OperationBusy','BackupCorrupt')) {
   if(!$result.Contains('TRANSITION_RESULT=NOT_APPLIED') -or $script:state.stops -ne 0){throw ('Unsafe preflight: '+$case)}
- } elseif($case -ceq 'DeployAndRollback') {
+ } elseif($case -ceq 'RecoveryPidDrift') {
+  if(!$result.Contains('TRANSITION_RESULT=RECOVERY_REQUIRED') -or $script:state.stops -ne 1){throw 'Unrelated PID was stopped during recovery.'}
+ } elseif($case -cin @('DeployAndRollback','RetryBeforeStop')) {
   if(!$result.Contains('TRANSITION_RESULT=DEPLOYED')){throw ('Deploy failed: '+$result)}
   [IO.File]::WriteAllText((Join-Path $f.backend 'data/new-after-deploy.json'),'new durable record')
   $result=Invoke-Fixture $f 'Rollback' $case
@@ -115,7 +125,8 @@ foreach($case in @('DeployAndRollback','CopyFail','HealthFail','RuntimeChanged',
   if($case -ceq 'RuntimeChanged' -and !(Test-Path (Join-Path $f.backend 'data/new-current-record.json'))){throw 'Automatic rollback overwrote runtime.'}
  }
  if($case -cne 'PidDrift' -and !$script:state.alive){throw 'Backend was not recovered.'}
- if((Get-Content (Join-Path $f.backend 'src/server.js') -Raw) -cne 'old code'){throw ('Old code not restored: '+$case)}
+ $expectedCode=if($case -ceq 'RecoveryPidDrift'){'new code'}else{'old code'}
+ if((Get-Content (Join-Path $f.backend 'src/server.js') -Raw) -cne $expectedCode){throw ('Unexpected code state: '+$case)}
  'TRANSITION_TEST='+$case+' PASS'
 }
 $f=New-Fixture 'StartEnvironment'
