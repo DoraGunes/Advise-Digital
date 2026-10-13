@@ -380,7 +380,7 @@ async function resolveMetaInstagramIdentity(c, explicitId='', explicitPageId='')
   throw new Error('Instagram Business hesap kimliği bulunamadı. Meta/Instagram bağlantısını yeniden doğrulamak gerekiyor.');
 }
 
-export async function createAdCreativeFromInstagramMedia({name,instagramMediaId,instagramUserId,pageId,credentials={}}) {
+export async function createAdCreativeFromInstagramMedia({name,instagramMediaId,instagramUserId,pageId,destination='INSTAGRAM_DIRECT',credentials={}}) {
   const c=requireMeta(credentials);
   const mediaId=String(instagramMediaId||'').trim();
   if(!mediaId) throw new Error('Instagram gönderisi seçilmedi.');
@@ -397,6 +397,7 @@ export async function createAdCreativeFromInstagramMedia({name,instagramMediaId,
     object_story_spec:{page_id:identity.pageId}
   };
 
+  if(destination==='WHATSAPP')body.call_to_action={type:'WHATSAPP_MESSAGE',value:{app_destination:'WHATSAPP'}};
   return request(`act_${c.adAccountId}/adcreatives`,{method:'POST',credentials:c,body,timeoutMs:15000});
 }
 
@@ -466,3 +467,16 @@ export async function metaHealth(credentials={}) {
 }
 
 export async function instagramPublishImage(args={}) { return instagramPublishMedia({...args,mediaType:'IMAGE'}); }
+
+export async function validateRadiusTargeting(radius,credentials={},extraTargeting={}){
+ const c=requireMeta(credentials);
+ const geo_locations={custom_locations:[radius]};
+ try{
+  const response=await request('act_'+c.adAccountId+'/delivery_estimate',{
+   credentials:c,query:{optimization_goal:'CONVERSATIONS',targeting_spec:JSON.stringify({...extraTargeting,geo_locations,age_min:18,age_max:65})}});
+  if(!Array.isArray(response?.data)||!response.data.length)throw new Error('Empty estimate');
+  return {geo_locations,locationMode:'RADIUS',locations:['Bolu merkez '+radius.radius+' km']};
+ }catch(error){
+  throw Object.assign(new Error('Meta merkez/yarıçap hedefini doğrulayamadı. '+radius.radius+' km başka bölgeye çevrilmedi; reklam oluşturulmadı. Desteklenen bir yarıçapı veya hizmet illerini açıkça seçin.'),{code:'AD_RADIUS_UNAVAILABLE',cause:error});
+ }
+}

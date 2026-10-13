@@ -41,6 +41,8 @@ class _ManualMemoryPanelState extends State<ManualMemoryPanel> {
     final timing = data['timing'] is Map ? data['timing'] as Map : {};
     final posts = data['posts'] is List ? data['posts'] as List : [];
     final ads = data['adHistory'] is List ? data['adHistory'] as List : [];
+    final learning = data['learning'] is Map ? data['learning'] as Map : {};
+    final research = data['research'] is Map ? data['research'] as Map : {};
     return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
       Row(children: [
         const Expanded(child: Text('Kendi kayıtlarından Hafıza Sarayı',
@@ -53,6 +55,47 @@ class _ManualMemoryPanelState extends State<ManualMemoryPanel> {
       if (loading) const LinearProgressIndicator()
       else if (error != null) Text(error!)
       else ...[
+        const Text('Kendi metin ve saat hafızan',style:TextStyle(fontWeight:FontWeight.bold)),
+        Text('${learning['note'] ?? 'Henüz metin analizi yok.'}'),
+        for(final row in (learning['keywords'] is List ? learning['keywords'] as List : []))
+          if(row is Map) Text('${row['text']} · ${row['postCount']} kayıt'),
+        for(final group in (learning['captionSuggestions'] is List ? learning['captionSuggestions'] as List : []))
+          if(group is Map) ...[
+            Text('${group['mediaType']} için kendi metinlerin'),
+            for(final row in (group['examples'] is List ? group['examples'] as List : []))
+              if(row is Map) ...[
+                Text('${row['caption']}'),
+                if(widget.onUseCaption != null)
+                  TextButton(onPressed:()=>widget.onUseCaption!('${row['caption']}'),
+                    child:const Text('Bu metni taslağa al')),
+              ],
+          ],
+        for(final group in (learning['timingChecks'] is List ? learning['timingChecks'] as List : []))
+          if(group is Map) ...[
+            Text('${group['slot']} · ${group['timezone']} · ${group['label']}'),
+            Text('Uyumlu farklı yayın: ${group['alignedCount']} · tolerans: ${learning['timingToleranceMinutes']} dakika'),
+            for(final row in (group['trials'] is List ? group['trials'] as List : []))
+              if(row is Map) Text('Seçilen: ${row['plannedAt']} · kayıtlı yayın: ${row['recordedPublishedAt']} · fark: ${row['deltaMinutes']} dk'),
+            Text('${group['note']}'),
+          ],
+        const SizedBox(height:16),
+        const Text('Araştırma kitaplığı — henüz bu hesapta denenmedi', style: TextStyle(fontWeight: FontWeight.bold)),
+        Text('${research['disclaimer'] ?? 'Sunucu araştırma kitaplığı henüz yok.'}'),
+        for (final row in (research['timing'] is List ? research['timing'] as List : []))
+          if (row is Map) Text('Deneme saati: gün ${row['weekday']} · ${row['hour']}:00 · ${row['timezone']} · hesap örneği: 0'),
+        for (final row in (research['hashtagSets'] is List ? research['hashtagSets'] as List : []))
+          if (row is Map) ...[
+            Text('${row['title']}: ${row['tags'] is List ? (row['tags'] as List).join(' ') : ''}'),
+            Text('${row['reason'] ?? ''}'),
+            if (widget.onUseCaption != null && row['tags'] is List)
+              TextButton(onPressed: () => widget.onUseCaption!((row['tags'] as List).join(' ')),
+                child: const Text('Hashtagleri taslağa kopyala (mevcut metni değiştirir)')),
+          ],
+        const SizedBox(height: 12),
+        for (final row in (research['sources'] is List ? research['sources'] as List : []))
+          if (row is Map) SelectableText('Kaynak: ${row['title']} · ${row['url']} · ${row['publishedAt']}'),
+        const SizedBox(height: 16),
+        if(data['source']=='CLIENT_READ_ONLY_HISTORY') const Text('Hafıza mevcut sunucunun kendi gönderi kayıtlarından hazırlanıyor. Merkezi reklam ölçümü henüz yok.'),
         Text('İçerik: ${data['postCount'] ?? 0} · Yayınlanan: ${data['publishedCount'] ?? 0} · Ölçüm: ${performance['recordCount'] ?? 0}'),
         for (final mode in ['organic', 'paid']) ...[
           const SizedBox(height: 12),

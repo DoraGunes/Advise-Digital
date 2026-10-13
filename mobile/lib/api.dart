@@ -9,7 +9,9 @@ import 'package:image_picker/image_picker.dart' show XFile;
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'app_error.dart';
+import 'publication_tracker.dart';
 import 'config.dart';
+import 'manual_memory_local.dart';
 
 class ApiException implements Exception, UserFacingFailure {
   final int? statusCode;
@@ -29,6 +31,8 @@ class ApiException implements Exception, UserFacingFailure {
   @override
   String get userMessage {
     const known = {
+      'AD_RADIUS_UNAVAILABLE':'Meta seçilen yarıçapı doğrulayamadı. Hedef genişletilmedi ve reklam oluşturulmadı. Farklı yarıçap veya hizmet illerini açıkça seçin.',
+      'AD_PRESET_INVALID':'Reklam kipi ayarları geçersiz. WhatsApp hedefi, bölge ve 50–120 TL bütçeyi kontrol edin.',
       'META_SESSION_EXPIRED':
           'Meta bağlantısının süresi dolmuş. Bağlantılar ekranından yeniden bağlayın.',
       'META_PERMISSION_DENIED':
@@ -282,7 +286,7 @@ class Api {
         case 'GET':
           response = await _client
               .get(uri, headers: headers)
-              .timeout(const Duration(seconds: 20));
+              .timeout(timeout ?? const Duration(seconds: 20));
           break;
         case 'POST':
           response = await _client
@@ -563,11 +567,18 @@ class Api {
     required String requestId,
     String locationMode = 'COUNTRY',
     List<String> locations = const [],
+    String? presetId,
+    Map<String,dynamic>? radius,
   }) async {
+    if(presetId != null) await _requireCapability('adPresets',feature:'Kayıtlı reklam kipleri');
     await _requireCapability('adCreateSaga',
         feature: 'Güvenli reklam oluşturma');
     return Map<String, dynamic>.from(
         await _request('POST', '/api/ads/create', body: {
+      if(presetId != null) 'presetId':presetId,
+      if(presetId != null) 'presetVersion':1,
+      if(presetId != null) 'autoReply':false,
+      if(radius != null) 'radius':radius,
       'requestId': requestId,
       'instagramMediaId': instagramMediaId,
       'campaignName': campaignName,
@@ -580,6 +591,17 @@ class Api {
       'locations': locations,
     }));
   }
+
+  static Future<Map<String,dynamic>> adPresetPreflight({required String presetId,required double dailyBudget,
+    required String locationMode,List<String> locations=const [],Map<String,dynamic>? radius,String? instagramMediaId})async{
+    await _requireCapability('adPresets',feature:'Kayıtlı reklam kipleri');
+    return Map<String,dynamic>.from(await _request('GET','/api/ads/presets/preflight',
+      timeout:const Duration(seconds:45),query:{
+       'presetId':presetId,'presetVersion':'1','dailyBudget':'$dailyBudget','locationMode':locationMode,
+       'locations':jsonEncode(locations),if(radius!=null)'radius':jsonEncode(radius),
+       if(instagramMediaId!=null)'instagramMediaId':instagramMediaId}));
+  }
+  static Future<Map<String,dynamic>> adPresetResults() async => Map<String,dynamic>.from(await _request('GET','/api/ads/presets/results',timeout:const Duration(seconds:45)));
 
   static Future<Map<String, dynamic>> adsPreflight({String destination = 'INSTAGRAM_DIRECT'}) async {
     await _requireCapability('adsPreflight', feature: 'Meta bağlantı kontrolü');
@@ -682,9 +704,79 @@ class Api {
       List<dynamic>.from((await _request('POST', '/api/posts/reorder',
               body: {'postIds': postIds}))['data'] ??
           const []);
-  static Future<Map<String, dynamic>> publishPost(String id) async =>
-      Map<String, dynamic>.from(
-          await _request('POST', '/api/posts/$id/publish'));
+  static final _publicationFlights = <String, Future<Map<String,dynamic>>>{};
+
+  static Future<String> _publicationPrefix() async {
+    final session = await token();
+    var scope = 'anonymous';
+    try {
+      final claims = jsonDecode(utf8.decode(base64Url.decode(
+        base64Url.normalize(session.split('.')[1])))) as Map;
+      scope = '${claims['tenantId']}:${claims['sub']}';
+    } catch (_) {}
+    return 'publication_pending:${await baseUrl()}:$scope:';
+  }
+
+  static Future<Set<String>> pendingPublications() async {
+    final prefix = await _publicationPrefix(), prefs = await _prefs();
+    return prefs.getKeys().where((key) =>
+      key.startsWith(prefix) && prefs.getBool(key) == true)
+      .map((key) => key.substring(prefix.length)).toSet();
+  }
+
+  static Future<void> clearConfirmedPublication(String id) async {
+    await (await _prefs()).remove('${await _publicationPrefix()}$id');
+  }
+
+  static Future<Map<String,dynamic>> publishPost(String id,
+      {void Function(Map<String,dynamic>)? onUpdate,
+       bool Function()? cancelled, Future<void> Function()? pause}) => _followPublication(id,
+         allowSubmit: true, onUpdate: onUpdate, cancelled: cancelled, pause: pause);
+
+  static Future<Map<String,dynamic>> checkPublication(String id,
+      {void Function(Map<String,dynamic>)? onUpdate,
+       bool Function()? cancelled, Future<void> Function()? pause}) => _followPublication(id,
+         allowSubmit: false, onUpdate: onUpdate, cancelled: cancelled, pause: pause);
+
+  static Future<Map<String,dynamic>> _followPublication(String id,
+      {required bool allowSubmit,
+       void Function(Map<String,dynamic>)? onUpdate,
+       bool Function()? cancelled, Future<void> Function()? pause}) async {
+    final prefix = await _publicationPrefix(), key = '$prefix$id';
+    final existing = _publicationFlights[key];
+    if (existing != null) return existing;
+    final operation = () async {
+      final prefs = await _prefs();
+      final wasPending = prefs.getBool(key) == true;
+      // Persist before sending, so restarting the client cannot resend a lost POST.
+      if (!await prefs.setBool(key, true)) {
+        throw const ApiException('Yayın takibi kaydedilemedi. Paylaşım başlatılmadı.');
+      }
+      return PublicationTracker.follow(id: id,
+        submit: allowSubmit && !wasPending,
+        send: () async => Map<String,dynamic>.from(await _request(
+          'POST','/api/posts/${Uri.encodeComponent(id)}/publish',
+          retry: false, timeout: const Duration(seconds: 45))),
+        read: () async {
+          if (await _publicationPrefix() != prefix) return null;
+          final body = await _request('GET','/api/posts',
+            retry: false,timeout: const Duration(seconds: 5));
+          final rows = body is Map && body['data'] is List ? body['data'] as List : [];
+          for (final row in rows) {
+            if (row is Map && row['id']?.toString() == id) {
+              return Map<String,dynamic>.from(row);
+            }
+          }
+          return null;
+        },
+        confirmed: () async { await prefs.remove(key); },
+        onUpdate: onUpdate, cancelled: cancelled, pause: pause);
+    }();
+    _publicationFlights[key] = operation;
+    try { return await operation; }
+    finally { _publicationFlights.remove(key); }
+  }
+
   static Future<List<dynamic>> users() async => List<dynamic>.from(
       (await _request('GET', '/api/users'))['data'] ?? const []);
   static Future<Map<String, dynamic>> createUser(
@@ -900,8 +992,13 @@ class Api {
         'pageId': pageId,
         'adAccountId': adAccountId,
       }));
-  static Future<Map<String, dynamic>> localMemory({String mediaType = ''}) async =>
-      Map<String, dynamic>.from(await _request('GET', '/api/memory', query: {'mediaType': mediaType}));
+  static Future<Map<String, dynamic>> localMemory({String mediaType = ''}) async {
+    try{return Map<String,dynamic>.from(await _request('GET','/api/memory',query:{'mediaType':mediaType}));}
+    on ApiException catch(e){
+      if(e.statusCode!=404&&e.statusCode!=410)rethrow;
+      return localMemoryFromPosts(await posts());
+    }
+  }
   static Future<Map<String, dynamic>> aiStatus() async =>
       Map<String, dynamic>.from(await _request('GET', '/api/ai/status'));
   static Future<Map<String, dynamic>> aiMemory() async =>

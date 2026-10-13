@@ -1,0 +1,57 @@
+{
+  "version": 1,
+  "reviewedAt": "2026-10-13",
+  "automaticActions": false,
+  "disclaimer": "Genel araştırma ve deneme adaylarıdır; hesabınızda başarı kanıtı değildir.",
+  "timing": [
+    {
+      "weekday": 4,
+      "hour": 9,
+      "timezone": "Europe/Istanbul"
+    },
+    {
+      "weekday": 3,
+      "hour": 12,
+      "timezone": "Europe/Istanbul"
+    },
+    {
+      "weekday": 3,
+      "hour": 18,
+      "timezone": "Europe/Istanbul"
+    }
+  ],
+  "hashtagSets": [
+    {
+      "title": "Televizyon",
+      "tags": [
+        "#TelevizyonTamiri",
+        "#TVTamiri",
+        "#TeknikServis"
+      ],
+      "reason": "Konuya uygun deneme adayı; dönüşümü ölçülmedi."
+    },
+    {
+      "title": "Panel",
+      "tags": [
+        "#PanelTamiri",
+        "#EkranTamiri"
+      ],
+      "reason": "İçerikle eşleşiyorsa kullanın; dönüşümü ölçülmedi."
+    },
+    {
+      "title": "Bolu",
+      "tags": [
+        "#BoluTeknikServis",
+        "#BoluTVTamiri"
+      ],
+      "reason": "Gerçek hizmet yerini seçin; dönüşümü ölçülmedi."
+    }
+  ],
+  "sources": [
+    {
+      "title": "Buffer: Instagram posting times, 9.6 million posts",
+      "url": "https://buffer.com/resources/when-is-the-best-time-to-post-on-instagram/",
+      "publishedAt": "2026-09-23"
+    }
+  ]
+}

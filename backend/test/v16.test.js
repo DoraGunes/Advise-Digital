@@ -241,7 +241,7 @@ test('manual budget route enforces configured safety caps before mutation',async
 test('HTTP capability, auth, viewer enforcement and callback reachability',async()=>{
   const {app}=await import('../src/server.js');const listener=app.listen(0,'127.0.0.1');await new Promise(resolve=>listener.once('listening',resolve));const base=`http://127.0.0.1:${listener.address().port}`;
   try {
-    const health=await nativeFetch(`${base}/health`).then(r=>r.json());assert.equal(health.version,'16.1.0');assert.equal(health.capabilities.safeAutomationV16,true);
+    const health=await nativeFetch(`${base}/health`).then(r=>r.json());assert.equal(health.version,'16.2.0');assert.equal(health.capabilities.safeAutomationV16,true);
     const callback=await nativeFetch(`${base}/api/meta/oauth/callback?error=access_denied`);assert.equal(callback.status,200);assert.match(await callback.text(),/bağlantısı tamamlanamadı/);
     assert.equal((await nativeFetch(`${base}/api/posts`)).status,401);
     const adminSession=await auth.login('fixture-admin','fixture-password');const connect=await nativeFetch(`${base}/api/meta/connect/start`,{headers:{authorization:`Bearer ${adminSession.token}`}});assert.equal(connect.status,503);assert.match((await connect.json()).error,/Meta bağlantı kurulumu/);assert.equal(state.calls.filter(row=>row.endpoint==='me').length,0);

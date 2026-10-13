@@ -1,8 +1,10 @@
+import {learnManualHistory} from './memory-learning.js';
+import {researchMemory} from './memory-research.js';
 // Provider-independent history. No inference, fabricated outcomes or remote writes.
 export function buildManualMemory(posts=[],logs=[],performance={},timing={}) {
   const rows=Array.isArray(posts)?posts:[];
   return {
-    source:'LOCAL_HISTORY',mode:'MANUAL',
+    source:'LOCAL_HISTORY',mode:'MANUAL',research:researchMemory(),learning:learnManualHistory(rows),
     postCount:rows.length,publishedCount:rows.filter(row=>row.publishStatus==='PUBLISHED').length,
     performance,timing,
     posts:[...rows].sort((a,b)=>String(b.createdAt||'').localeCompare(String(a.createdAt||''))).slice(0,50).map(row=>({

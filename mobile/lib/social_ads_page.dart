@@ -4,6 +4,7 @@ import 'dart:math';
 import 'api.dart';
 import 'app_error.dart';
 import 'product_ui.dart';
+import 'ad_presets.dart';
 
 class SocialAdsPage extends StatefulWidget {
   final String? initialMediaId;
@@ -18,13 +19,19 @@ class _SocialAdsPageState extends State<SocialAdsPage> {
   Map<String, dynamic>? selected;
   List<String> availableCities = [];
   List<String> availableRegions = [];
-  String locationMode = 'COUNTRY';
+  Map<String,dynamic>? _preset=AdPresets.defaults(AdPresets.seeds.first);
+  List<Map<String,dynamic>> _presets = [];
+  final _presetResults = <String,Map<String,dynamic>>{};
+  bool _resultsLoading=false;
+  String? _resultsError;
+  Map<String,dynamic>? _radius={'latitude':40.7356,'longitude':31.6061,'radius':200,'distance_unit':'kilometer'};
+  String locationMode = 'RADIUS';
   Set<String> selectedLocations = {};
   bool loading = true;
   bool creating = false;
   String? error;
   int _step = 0;
-  String destination = 'INSTAGRAM_DIRECT';
+  String destination = 'WHATSAPP';
   bool strategyLoading = false;
   bool canOperate = false;
   Map<String, dynamic>? strategyReport;
@@ -39,7 +46,7 @@ class _SocialAdsPageState extends State<SocialAdsPage> {
       TextEditingController(text: 'Instagram mesaj kampanyası');
   final adSetName = TextEditingController(text: 'Instagram hedef kitle');
   final adName = TextEditingController(text: 'AdVise Instagram Reklamı');
-  final budget = TextEditingController(text: '150');
+  final budget = TextEditingController(text: '120');
   bool activateAd = false;
 
   @override
@@ -70,6 +77,7 @@ class _SocialAdsPageState extends State<SocialAdsPage> {
           '${(me['tenant'] as Map?)?['id'] ?? ''}:${(me['user'] as Map?)?['id'] ?? ''}';
       canOperate = ['ADMIN', 'CUSTOMER_ADMIN', 'MANAGER', 'OPERATOR']
           .contains((me['user'] as Map?)?['role']);
+      final presets=await AdPresets.load('${await Api.baseUrl()}:$_accountScope');
       Map<String, dynamic> targeting = {};
       try {
         targeting = await Api.adTargetingOptions();
@@ -77,6 +85,7 @@ class _SocialAdsPageState extends State<SocialAdsPage> {
       if (!mounted) return;
       setState(() {
         media = x;
+        _presets=presets;
         if (widget.initialMediaId != null && selected == null) {
           for (final item in media.whereType<Map>()) {
             if (item['id']?.toString() == widget.initialMediaId) {
@@ -88,9 +97,10 @@ class _SocialAdsPageState extends State<SocialAdsPage> {
         }
         availableCities = List<String>.from(targeting['cities'] ?? const []);
         availableRegions = List<String>.from(targeting['regions'] ?? const []);
-        locationMode = targeting['mode']?.toString() ?? 'COUNTRY';
-        selectedLocations =
-            Set<String>.from(targeting['locations'] ?? const []);
+        if(_preset==null){
+          locationMode = targeting['mode']?.toString() ?? 'COUNTRY';
+          selectedLocations=Set<String>.from(targeting['locations']??const []);
+        }
         loading = false;
         if (selected != null &&
             !media.any((m) =>
@@ -110,6 +120,7 @@ class _SocialAdsPageState extends State<SocialAdsPage> {
   }
 
   String get _targetingSummary {
+    if(locationMode=='RADIUS')return 'Bolu merkez · ${_radius?['radius'] ?? 200} km yarıçap';
     if (locationMode == 'COUNTRY') return 'Türkiye geneli';
     final values = selectedLocations.toList()..sort();
     final kind = locationMode == 'REGION' ? 'bölge' : 'il';
@@ -126,8 +137,29 @@ class _SocialAdsPageState extends State<SocialAdsPage> {
   }
 
   Future<void> _chooseTargeting() async {
+    if(locationMode=='RADIUS'&&_preset!=null) {
+      final radiusController=TextEditingController(text:'${_radius?['radius']??200}');
+      final result=await showDialog<String>(context:context,builder:(ctx)=>AlertDialog(
+        title:const Text('Bolu merkez · yarıçap'),
+        content:Column(mainAxisSize:MainAxisSize.min,children:[
+          const Text('Meta desteği reklam oluşturmadan kontrol edilir. 200 km reddedilirse başka bölge kullanılmaz.'),
+          TextField(controller:radiusController,keyboardType:TextInputType.number,
+            decoration:const InputDecoration(labelText:'Yarıçap (km, 1–200)')),
+        ]),actions:[
+          TextButton(onPressed:()=>Navigator.pop(ctx,'CITY'),child:const Text('Bunun yerine il seç')),
+          FilledButton(onPressed:()=>Navigator.pop(ctx,radiusController.text),child:const Text('Yarıçapı kullan')),
+        ]));
+      radiusController.dispose();
+      if(!mounted||result==null)return;
+      if(result!='CITY'){
+        final radius=double.tryParse(result);
+        if(radius==null||radius<1||radius>200){_snack('1–200 km arasında yarıçap seçin.');return;}
+        setState(()=>_radius={...?_radius,'radius':radius});return;
+      }
+      setState((){locationMode='CITY';_radius=null;selectedLocations.clear();});
+    }
     if (!canOperate || creating) return;
-    var mode = locationMode;
+    var mode = locationMode=='RADIUS'?'CITY':locationMode;
     final chosen = Set<String>.from(selectedLocations);
     final search = TextEditingController();
     final result = await showModalBottomSheet<Map<String, dynamic>>(
@@ -252,10 +284,11 @@ class _SocialAdsPageState extends State<SocialAdsPage> {
       final nextLocations = Set<String>.from(result['locations'] ?? const []);
       setState(() {
         locationMode = nextMode;
+        _radius=null;
         selectedLocations = nextLocations;
       });
       try {
-        await Api.saveAdTargetingPreferences(
+        if(_preset==null)await Api.saveAdTargetingPreferences(
             mode: nextMode, locations: nextLocations.toList());
       } catch (e) {
         if (mounted)
@@ -263,6 +296,88 @@ class _SocialAdsPageState extends State<SocialAdsPage> {
               'Seçim bu kampanyada kullanılacak. İşletme tercihi kaydedilemedi: ${AppError.message(e)}');
       }
     }
+  }
+
+  Widget _presetPicker()=>Column(crossAxisAlignment:CrossAxisAlignment.start,children:[
+    const Text('Hazır reklam kipleri',style:TextStyle(fontSize:18,fontWeight:FontWeight.bold)),
+    const Text('Hedef, bütçe, bölge ve gösterim alanları birlikte yüklenir. Otomatik mesaj yok. Seçmek Meta reklamı oluşturmaz.'),
+    OutlinedButton.icon(onPressed:_resultsLoading||creating?null:_readPresetResults,
+      icon:const Icon(Icons.analytics_outlined),
+      label:Text(_resultsLoading?'Meta sonuçları okunuyor…':'Ölçülmüş mesaj maliyetlerini oku')),
+    if(_resultsError!=null)Text(_resultsError!),
+    const SizedBox(height:8),
+    for(final row in _presets) Card(child:ListTile(
+      leading:Icon(row['media']=='VIDEO'?Icons.video_library_outlined:Icons.tune),
+      title:Text('${row['name']}'),
+      subtitle:Text('WhatsApp · ${row['dailyBudget']} TL/gün · ${row['placement']} · PAUSED\nMesaj maliyeti: ${_presetCost(row['id'].toString())}'),
+      selected:_preset?['name']==row['name'],
+      trailing:const Icon(Icons.chevron_right),
+      onTap:creating||!canOperate?null:()=>_applyPreset(row))),
+    if(_preset!=null) ...[
+      Text('Seçili kip: ${_preset!['name']} · $_targetingSummary'),
+      const Text('Toplam hesap üst sınırı 200 TL/gün. 2–3 TL mesaj maliyeti yalnız hedef, teklif limiti veya garanti değildir.'),
+      OutlinedButton.icon(onPressed:creating?null:_savePreset,icon:const Icon(Icons.save_outlined),
+        label:const Text('Bu ayarları kendi kipim olarak kaydet')),
+    ],
+  ]);
+String _presetCost(String id){
+    final row=_presetResults[id];
+    if(row?['status']!='MEASURED'||row?['costPerConversation']==null)return 'henüz ölçülmedi';
+    return '${row!['costPerConversation']} TL · son 7 gün · ${row['conversations']} Meta konuşması';
+  }
+  Future<void> _readPresetResults() async{
+    setState((){_resultsLoading=true;_resultsError=null;});
+    try{
+      final result=await Api.adPresetResults();
+      final rows=result['data'] is List?result['data'] as List:[];
+      if(mounted)setState((){
+        _presetResults.clear();
+        for(final row in rows.whereType<Map>()){
+          _presetResults['${row['presetId']}']=Map<String,dynamic>.from(row);
+        }
+      });
+    }catch(e){if(mounted)setState(()=>_resultsError='Sonuçlar okunamadı; maliyet tahmin edilmiyor. ${AppError.message(e)}');}
+    finally{if(mounted)setState(()=>_resultsLoading=false);}
+  }
+
+  void _applyPreset(Map<String,dynamic> row){
+    setState((){
+      _preset=Map<String,dynamic>.from(row);destination='WHATSAPP';
+      budget.text='${row['dailyBudget']}';activateAd=false;
+      locationMode=row['locationMode']?.toString()??'RADIUS';
+      _radius=row['radius'] is Map?Map<String,dynamic>.from(row['radius']):null;
+      selectedLocations=Set<String>.from(row['locations']??[]);
+      campaignName.text='${row['name']}';adSetName.text='${row['name']} · hedef';
+      adName.text='${row['name']} · içerik';
+      _adRequestId=null;_adFailure=null;_preflightMessage=null;_created=false;
+      if(row['instagramMediaId']!=null){
+        selected=null;
+        for(final item in media.whereType<Map>()){
+          if(item['id']==row['instagramMediaId'])selected=Map<String,dynamic>.from(item);
+        }
+      }
+      if(selected!=null&&!AdPresets.accepts(row,selected!))selected=null;
+    });
+  }
+  Future<void> _savePreset() async{
+    final name=TextEditingController(text:'${_preset?['name']} · benim kipim');
+    final accepted=await showDialog<bool>(context:context,builder:(ctx)=>AlertDialog(
+      title:const Text('Reklam ayar kipini kaydet'),
+      content:TextField(controller:name,decoration:const InputDecoration(labelText:'Kip adı'),maxLength:80),
+      actions:[TextButton(onPressed:()=>Navigator.pop(ctx,false),child:const Text('Vazgeç')),
+        FilledButton(onPressed:()=>Navigator.pop(ctx,true),child:const Text('Yalnız kipi kaydet'))]));
+    if(accepted==true&&name.text.trim().isNotEmpty&&_preset!=null){
+      try{
+        final scope='${await Api.baseUrl()}:$_accountScope';
+        await AdPresets.save(scope,{..._preset!,'name':name.text.trim(),
+          'dailyBudget':double.tryParse(budget.text.replaceAll(',','.')),
+          'locationMode':locationMode,'locations':selectedLocations.toList(),'radius':_radius,
+          'instagramMediaId':_selectedPostId});
+        final rows=await AdPresets.load(scope);
+        if(mounted){setState(()=>_presets=rows);_snack('Ayar kipi bu cihaz ve hesap için kaydedildi. Meta reklamı oluşturulmadı.');}
+      }catch(_){if(mounted)_snack('Kip kaydedilemedi. Günlük bütçe 50–120 TL olmalı.');}
+    }
+    name.dispose();
   }
 
   String _operationDiagnostic(Map<String, dynamic> operation) {
@@ -291,11 +406,17 @@ class _SocialAdsPageState extends State<SocialAdsPage> {
   Future<void> _createAd() async {
     if (!canOperate || creating || _created) return;
     final post = selected;
+    if(_preset != null && post != null && !AdPresets.accepts(_preset!,post)) {
+      _snack('Seçilen içerik bu kipin fotoğraf/Reels türüyle eşleşmiyor.');return;
+    }
     if (post == null || _selectedPostId == null) {
       _snack('Önce reklam vereceğin Instagram gönderisini seç.');
       return;
     }
     final dailyBudget = double.tryParse(budget.text.replaceAll(',', '.'));
+    if(_preset != null && (dailyBudget==null||dailyBudget>120)){
+      _snack('Kayıtlı kipte reklam başına üst sınır 120 TL.');return;
+    }
     if (dailyBudget == null || dailyBudget < 50) {
       _snack('Günlük bütçe en az 50 TL olmalı.');
       return;
@@ -320,6 +441,7 @@ class _SocialAdsPageState extends State<SocialAdsPage> {
             'destination': destination,
             'mode': locationMode,
             'locations': selectedLocations.toList()..sort(),
+            'presetId':_preset?['id'],'presetVersion':_preset==null?null:1,'radius':_radius,
           },
           _adRequestId!);
       if (!mounted) return;
@@ -336,6 +458,7 @@ class _SocialAdsPageState extends State<SocialAdsPage> {
         destination: destination,
         locationMode: locationMode,
         locations: selectedLocations.toList(),
+        presetId:_preset?['id']?.toString(),radius:_radius,
       );
       if (!mounted) return;
       setState(() {
@@ -547,18 +670,17 @@ class _SocialAdsPageState extends State<SocialAdsPage> {
                                     content: Column(
                                         crossAxisAlignment: CrossAxisAlignment.start,
                                         children: [
+                                          _presetPicker(),
+                                          const SizedBox(height:12),
                                           DropdownButtonFormField<String>(
                                             initialValue: destination,
                                             decoration: const InputDecoration(labelText: 'Mesajlaşma kanalı'),
                                             items: const [
                                               DropdownMenuItem(
-                                                value: 'INSTAGRAM_DIRECT',
-                                                child: Text('Instagram Direct')),
-                                              DropdownMenuItem(
                                                 value: 'WHATSAPP',
                                                 child: Text('WhatsApp Business')),
                                             ],
-                                            onChanged: creating ? null : (value) {
+                                            onChanged: creating || _preset != null ? null : (value) {
                                               if (value != null) setState(() {
                                                 destination = value;
                                                 _adRequestId = null;
@@ -753,7 +875,10 @@ class _SocialAdsPageState extends State<SocialAdsPage> {
                                                 Text(
                                                     'Günlük bütçe: ₺${budget.text}'),
                                                 Text(
-                                                    'Bölge: $_targetingSummary')
+                                                    'Bölge: $_targetingSummary'),
+                                                Text('Kip: ${_preset?['name']??'Manuel'}'),
+                                                Text('Gösterim: ${_preset?['placement']??'AUTO'} · yaş 18–65'),
+                                                const Text('Oluşturulacak: kampanya + reklam grubu + creative + reklam. Hepsi PAUSED; otomatik mesaj yok.')
                                               ])),
                                           const SizedBox(height: 12),
                                           SwitchListTile.adaptive(
@@ -763,7 +888,7 @@ class _SocialAdsPageState extends State<SocialAdsPage> {
                                               subtitle: const Text(
                                                   'Kapalıysa reklam durdurulmuş durumda oluşturulur.'),
                                               value: activateAd,
-                                              onChanged: creating || !canOperate
+                                              onChanged: creating || !canOperate || _preset != null
                                                   ? null
                                                   : (v) => setState(
                                                       () => activateAd = v)),
@@ -783,7 +908,7 @@ class _SocialAdsPageState extends State<SocialAdsPage> {
         builder: (ctx) => AlertDialog(
                 title: const Text('Reklamı onayla'),
                 content: Text(
-                    "Günlük ₺${budget.text} bütçe ile $_targetingSummary hedefinde $_destinationLabel reklamı oluşturulacak.${activateAd ? ' Reklam hemen aktif edilecek.' : ' Reklam durdurulmuş durumda kalacak.'}"),
+                    "Günlük ₺${budget.text} bütçe ile $_targetingSummary hedefinde $_destinationLabel reklamı oluşturulacak. Kampanya, reklam grubu, creative ve reklam hazırlanır; otomatik yanıt eklenmez.${activateAd ? ' Reklam hemen aktif edilecek.' : ' Reklam durdurulmuş durumda kalacak.'}"),
                 actions: [
                   TextButton(
                       onPressed: () => Navigator.pop(ctx, false),
@@ -826,7 +951,11 @@ class _SocialAdsPageState extends State<SocialAdsPage> {
       _preflightMessage = null;
     });
     try {
-      final result = await Api.adsPreflight(destination: destination);
+      final result = _preset==null ? await Api.adsPreflight(destination: destination)
+        :await Api.adPresetPreflight(presetId:'${_preset!['id']}',
+          dailyBudget:double.tryParse(budget.text.replaceAll(',','.'))??0,
+          locationMode:locationMode,locations:selectedLocations.toList(),radius:_radius,
+          instagramMediaId:_selectedPostId);
       final settings = await Api.settings();
       final cap = (settings['geminiAdsDailyCap'] as num?)?.toDouble() ?? 0;
       final checkedDestination =
@@ -847,7 +976,7 @@ class _SocialAdsPageState extends State<SocialAdsPage> {
             ? 'Meta bağlantısı doğrulanamadı.'
             : cap <= 0
                 ? 'Meta bağlantıları doğrulandı ancak günlük reklam limiti ayarlanmamış. Daha Fazla > Otomasyon bölümünden günlük hesap bütçe sınırını tanımlayın.'
-                : 'Meta bağlantıları doğrulandı. ${result['currency']} · ${result['timezone']} · $destinationLabel · Günlük hesap sınırı ₺$cap');
+                : 'Meta bağlantıları doğrulandı. ${result['currency']} · ${result['timezone']} · $destinationLabel · Günlük hesap sınırı ₺$cap\n${_preset==null?'':'Kip, bütçe ve bölge doğrulandı. İçerik: ${result['mediaVerified']==true?'doğrulandı':'henüz seçilmedi'}. Otomatik yanıt yok.'}');
     } catch (error) {
       if (mounted) setState(() => _preflightMessage = AppError.message(error));
     } finally {

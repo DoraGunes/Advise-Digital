@@ -86,7 +86,8 @@ void main() {
             'capabilities': {
               'productExperience': true,
               'campaignStrategy': true,
-              'adCreateSaga': true
+              'adCreateSaga': true,
+              'adPresets': true
             }
           },
         '/api/me' => {
@@ -200,6 +201,12 @@ void main() {
       final body = jsonDecode(request.body) as Map;
       expect(body['requestId'], isNotEmpty);
       expect(body['activate'], false);
+      expect(body['destination'],'WHATSAPP');
+      expect(body['presetId'],'service-all');
+      expect(body['autoReply'],false);
+      expect(body['dailyBudget'],120);
+      expect(body['locationMode'],'RADIUS');
+      expect((body['radius'] as Map)['radius'],200);
       return response.future;
     });
     await tester.pumpAndSettle();
