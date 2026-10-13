@@ -17,7 +17,6 @@ const scheduler=await import('../src/scheduler.js');
 const optimizer=await import('../src/optimizer.js');
 const gemini=await import('../src/gemini-ads.js');
 const auth=await import('../src/auth.js');
-const ai=await import('../src/ai.js');
 const nativeFetch=global.fetch;
 const creds={accessToken:'fixture-tenant-token',adAccountId:'123',instagramUserId:'456',instagramAccessToken:'fixture-ig-token',pageId:'789'};
 let state={sets:[],ads:[],campaigns:[],calls:[],containerStatus:'FINISHED',failPublish:false,insights:{spend:'10',impressions:'100',reach:'90',clicks:'3',ctr:'3',actions:[{action_type:'messaging_conversation_started_7d',value:'2'}]}};
@@ -64,59 +63,6 @@ test('synthetic logo video is a consistent two-second indexed AVI container',asy
   for(let i=0;i<20;i++) {
     const at=idx+8+i*16,frame=movi+video.readUInt32LE(at+8);assert.equal(video.toString('ascii',frame,frame+4),'00dc');assert.equal(video.readUInt32LE(frame+4),jpeg.length);assert.deepEqual(video.subarray(frame+8,frame+8+jpeg.length),jpeg);
   }
-});
-
-test('Gemini media maps browser video MIME aliases in inline and uploaded inputs',async()=>{
-  assert.equal(ai.normalizeGeminiMediaMime('video/quicktime'),'video/mov');assert.equal(ai.normalizeGeminiMediaMime('video/x-msvideo'),'video/avi');assert.equal(ai.normalizeGeminiMediaMime('video/x-m4v'),'video/mp4');
-  assert.equal(ai.normalizeGeminiMediaMime('VIDEO/QUICKTIME; codecs=avc1'),'video/mov');assert.equal(ai.normalizeGeminiMediaMime('video/webm'),'video/webm');assert.equal(ai.normalizeGeminiMediaMime('video/unsupported'),'video/unsupported');
-  const small=path.join(fixture,'small.avi');const jpeg=await fs.readFile(new URL('../../mobile/assets/advise_logo.jpg',import.meta.url));await fs.writeFile(small,fixtureVideoFromJpeg(jpeg).video);
-  const inline=await ai.fileToGeminiInputPart({},small,'video/x-msvideo','REELS');assert.equal(inline.type,'video');assert.equal(inline.mime_type,'video/avi');assert.ok(inline.data);
-  const large=path.join(fixture,'large-fixture.avi');const handle=await fs.open(large,'w');try {await handle.truncate(20*1024*1024+1);} finally {await handle.close();}
-  const uploaded=await ai.fileToGeminiInputPart({files:{upload:async options=>{assert.equal(options.config.mimeType,'video/avi');return {state:'ACTIVE',uri:'https://fixture.invalid/provider-file',mimeType:'video/x-msvideo'};}}},large,'video/x-msvideo','REELS');
-  assert.equal(uploaded.type,'video');assert.equal(uploaded.mime_type,'video/avi');assert.equal(uploaded.uri,'https://fixture.invalid/provider-file');assert.equal(uploaded.data,undefined);
-});
-
-test('campaign strategy is bounded, explicit and never an applied action',async()=>{
-  reset();let requested;
-  const result=await ai.generateCampaignStrategy({budgetLimit:150,accountDailyCap:300,locationMode:'CITY',locations:['Bolu'],reportAvailable:false,memoryOutcomeCount:0,profile:{businessName:'Fixture'},memoryContext:'tenant-owned context'},{request:async options=>{requested=options;return {model:'fixture-gemini',parsed:{...strategyAnswer,dailyBudget:9999}};}});
-  assert.equal(result.available,true);assert.equal(result.source,'GEMINI');assert.equal(result.model,'fixture-gemini');assert.equal(result.published,false);assert.equal(result.created,false);assert.equal(result.requiresApproval,true);
-  assert.equal(result.strategy.budget.dailyBudget,150);assert.deepEqual(result.strategy.audience.locations,['Bolu']);assert.ok(result.strategy.warnings.length>=3);
-  assert.ok(requested.schema.required.includes('dailyBudgetMin'));assert.ok(requested.schema.required.includes('dailyBudgetMax'));assert.ok(requested.schema.required.includes('missingPrerequisites'));assert.equal(state.calls.length,0);
-});
-
-test('invalid campaign strategy output cannot turn into a fake recommendation',async()=>{
-  const result=await ai.generateCampaignStrategy({budgetLimit:150},{request:async()=>({model:'fixture-gemini',parsed:{...strategyAnswer,recommendedTime:'25:99'}})});
-  assert.equal(result.available,false);assert.equal(result.strategy,null);assert.equal(result.source,'UNAVAILABLE');
-});
-
-test('unconfigured Gemini strategy has no fallback creative or remote calls',async()=>{
-  reset();const result=await ai.generateCampaignStrategy({budgetLimit:150});
-  assert.equal(result.available,false);assert.equal(result.strategy,null);assert.equal(result.model,null);assert.equal(state.calls.length,0);
-});
-
-test('Gemini logs and failure DTOs never expose secret-bearing provider exceptions',async()=>{
-  const secret='FIXTURE_PROVIDER_SECRET_ONLY',error=new Error(`Unauthorized https://fixture.invalid/?key=${secret} Authorization: Bearer ${secret} provider-body=${secret}`);error.status=401;error.code=secret;
-  const captured=[],originals={log:console.log,warn:console.warn,error:console.error};console.log=(...args)=>captured.push(args);console.warn=(...args)=>captured.push(args);console.error=(...args)=>captured.push(args);
-  try {
-    await assert.rejects(ai.callGemini({prompt:'Synthetic private prompt',mediaParts:[]},{client:{interactions:{create:async()=>{throw error;}}}}));
-    const pack=await ai.generateContentPack({title:'Fixture product'},{request:async()=>{throw error;}});
-    const strategy=await ai.generateCampaignStrategy({budgetLimit:150},{request:async()=>{throw error;}});
-    assert.equal(pack.errorCategory,'AUTHENTICATION_ERROR');assert.equal(strategy.available,false);assert.equal(strategy.errorCategory,'AUTHENTICATION_ERROR');
-    const serialized=JSON.stringify({captured,pack,strategy,safe:ai.safeGeminiError(error)});assert.ok(!serialized.includes(secret));assert.ok(!serialized.includes('fixture.invalid'));assert.ok(!serialized.includes('Synthetic private prompt'));
-    assert.ok(captured.some(row=>row[0]==='[AI GEMINI INTERACTIONS ERROR]'&&row[1].status===401));
-  } finally {Object.assign(console,originals);}
-});
-
-test('campaign strategy uses only tenant-owned media memory and real report context',async()=>{
-  reset();const tenant=await store.createTenant({companyName:'Strategy fixture',plan:'AGENCY'});
-  await store.updateTenant(tenant.id,{meta:{connected:true,...creds},onboarding:{businessName:'Own business',industry:'Retail',dailyBudget:250}});
-  await store.saveSettings(tenant.id,{geminiAdsDailyCap:300});await store.savePosts(tenant.id,[{id:'own-media',title:'Owned creative',caption:'Owned caption',mediaType:'POST'}]);
-  await memory.learnFromGeneration('other-strategy-tenant',{source:'GEMINI',productName:'FOREIGN_TENANT_ONLY_SECRET',hook:'Foreign hook'});
-  let prompt='';const result=await product.productStrategy(tenant.id,{postId:'own-media'},{actorId:'fixture-operator',request:async options=>{prompt=options.prompt;return {model:'fixture-gemini',parsed:strategyAnswer};}});
-  assert.equal(result.evidence.selectedPostId,'own-media');assert.equal(result.evidence.reportAvailable,true);assert.ok(prompt.includes('Owned creative'));assert.ok(prompt.includes('"spend":10'));
-  assert.ok(!prompt.includes('FOREIGN_TENANT_ONLY_SECRET'));assert.ok(!prompt.includes(creds.accessToken));assert.ok(!state.calls.some(row=>row.method==='POST'));
-  assert.equal((await store.getLogs(tenant.id)).find(row=>row.type==='AI_CAMPAIGN_STRATEGY_GENERATED').actorId,'fixture-operator');
-  await assert.rejects(product.productStrategy(tenant.id,{postId:'foreign-media'}),/bu hesaba ait değil/);
 });
 
 test('Gemini ad metrics deduplicate aliases and missing data blocks automation',()=>{
@@ -267,19 +213,17 @@ test('weekly launch gate retries after an explicit failed attempt but blocks unr
   const retry=scheduler.weeklyLaunchGate([{type:'WEEKLY_LAUNCH_ERROR',week,at:'2026-10-05T10:01:00Z',error:'fixture'},{type:'WEEKLY_LAUNCH_STARTED',week,at:'2026-10-05T10:00:00Z'}],week);assert.equal(retry.blocked,false);assert.equal(retry.retry,true);
   assert.equal(scheduler.weeklyLaunchGate([{type:'WEEKLY_LAUNCH',week,at:'2026-10-05T10:02:00Z'},{type:'WEEKLY_LAUNCH_ERROR',week,at:'2026-10-05T10:01:00Z'}],week).blocked,true);
 });
-test('optimizer does not finish a review before minimum spend is reached',async()=>{
-  reset();const tenant=await store.createTenant({companyName:'Optimizer fixture',plan:'AGENCY'});await store.updateTenant(tenant.id,{meta:{connected:true,...creds}});await store.saveSettings(tenant.id,{enabled:true,geminiAdsDailyCap:500});
-  state.ads=[{id:'100',adset_id:'222',status:'ACTIVE',created_time:new Date(Date.now()-13*3600000).toISOString()}];state.sets=[{id:'222',daily_budget:'50000',status:'ACTIVE'}];
-  const result=await optimizer.optimizeAds(tenant.id);assert.equal(result.actions[0].action,'WAIT_MIN_SPEND');assert.equal((await store.getLogs(tenant.id)).filter(row=>row.type==='EARLY_REVIEW_DONE').length,0);
-});
-test('optimizer deduplicates equivalent Meta messaging actions before CPA decisions',async()=>{
-  reset();const tenant=await store.createTenant({companyName:'Optimizer duplicate fixture',plan:'AGENCY'});await store.updateTenant(tenant.id,{meta:{connected:true,...creds}});await store.saveSettings(tenant.id,{enabled:true,earlyMessageCostLimit:30,earlyMinSpendBeforeDecision:1,autoPause:true,autoReallocate:false,minDailyBudget:25,geminiAdsDailyCap:500});
-  state.ads=[{id:'101',adset_id:'221',status:'ACTIVE',created_time:new Date(Date.now()-13*3600000).toISOString()}];state.sets=[{id:'221',daily_budget:'10000',status:'ACTIVE'}];state.insights={spend:'100',impressions:'1000',reach:'900',clicks:'30',ctr:'3',actions:[{action_type:'onsite_conversion.messaging_conversation_started_7d',value:'2'},{action_type:'messaging_conversation_started_7d',value:'2'}]};
-  const result=await optimizer.optimizeAds(tenant.id);const review=result.actions.find(row=>row.adId==='101');assert.equal(review.action,'PAUSED_12H',review.reason);assert.equal(review.metrics.messages,2);assert.equal(review.metrics.messageCost,50);
+test('manual mode never runs automatic optimizer against an existing active ad',async()=>{
+  reset();const tenant=await store.createTenant({companyName:'Manual optimizer fixture',plan:'AGENCY'});
+  await store.updateTenant(tenant.id,{meta:{connected:true,...creds}});
+  await store.saveSettings(tenant.id,{enabled:true,geminiAdsDailyCap:500});
+  state.ads=[{id:'100',adset_id:'222',status:'ACTIVE'}];
+  const result=await optimizer.optimizeAds(tenant.id);
+  assert.equal(result.enabled,false);assert.equal(state.calls.length,0);
 });
 test('Gemini automatic activation cannot reopen a manual pause',async()=>{
   reset();const tenant=await store.createTenant({companyName:'Gemini fixture',plan:'AGENCY'});await store.updateTenant(tenant.id,{meta:{connected:true,...creds}});await store.saveSettings(tenant.id,{geminiAdsDailyCap:500});state.sets=[{id:'222',daily_budget:'10000',status:'PAUSED',effective_status:'PAUSED',campaign_id:'333',targeting:{geo_locations:{countries:['TR']}}}];
-  await assert.rejects(gemini.applyGeminiAdDecision(tenant.id,{adSetId:'222',action:'ACTIVATE',automatic:true}),/Elle durdurulmuş/);assert.equal(state.calls.filter(row=>row.method==='POST').length,0);
+  await assert.rejects(gemini.applyGeminiAdDecision(tenant.id,{adSetId:'222',action:'ACTIVATE',automatic:true}),{code:'AI_REMOVED'});assert.equal(state.calls.filter(row=>row.method==='POST').length,0);
 });
 test('notifications deduplicate a persisted event and remain readable',async()=>{
   const a=await pro.createAlert('notifications',{title:'Real event',sourceEventId:'event1'}),b=await pro.createAlert('notifications',{title:'Duplicate',sourceEventId:'event1'});assert.equal(a.id,b.id);await pro.markAlert('notifications',a.id,true);assert.equal((await pro.getAlerts('notifications'))[0].read,true);
@@ -297,7 +241,7 @@ test('manual budget route enforces configured safety caps before mutation',async
 test('HTTP capability, auth, viewer enforcement and callback reachability',async()=>{
   const {app}=await import('../src/server.js');const listener=app.listen(0,'127.0.0.1');await new Promise(resolve=>listener.once('listening',resolve));const base=`http://127.0.0.1:${listener.address().port}`;
   try {
-    const health=await nativeFetch(`${base}/health`).then(r=>r.json());assert.equal(health.version,'16.0.0');assert.equal(health.capabilities.safeAutomationV16,true);
+    const health=await nativeFetch(`${base}/health`).then(r=>r.json());assert.equal(health.version,'16.1.0');assert.equal(health.capabilities.safeAutomationV16,true);
     const callback=await nativeFetch(`${base}/api/meta/oauth/callback?error=access_denied`);assert.equal(callback.status,200);assert.match(await callback.text(),/bağlantısı tamamlanamadı/);
     assert.equal((await nativeFetch(`${base}/api/posts`)).status,401);
     const adminSession=await auth.login('fixture-admin','fixture-password');const connect=await nativeFetch(`${base}/api/meta/connect/start`,{headers:{authorization:`Bearer ${adminSession.token}`}});assert.equal(connect.status,503);assert.match((await connect.json()).error,/Meta bağlantı kurulumu/);assert.equal(state.calls.filter(row=>row.endpoint==='me').length,0);
@@ -335,7 +279,7 @@ test('HTTP post edit queue cover and delete preserve pending or completed public
   } finally {await new Promise(resolve=>listener.close(resolve));}
 });
 
-test('HTTP publish-due works only on the authenticated tenant queue',async()=>{
+test('HTTP publish-due leaves old automatic queues untouched in manual mode',async()=>{
   reset();const tenant=await store.createTenant({companyName:'Tenant publish due fixture',plan:'AGENCY'});await store.updateTenant(tenant.id,{meta:{connected:true,...creds}});
   await auth.createTenantUser({tenantId:tenant.id,username:'publish-due-manager',password:'manager-password',role:'MANAGER'});const session=await auth.login('publish-due-manager','manager-password');
   const pending=id=>({id,publicUrl:'https://fixture.invalid/image.jpg',publishStatus:'QUEUED',nextPublishAt:new Date(Date.now()-10000).toISOString(),autoPublish:true});
@@ -343,9 +287,9 @@ test('HTTP publish-due works only on the authenticated tenant queue',async()=>{
   await store.savePosts('system',[pending('system-only')]);await store.savePosts(tenant.id,[pending('tenant-only')]);
   const {app}=await import('../src/server.js');const listener=app.listen(0,'127.0.0.1');await new Promise(resolve=>listener.once('listening',resolve));const base=`http://127.0.0.1:${listener.address().port}`;
   try {
-    const result=await nativeFetch(`${base}/api/automation/publish-due`,{method:'POST',headers:{authorization:`Bearer ${session.token}`}});assert.equal(result.status,200);assert.equal((await result.json()).published,1);
-    assert.equal((await store.getPosts('system'))[0].publishStatus,'QUEUED');assert.equal((await store.getPosts(tenant.id))[0].publishStatus,'PUBLISHED');
-    assert.ok(state.calls.filter(row=>row.endpoint.endsWith('/media_publish')).every(row=>row.endpoint.startsWith('456/')));
+    const result=await nativeFetch(`${base}/api/automation/publish-due`,{method:'POST',headers:{authorization:`Bearer ${session.token}`}});assert.equal(result.status,200);assert.equal((await result.json()).published,0);
+    assert.equal((await store.getPosts('system'))[0].publishStatus,'QUEUED');assert.equal((await store.getPosts(tenant.id))[0].publishStatus,'QUEUED');
+    assert.equal(state.calls.length,0);
   } finally {await store.savePosts('system',[]);await new Promise(resolve=>listener.close(resolve));}
 });
 

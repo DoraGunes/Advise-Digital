@@ -28,7 +28,6 @@ export const config = {
   instagramUsername: (process.env.INSTAGRAM_USERNAME || '').trim(),
   metaOAuthScopes: (process.env.META_OAUTH_SCOPES || 'ads_management,business_management,pages_show_list,pages_read_engagement,instagram_basic,instagram_content_publish').split(',').map(x => x.trim()).filter(Boolean),
   publicBaseUrl: (process.env.PUBLIC_BASE_URL || 'http://localhost:3001').replace(/\/+$/, ''),
-  aiModel: (process.env.GEMINI_MODEL || 'gemini-3.8-flash').trim(),
   publishMaxRetries: Math.max(1, Math.min(5, Number(process.env.PUBLISH_MAX_RETRIES || 3))),
   publishRetryMinutes: Math.max(1, Math.min(120, Number(process.env.PUBLISH_RETRY_MINUTES || 10))),
   timezone: process.env.TIMEZONE || 'Europe/Istanbul',
@@ -37,7 +36,7 @@ export const config = {
   databaseUrl: (process.env.DATABASE_URL || '').trim(),
   dbSsl: String(process.env.DB_SSL ?? 'false').toLowerCase() === 'true',
   environment: process.env.NODE_ENV || 'development',
-  appVersion: '16.0.0',
+  appVersion: '16.1.0',
   messageActionTypes: (process.env.MESSAGE_ACTION_TYPES ||
     'onsite_conversion.messaging_conversation_started_7d,messaging_conversation_started_7d')
     .split(',')

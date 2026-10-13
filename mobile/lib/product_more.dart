@@ -24,14 +24,14 @@ class ProductMorePage extends StatelessWidget {
               Icons.people_outline_rounded, const ProductCrmPage()),
           _MoreItem('Medya kütüphanesi', 'İçeriklerini tek yerde bul',
               Icons.photo_library_outlined, const MediaLibraryPage()),
-          _MoreItem('AdVise öğreniyor', 'Deneyimlerinden gelen öneriler',
+          _MoreItem('Hafıza Sarayı', 'Kendi metinlerin, saatlerin ve ölçümler',
               Icons.psychology_outlined, const MemoryInsightsPage()),
         ]
       ),
       (
         'Çalışma alanı',
         [
-          _MoreItem('Otomasyon', 'Kurallar, limitler ve kararlar',
+          _MoreItem('Reklam limitleri', 'Bütçe sınırları ve işlem geçmişi',
               Icons.tune_rounded, const ProductAutomationPage()),
           _MoreItem('Meta ve Instagram', 'Bağlantını ve hesaplarını kontrol et',
               Icons.link_rounded, const MetaConnectionPage()),

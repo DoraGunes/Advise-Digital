@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'manual_memory.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import 'api.dart';
@@ -954,7 +955,7 @@ class _ProductAutomationPageState extends State<ProductAutomationPage> {
       'autoReallocate',
       'autoPublish'
     ]) {
-      values[key] = settings[key] == true;
+      values[key] = false;
     }
     setState(() => busy = true);
     try {
@@ -972,7 +973,7 @@ class _ProductAutomationPageState extends State<ProductAutomationPage> {
   Widget build(BuildContext context) {
     final canEdit = _canConfigure(user);
     return _ModuleFrame(
-        title: 'Otomasyon',
+        title: 'Reklam limitleri',
         child: loading
             ? const ProductLoadingSkeleton()
             : error != null
@@ -981,26 +982,9 @@ class _ProductAutomationPageState extends State<ProductAutomationPage> {
                     const ProductPageHeader(
                         title: 'Kontrol sende',
                         subtitle:
-                            '12 saatlik değerlendirme, açık limitler ve anlaşılır işlem geçmişi.'),
+                            'Elle belirlediğin bütçe sınırları ve kayıtlı işlem geçmişi.'),
                     const SizedBox(height: 18),
-                    ProductSurface(
-                        child: Column(children: [
-                      for (final e in {
-                        'enabled': 'Kural tabanlı reklam otomasyonu',
-                        'geminiAdsAuto': 'Gemini ile otomatik reklam yönetimi',
-                        'autoPause': 'Zayıf performansta otomatik durdur',
-                        'autoReallocate':
-                            'Limitler içinde bütçeyi yeniden dağıt',
-                        'autoPublish': 'Planlanan içerikleri otomatik yayınla'
-                      }.entries)
-                        SwitchListTile.adaptive(
-                            contentPadding: EdgeInsets.zero,
-                            title: Text(e.value),
-                            value: settings[e.key] == true,
-                            onChanged: canEdit && !busy
-                                ? (v) => setState(() => settings[e.key] = v)
-                                : null),
-                    ])),
+                    const Text('Otomatik reklam yönetimi ve otomatik yayın kapalı. Reklamı ve paylaşımı ayrı ayrı elle onaylayın.'),
                     const SizedBox(height: 16),
                     ProductSurface(
                         child: LayoutBuilder(
@@ -1024,7 +1008,7 @@ class _ProductAutomationPageState extends State<ProductAutomationPage> {
                     ProductInsightCard(
                         title: 'Her aksiyonun bir sınırı var',
                         body:
-                            'Hesap üst limiti ve reklam grubu sınırları uygulanır. Elle durdurduğun reklam otomatik açılmaz. Gemini önerisi yalnızca yeterli veri ve güven düzeyiyle otomasyona dönüşür.',
+                            'Hesap ve reklam grubu üst limitleri elle oluşturulan reklamlarda da uygulanır. Geçmişi okumak reklamı açmaz veya bütçeyi değiştirmez.',
                         icon: Icons.shield_outlined),
                     const SizedBox(height: 16),
                     if (canEdit)
@@ -1094,144 +1078,10 @@ class _AuditRow extends StatelessWidget {
   }
 }
 
-class MemoryInsightsPage extends StatefulWidget {
+class MemoryInsightsPage extends StatelessWidget {
   const MemoryInsightsPage({super.key});
   @override
-  State<MemoryInsightsPage> createState() => _MemoryInsightsPageState();
-}
-
-class _MemoryInsightsPageState extends State<MemoryInsightsPage> {
-  Map<String, dynamic> data = {};
-  bool loading = true;
-  String? error;
-  @override
-  void initState() {
-    super.initState();
-    _load();
-  }
-
-  Future<void> _load() async {
-    try {
-      data = await Api.aiMemory();
-      error = null;
-    } catch (e) {
-      error = AppError.message(e);
-    }
-    if (mounted) setState(() => loading = false);
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final measured = _num(data['outcomeCount']);
-    const signalLabels = {
-      'bestHooks': 'İşe yarayan açılışlar',
-      'bestHookTypes': 'Açılış türleri',
-      'bestAngles': 'İçerik açıları',
-      'bestTimes': 'Paylaşım saatleri',
-      'bestFormats': 'Formatlar',
-      'bestAudiences': 'Hedef kitleler'
-    };
-    final hasSignals = measured > 0 &&
-        signalLabels.keys.any(
-            (key) => _rows(data[key]).any((row) => _num(row['score']) > 0));
-    return _ModuleFrame(
-        title: 'Hafıza Sarayı',
-        actions: [
-          IconButton(
-              tooltip: 'Öğrenmeyi yenile',
-              onPressed: _load,
-              icon: const Icon(Icons.refresh))
-        ],
-        child: loading
-            ? const ProductLoadingSkeleton()
-            : error != null
-                ? ProductErrorState(message: error!, onRetry: _load)
-                : ListView(padding: const EdgeInsets.all(20), children: [
-                    const ProductPageHeader(
-                        title: 'AdVise öğreniyor',
-                        subtitle:
-                            'Kendi içeriklerin ve ölçülen sonuçların, bir sonraki öneriyi geliştirir.'),
-                    const SizedBox(height: 20),
-                    Wrap(spacing: 12, runSpacing: 12, children: [
-                      SizedBox(
-                          width: 230,
-                          child: ProductMetricCard(
-                              label: 'Üretim',
-                              value: '${data['generationCount'] ?? 0}',
-                              detail: 'Sana ait içerik deneyimleri',
-                              icon: Icons.auto_awesome)),
-                      SizedBox(
-                          width: 230,
-                          child: ProductMetricCard(
-                              label: 'Ölçülmüş sonuç',
-                              value: '${data['outcomeCount'] ?? 0}',
-                              detail: 'Üretime bağlı performans',
-                              icon: Icons.insights_outlined)),
-                      SizedBox(
-                          width: 230,
-                          child: ProductMetricCard(
-                              label: 'Olumlu sinyal',
-                              value: '${data['learningWins'] ?? 0}',
-                              detail: 'Garanti değil, öğrenme sinyali',
-                              icon: Icons.trending_up))
-                    ]),
-                    const SizedBox(height: 24),
-                    if (!hasSignals)
-                      const ProductEmptyState(
-                          title: 'Henüz yeterli performans verisi yok',
-                          body:
-                              'İçerik üret, yayınla ve reklam sonucunu ölç. Kazanan hook, format ve saatler yeterli veriyle burada görünür.',
-                          icon: Icons.psychology_outlined)
-                    else
-                      for (final e in signalLabels.entries)
-                        if (_rows(data[e.key])
-                            .where((x) => _num(x['score']) > 0)
-                            .isNotEmpty)
-                          Padding(
-                              padding: const EdgeInsets.only(bottom: 16),
-                              child: ProductSurface(
-                                  child: Column(
-                                      crossAxisAlignment:
-                                          CrossAxisAlignment.start,
-                                      children: [
-                                    Text(e.value,
-                                        style: Theme.of(context)
-                                            .textTheme
-                                            .titleLarge),
-                                    const SizedBox(height: 10),
-                                    for (final x in _rows(data[e.key])
-                                        .where((x) => _num(x['score']) > 0)
-                                        .take(3))
-                                      ListTile(
-                                          contentPadding: EdgeInsets.zero,
-                                          leading: const Icon(
-                                              Icons.lightbulb_outline),
-                                          title: Text('${x['value']}'),
-                                          subtitle: Text(
-                                              'Ölçülen sonuçlardan erken sinyal · ${measured.toInt()} sonuç. Yeni ölçümlerle değişebilir.'))
-                                  ]))),
-                    const SizedBox(height: 20),
-                    Text('Son içerik deneyimleri',
-                        style: Theme.of(context).textTheme.titleLarge),
-                    const SizedBox(height: 12),
-                    for (final row in _rows(data['recentGenerations']))
-                      ListTile(
-                          leading: const Icon(Icons.description_outlined),
-                          title: Text('${row['productName'] ?? 'İçerik'}'),
-                          subtitle: Text(
-                              '${row['recommendedFormat'] ?? 'Format seçilmedi'} · ${_date(row['at'])}'),
-                          trailing: ProductStatusChip(
-                              label: row['outcomeScore'] == null
-                                  ? 'Ölçüm bekliyor'
-                                  : _num(row['outcomeScore']) >= .25
-                                      ? 'Olumlu sinyal'
-                                      : 'İnceleniyor',
-                              tone: row['outcomeScore'] != null &&
-                                      _num(row['outcomeScore']) >= .25
-                                  ? 'success'
-                                  : 'neutral')),
-                  ]));
-  }
+  Widget build(BuildContext context) => const ManualMemoryPage();
 }
 
 class MediaLibraryPage extends StatefulWidget {
@@ -1320,7 +1170,7 @@ class _MediaLibraryPageState extends State<MediaLibraryPage> {
                       ProductEmptyState(
                           title: 'Bu görünümde medya yok',
                           body:
-                              'AI Studio ile ürettiğin ve kaydettiğin içerikler burada görünür.',
+                              'Elle hazırlayıp kaydettiğin fotoğraf ve Reels içerikleri burada görünür.',
                           icon: Icons.photo_library_outlined,
                           action: OutlinedButton(
                               onPressed: () =>

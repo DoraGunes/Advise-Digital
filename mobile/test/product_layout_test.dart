@@ -44,7 +44,7 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.text('Detay sayfası'), findsOneWidget);
     expect(find.byType(NavigationBar), findsOneWidget);
-    await tester.tap(find.text('AI Studio'));
+    await tester.tap(find.text('İçerik Stüdyosu'));
     await tester.pumpAndSettle();
     expect(find.text('Bölüm 1'), findsOneWidget);
     expect(tester.takeException(), isNull);

@@ -1,0 +1,44 @@
+name: Manual Content and Local Memory Tests
+on:
+  pull_request:
+    branches: [fix/ads-queue-independent-audit-2026-10-12]
+  push:
+    branches: [feat/manual-content-local-memory-2026-10-13]
+permissions:
+  contents: read
+concurrency:
+  group: manual-content-tests-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  backend:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: backend/package-lock.json
+      - run: npm ci --no-audit --no-fund
+      - name: Syntax and manual-mode safety regressions
+        run: |
+          for file in src/*.js; do node --check "$file" || exit; done
+          npm test
+  flutter-tests:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: mobile
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.47.5'
+          channel: stable
+          cache: true
+      - run: flutter pub get
+      - run: flutter analyze
+      - run: flutter test

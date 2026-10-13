@@ -333,7 +333,7 @@ class _LoginPageState extends State<LoginPage> {
                                     for (final entry in const [
                                       (
                                         Icons.auto_awesome_outlined,
-                                        'Medyanı anlayan AI Studio'
+                                        'Fotoğraf ve Reels hazırlama'
                                       ),
                                       (
                                         Icons.calendar_month_outlined,
@@ -2355,7 +2355,6 @@ class _SettingsPageState extends State<SettingsPage> {
       autoMediaType = true,
       preventDuplicate = true;
   bool geminiAdsAuto = false;
-  bool savingToggle = false;
 
   @override
   void initState() {
@@ -2424,69 +2423,6 @@ class _SettingsPageState extends State<SettingsPage> {
     super.dispose();
   }
 
-  Future<void> _saveToggle(
-      String key, bool value, void Function(bool) setter) async {
-    if (savingToggle) return;
-
-    final geminiCap = double.tryParse(geminiDailyCap.text) ?? 0;
-    if (key == 'geminiAdsAuto' && value && geminiCap < 1) {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-          content:
-              Text('Önce hesap geneli günlük Gemini bütçe sınırını gir.')));
-      return;
-    }
-
-    setState(() {
-      savingToggle = true;
-      setter(value);
-    });
-
-    try {
-      final changes = <String, dynamic>{key: value};
-      if (key == 'geminiAdsAuto') changes['geminiAdsDailyCap'] = geminiCap;
-      await Api.saveSettings(changes);
-    } catch (e) {
-      if (mounted) {
-        setState(() => setter(!value));
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Ayar kaydedilemedi: $e')),
-        );
-      }
-    } finally {
-      if (mounted) setState(() => savingToggle = false);
-    }
-  }
-
-  Future<void> _runAutomationNow() async {
-    try {
-      final result = await Api.runAutomation();
-      final mode = result['mode']?.toString() ?? '';
-      final message = result['message']?.toString();
-      if (!mounted) return;
-      if (mode == 'PLANNING') {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-              content: Text(message ??
-                  'Meta bağlantısı olmadan otomasyon planlama modunda.')),
-        );
-      } else {
-        final actionCount =
-            result['actions'] is List ? (result['actions'] as List).length : 0;
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-              content: Text(
-                  'Otomasyon testi tamamlandı: $actionCount işlem değerlendirildi.')),
-        );
-      }
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Otomasyon testi başarısız: $e')),
-        );
-      }
-    }
-  }
-
   Future<void> _save() async {
     final aiDailyCap = double.tryParse(geminiDailyCap.text) ?? 0;
     if (geminiAdsAuto && aiDailyCap < 1) {
@@ -2541,7 +2477,7 @@ class _SettingsPageState extends State<SettingsPage> {
   Widget build(BuildContext context) => Scaffold(
       appBar: AppBar(
           leading: _mainHomeLeading(context),
-          title: Text(widget.admin ? 'Sistem Ayarları' : 'Otomasyon Ayarları',
+          title: Text(widget.admin ? 'Sistem Ayarları' : 'Reklam ve yayın ayarları',
               style: const TextStyle(fontWeight: FontWeight.w800)),
           actions: [
             IconButton(
@@ -2558,89 +2494,15 @@ class _SettingsPageState extends State<SettingsPage> {
                   body:
                       'Bu alan sistem yöneticisi için global davranış varsayılanlarını düzenler.'),
             const SizedBox(height: 12),
-            _SettingsSection(
-                title: 'Otomasyon',
-                icon: Icons.bolt_rounded,
-                children: [
-                  SwitchListTile(
-                    contentPadding: EdgeInsets.zero,
-                    title: const Text('Otomasyonu aktif et'),
-                    value: enabled,
-                    onChanged: savingToggle
-                        ? null
-                        : (v) => _saveToggle('enabled', v, (x) => enabled = x),
-                  ),
-                  SwitchListTile(
-                    contentPadding: EdgeInsets.zero,
-                    title: const Text('Hedefi aşan reklamı durdur'),
-                    value: autoPause,
-                    onChanged: savingToggle
-                        ? null
-                        : (v) =>
-                            _saveToggle('autoPause', v, (x) => autoPause = x),
-                  ),
-                  SwitchListTile(
-                    contentPadding: EdgeInsets.zero,
-                    title: const Text('Serbest bütçeyi yeniden dağıt'),
-                    value: autoReallocate,
-                    onChanged: savingToggle
-                        ? null
-                        : (v) => _saveToggle(
-                            'autoReallocate', v, (x) => autoReallocate = x),
-                  ),
-                  SwitchListTile(
-                    contentPadding: EdgeInsets.zero,
-                    title: const Text('En iyi saati otomatik öğren'),
-                    value: autoBestTime,
-                    onChanged: savingToggle
-                        ? null
-                        : (v) => _saveToggle(
-                            'autoBestTime', v, (x) => autoBestTime = x),
-                  ),
-                  SwitchListTile(
-                    contentPadding: EdgeInsets.zero,
-                    title: const Text('İçeriği otomatik planla'),
-                    value: autoPublish,
-                    onChanged: savingToggle
-                        ? null
-                        : (v) => _saveToggle(
-                            'autoPublish', v, (x) => autoPublish = x),
-                  ),
-                  Padding(
-                    padding: const EdgeInsets.only(top: 4),
-                    child: Text(
-                      'Aç/kapat değişiklikleri anında kaydedilir. Alt ayarlar için AYARLARI KAYDET düğmesini kullan.',
-                      style: TextStyle(fontSize: 12, color: Theme.of(context).colorScheme.onSurfaceVariant),
-                    ),
-                  )
-                ]),
+            const _InfoCard(
+                icon: Icons.check_circle_outline,
+                title: 'Manuel çalışma',
+                body: 'Metin, medya, yayın saati, hedef ve bütçe senin kontrolünde. Otomatik yayın ve reklam yönetimi kapalı.'),
             const SizedBox(height: 12),
             _SettingsSection(
-                title: 'AdVise AI ve akıllı yayın',
-                icon: Icons.auto_awesome_rounded,
+                title: 'İçerik güvenliği',
+                icon: Icons.shield_outlined,
                 children: [
-                  SwitchListTile(
-                      contentPadding: EdgeInsets.zero,
-                      title: const Text('AI modu'),
-                      subtitle: const Text('Caption, hook ve CTA üretimini aç'),
-                      value: aiEnabled,
-                      onChanged: (v) => setState(() => aiEnabled = v)),
-                  SwitchListTile(
-                    contentPadding: EdgeInsets.zero,
-                    title: const Text('Gemini reklam yöneticisi'),
-                    subtitle: const Text(
-                        '12 saatte bir Meta performansını inceler; bütçeyi verdiğin günlük sınırda tutar. Elle durdurulan reklamı otomatik açmaz.'),
-                    value: geminiAdsAuto,
-                    onChanged: savingToggle
-                        ? null
-                        : (v) => _saveToggle(
-                            'geminiAdsAuto', v, (x) => geminiAdsAuto = x),
-                  ),
-                  SwitchListTile(
-                      contentPadding: EdgeInsets.zero,
-                      title: const Text('Post / Reels formatını otomatik seç'),
-                      value: autoMediaType,
-                      onChanged: (v) => setState(() => autoMediaType = v)),
                   SwitchListTile(
                       contentPadding: EdgeInsets.zero,
                       title: const Text('Tekrarlanan içeriği engelle'),
@@ -2667,7 +2529,7 @@ class _SettingsPageState extends State<SettingsPage> {
                       label: 'Maksimum günlük bütçe (TL)'),
                   _Field(
                       controller: geminiDailyCap,
-                      label: 'Gemini hesap geneli günlük bütçe sınırı (TL)')
+                      label: 'Hesap geneli günlük bütçe sınırı (TL)')
                 ]),
             const SizedBox(height: 12),
             _SettingsSection(
@@ -2715,17 +2577,6 @@ class _SettingsPageState extends State<SettingsPage> {
                     onPressed: _save,
                     icon: const Icon(Icons.save_rounded),
                     label: const Text('AYARLARI KAYDET'),
-                  ),
-                ),
-                const SizedBox(height: 10),
-                SizedBox(
-                  width: double.infinity,
-                  height: 48,
-                  child: OutlinedButton.icon(
-                    onPressed:
-                        enabled && !savingToggle ? _runAutomationNow : null,
-                    icon: const Icon(Icons.play_circle_outline_rounded),
-                    label: const Text('OTOMASYONU ŞİMDİ TEST ET'),
                   ),
                 ),
               ],
@@ -2963,7 +2814,7 @@ class _MainDrawer extends StatelessWidget {
       const Divider(),
       for (final entry in const [
         (ProductDestination.home, 'Ana Sayfa', Icons.space_dashboard_outlined),
-        (ProductDestination.studio, 'AI Studio', Icons.auto_awesome_outlined),
+        (ProductDestination.studio, 'İçerik Stüdyosu', Icons.auto_awesome_outlined),
         (ProductDestination.ads, 'Reklamlar', Icons.campaign_outlined),
         (ProductDestination.planner, 'Plan', Icons.calendar_month_outlined),
         (ProductDestination.more, 'Daha Fazla', Icons.grid_view_rounded),

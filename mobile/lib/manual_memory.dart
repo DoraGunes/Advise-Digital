@@ -1,0 +1,97 @@
+import 'package:flutter/material.dart';
+import 'api.dart';
+import 'app_error.dart';
+
+class ManualMemoryPage extends StatelessWidget {
+  const ManualMemoryPage({super.key});
+  @override
+  Widget build(BuildContext context) => Scaffold(
+    appBar: AppBar(title: const Text('Hafıza Sarayı')),
+    body: const SingleChildScrollView(
+      padding: EdgeInsets.all(20), child: ManualMemoryPanel()),
+  );
+}
+
+class ManualMemoryPanel extends StatefulWidget {
+  final void Function(String)? onUseCaption;
+  const ManualMemoryPanel({super.key, this.onUseCaption});
+  @override
+  State<ManualMemoryPanel> createState() => _ManualMemoryPanelState();
+}
+class _ManualMemoryPanelState extends State<ManualMemoryPanel> {
+  Map<String, dynamic> data = {};
+  bool loading = true;
+  String? error;
+  @override
+  void initState() { super.initState(); _load(); }
+  Future<void> _load() async {
+    setState(() { loading = true; error = null; });
+    try {
+      final result = await Api.localMemory();
+      if (mounted) setState(() => data = result);
+    } catch (e) {
+      if (mounted) setState(() => error = AppError.message(e));
+    } finally {
+      if (mounted) setState(() => loading = false);
+    }
+  }
+  @override
+  Widget build(BuildContext context) {
+    final performance = data['performance'] is Map ? data['performance'] as Map : {};
+    final timing = data['timing'] is Map ? data['timing'] as Map : {};
+    final posts = data['posts'] is List ? data['posts'] as List : [];
+    final ads = data['adHistory'] is List ? data['adHistory'] as List : [];
+    return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+      Row(children: [
+        const Expanded(child: Text('Kendi kayıtlarından Hafıza Sarayı',
+          style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18))),
+        IconButton(tooltip: 'Hafızayı yenile', onPressed: loading ? null : _load,
+          icon: const Icon(Icons.refresh)),
+      ]),
+      const Text('Kaydedilmiş metinler, seçtiğin saatler ve ölçülmüş sonuçlar. Bütçe veya yayın saati kendiliğinden değiştirilmez.'),
+      const SizedBox(height: 12),
+      if (loading) const LinearProgressIndicator()
+      else if (error != null) Text(error!)
+      else ...[
+        Text('İçerik: ${data['postCount'] ?? 0} · Yayınlanan: ${data['publishedCount'] ?? 0} · Ölçüm: ${performance['recordCount'] ?? 0}'),
+        for (final mode in ['organic', 'paid']) ...[
+          const SizedBox(height: 12),
+          Text(mode == 'paid' ? 'Reklam saat geçmişi' : 'Gönderi saat geçmişi',
+            style: const TextStyle(fontWeight: FontWeight.bold)),
+          if (timing[mode] is Map) ...[
+            Text('${(timing[mode] as Map)['reason'] ?? ''}'),
+            Text('Örnek: ${(timing[mode] as Map)['sampleSize'] ?? 0}'),
+            for (final row in ((timing[mode] as Map)['evidence'] is List
+                ? (timing[mode] as Map)['evidence'] as List : []))
+              if (row is Map)
+                Text('Gün ${row['weekday']} · ${row['hour']}:00 · ${row['sampleSize']} örnek · skor ${row['score']}'),
+          ],
+        ],
+        const SizedBox(height: 16),
+        const Text('Kaydettiğin metinler', style: TextStyle(fontWeight: FontWeight.bold)),
+        if (posts.isEmpty) const Text('Henüz kaydedilmiş içerik yok.'),
+        for (final row in posts.take(10))
+          if (row is Map) Card(child: Padding(
+            padding: const EdgeInsets.all(12),
+            child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              Text('${row['title'] ?? 'İçerik'} · ${row['mediaType'] ?? ''} · ${row['status'] ?? ''}'),
+              Text('${row['caption'] ?? ''}'),
+              if (row['selectedTime'] is Map)
+                Text('Seçilen saat: ${(row['selectedTime'] as Map)['scheduledAt'] ?? ''}'),
+              if (widget.onUseCaption != null && '${row['caption'] ?? ''}'.isNotEmpty)
+                TextButton(onPressed: () => widget.onUseCaption!('${row['caption']}'),
+                  child: const Text('Yalnız metni taslağa kopyala')),
+            ]))),
+        const SizedBox(height: 16),
+        const Text('Elle oluşturulan reklam geçmişi',
+          style: TextStyle(fontWeight: FontWeight.bold)),
+        if (ads.isEmpty) const Text('Henüz reklam oluşturma kaydı yok.'),
+        for (final row in ads.take(10))
+          if (row is Map)
+            ListTile(contentPadding: EdgeInsets.zero,
+              title: Text('${row['destination'] ?? 'Hedef kaydedilmemiş'} · ${row['status'] ?? 'UNKNOWN'}'),
+              subtitle: Text('Günlük bütçe: ${row['dailyBudget'] ?? 'Kaydedilmemiş'} · ${row['locationMode'] ?? ''} · ${row['at'] ?? ''}')),
+      ],
+    ]);
+  }
+}

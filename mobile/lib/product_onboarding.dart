@@ -174,18 +174,9 @@ class _ProductOnboardingPageState extends State<ProductOnboardingPage> {
       analysisError = null;
     });
     try {
-      final result = await Api.productStrategy(_values());
+      final result = await Api.localMemory();
       if (!mounted) return;
-      setState(() {
-        initialStrategy =
-            result['available'] == true && result['strategy'] is Map
-                ? Map<String, dynamic>.from(result['strategy'])
-                : null;
-        if (initialStrategy == null) {
-          analysisError = productFriendlyError(
-              result['error'] ?? 'AI başlangıç önerisi hazırlanamadı.');
-        }
-      });
+      setState(() => initialStrategy = result);
     } catch (e) {
       if (mounted) setState(() => analysisError = productFriendlyError(e));
     } finally {
@@ -346,37 +337,25 @@ class _ProductOnboardingPageState extends State<ProductOnboardingPage> {
                           const ProductInsightCard(
                               title: 'İlk içerik için hazırsın',
                               body:
-                                  'AI Studio’ya bir fotoğraf veya video ekle. AdVise ürününü analiz edip WhatsApp odaklı bir içerik hazırlasın.'),
+                                  'İçerik Stüdyosu’nda fotoğraf veya Reels seç, metnini yaz ve yayın saatini kendin belirle.'),
                           const SizedBox(height: 16),
                           OutlinedButton.icon(
                               onPressed:
                                   saving || analyzing ? null : _analyzeBusiness,
                               icon: const Icon(Icons.auto_awesome_outlined),
                               label: Text(analyzing
-                                  ? 'İşletme önerisi hazırlanıyor…'
-                                  : 'AI başlangıç önerisi al')),
+                                  ? 'Hafıza okunuyor…'
+                                  : 'Hafıza Sarayını görüntüle')),
                           const SizedBox(height: 8),
                           const Text(
-                              'Bu öneri işletme profilini ve mevcut performansı kullanır. Reklam açmaz veya bütçe değiştirmez.'),
+                              'Bu adım yalnız kendi kayıtlarını okur. Reklam açmaz, içerik yayınlamaz veya bütçe değiştirmez.'),
                           if (analysisError != null)
                             ProductErrorState(message: analysisError!),
                           if (initialStrategy != null) ...[
                             const SizedBox(height: 12),
                             ProductInsightCard(
-                                title: 'Gemini başlangıç önerisi',
-                                body: [
-                                  initialStrategy!['hook'],
-                                  if (initialStrategy!['creative'] is Map)
-                                    initialStrategy!['creative']['angle'],
-                                  if (initialStrategy!['audience'] is Map)
-                                    initialStrategy!['audience']['description'],
-                                  if (initialStrategy!['reasons'] is List)
-                                    ...(initialStrategy!['reasons'] as List),
-                                ]
-                                    .where((value) =>
-                                        value != null &&
-                                        value.toString().trim().isNotEmpty)
-                                    .join('\n')),
+                                title: 'Kendi içerik geçmişin',
+                                body: 'İçerik: ${initialStrategy!['postCount'] ?? 0} · Yayınlanan: ${initialStrategy!['publishedCount'] ?? 0}'),
                           ],
                         ]
                       ]),

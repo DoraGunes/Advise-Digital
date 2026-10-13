@@ -1,5 +1,4 @@
 import 'dart:convert';
-import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -9,7 +8,6 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:advise_digital/api.dart';
 import 'package:advise_digital/content_queue_page.dart';
-import 'package:advise_digital/media_access.dart';
 import 'package:advise_digital/product_modules.dart';
 import 'package:advise_digital/product_shell.dart';
 import 'package:advise_digital/product_ui.dart';
@@ -59,6 +57,13 @@ void main() {
         };
       } else if (path == '/api/ai/status') {
         body = {'configured': true};
+      } else if (path == '/api/memory') {
+        body = {
+          'postCount': posts.length, 'publishedCount': 0, 'posts': posts,
+          'performance': {'recordCount': measured},
+          'timing': {'organic': {'reason': 'Ölçülmüş kendi saat geçmişin.', 'sampleSize': measured,
+            'evidence': measured > 0 ? [{'weekday':'MON','hour':19,'sampleSize':1,'score':0.5}] : []}}
+        };
       } else if (path == '/api/ai/memory') {
         body = {
           'generationCount': 1,
@@ -235,9 +240,9 @@ void main() {
     await tester.pumpWidget(host(const AiContentStudioPage(), withScope: true));
     await tester.pumpAndSettle();
     expect(find.text('Görüntüleme yetkisi'), findsOneWidget);
-    await scrollTo(tester, find.text('AI ile içerik üret'));
+    await scrollTo(tester, find.text('Yayın yapmadan kaydet'));
     final generate = tester.widget<FilledButton>(find.ancestor(
-        of: find.text('AI ile içerik üret'),
+        of: find.text('Yayın yapmadan kaydet'),
         matching: find.byType(FilledButton)));
     expect(generate.onPressed, isNull);
     expect(mutations, isEmpty);
@@ -313,15 +318,15 @@ void main() {
   });
 
   testWidgets(
-      'Memory shows measured early hook-type signals without fake threshold',
+      'Memory shows only measured local timing evidence without AI generation',
       (tester) async {
     measured = 1;
     await size(tester);
     await tester.pumpWidget(host(const MemoryInsightsPage()));
     await tester.pumpAndSettle();
-    await scrollTo(tester, find.text('Açılış türleri'));
-    expect(find.text('Soruyla açılış'), findsOneWidget);
-    expect(find.textContaining('erken sinyal'), findsOneWidget);
+    await scrollTo(tester, find.textContaining('skor 0.5'));
+    expect(find.textContaining('skor 0.5'), findsOneWidget);
+    expect(find.text('Örnek: 1'), findsOneWidget);
     expect(tester.takeException(), isNull);
   });
 
@@ -356,50 +361,6 @@ void main() {
     await scrollTo(tester, find.text('İçeriği görüntüle'));
     expect(tester.takeException(), isNull);
   });
-
-  for (final generatedSource in ['GEMINI', 'GEMINI_REGENERATED']) {
-    testWidgets(
-        '$generatedSource Studio media -> actual AI result -> scheduled Planner flow',
-        (tester) async {
-      source = generatedSource;
-      final file = XFile.fromData(
-          Uint8List.fromList(base64Decode(
-              'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aFocAAAAASUVORK5CYII=')),
-          name: 'fixture.png',
-          mimeType: 'image/png');
-      await size(tester);
-      await tester.pumpWidget(host(
-          AiContentStudioPage(
-              mediaPicker: () async => file,
-              schedulePicker: () async =>
-                  DateTime.now().add(const Duration(days: 1))),
-          withScope: true));
-      await tester.pumpAndSettle();
-      await scrollTo(tester, find.text('MEDYA SEÇ'));
-      await tester.tap(find.text('MEDYA SEÇ'));
-      await tester.pumpAndSettle();
-      await scrollTo(tester, find.text('AI ile medyayı analiz et'));
-      await tester.tap(find.text('AI ile medyayı analiz et'));
-      await tester.pumpAndSettle();
-      await scrollTo(tester, find.text('Saat seç • Kuyruğa al'));
-      await tester.tap(find.text('Saat seç • Kuyruğa al'));
-      await tester.pumpAndSettle();
-      expect(posts.single['publishStatus'], 'QUEUED');
-      expect(posts.single['nextPublishAt'], isNotNull);
-      expect(mutations.where((path) => path == 'POST /api/posts').length, 1);
-      expect(
-          mutations
-              .where((path) => path == 'POST /api/posts/fixture-post/queue')
-              .length,
-          1);
-      await tester.tap(find.text('Kuyruk'));
-      await tester.pumpAndSettle();
-      await scrollTo(
-          tester, find.byKey(const ValueKey('content-post-fixture-post')));
-      expect(find.text('PLANLANDI'), findsOneWidget);
-      expect(tester.takeException(), isNull);
-    });
-  }
 
   testWidgets('desktop login brand panel scrolls with large text',
       (tester) async {

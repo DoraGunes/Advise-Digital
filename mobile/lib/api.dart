@@ -742,8 +742,8 @@ class Api {
 
   static Future<Map<String, dynamic>> uploadPost(
       String path, String title, String caption, String linkUrl,
-      {bool autoPublish = true,
-      bool useAI = true,
+      {bool autoPublish = false,
+      bool useAI = false,
       XFile? mediaFile,
       String scheduleAt = '',
       String mediaType = 'AUTO',
@@ -792,8 +792,8 @@ class Api {
 
   static Future<Map<String, dynamic>> uploadPostsBulk(
     List<String> paths, {
-    bool autoPublish = true,
-    bool useAI = true,
+    bool autoPublish = false,
+    bool useAI = false,
     String aiContext = '',
     List<XFile>? mediaFiles,
   }) async {
@@ -900,6 +900,8 @@ class Api {
         'pageId': pageId,
         'adAccountId': adAccountId,
       }));
+  static Future<Map<String, dynamic>> localMemory({String mediaType = ''}) async =>
+      Map<String, dynamic>.from(await _request('GET', '/api/memory', query: {'mediaType': mediaType}));
   static Future<Map<String, dynamic>> aiStatus() async =>
       Map<String, dynamic>.from(await _request('GET', '/api/ai/status'));
   static Future<Map<String, dynamic>> aiMemory() async =>

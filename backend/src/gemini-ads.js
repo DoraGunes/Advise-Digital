@@ -250,5 +250,5 @@ async function applyGeminiAdDecisionLocked(tenantId='system', {adSetId,action,au
   return {...record,applied:true};
 }
 
-export async function runGeminiAdReview(tenantId='system',options={}) { return withTenantLock(tenantId,()=>runGeminiAdReviewLocked(tenantId,options)); }
-export async function applyGeminiAdDecision(tenantId='system',options={}) { return withTenantLock(tenantId,()=>withAdAccountLock(tenantId,()=>applyGeminiAdDecisionLocked(tenantId,options))); }
+export async function runGeminiAdReview() { return {enabled:false,skipped:true,code:'AI_REMOVED',decisions:[],applied:[]}; }
+export async function applyGeminiAdDecision() { throw Object.assign(new Error('AI reklam yönetimi kaldırıldı. Reklam değişikliklerini elle onaylayın.'),{code:'AI_REMOVED'}); }
