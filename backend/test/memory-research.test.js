@@ -16,7 +16,7 @@ test('Research suggestions never masquerade as tenant results or launch actions'
 
 test('Draft ads preserve explicit budgets and geography without promising provider availability',()=>{
  const library=buildManualMemory().research;
- assert.equal(library.adDrafts.length,4);
+ assert.equal(library.adDrafts.length,5);
  for(const draft of library.adDrafts){
   assert.equal(draft.destination,'WHATSAPP');
   assert.equal(draft.dailyBudgetTry,120);

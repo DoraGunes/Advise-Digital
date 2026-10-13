@@ -21,6 +21,7 @@ export const MEMORY_RESEARCH = Object.freeze({
  {id:'tv-whatsapp',title:'TV arıza danışma',caption:'Televizyonunuzun marka/modelini, arızasını ve bulunduğunuz ilçeyi WhatsApp’tan gönderin. Poyraz Teknik ile servis seçeneklerini birlikte değerlendirelim.'},
  {id:'panel-whatsapp',title:'Panel ve ekran arızası',caption:'Ekran kırılması, çizgi veya görüntü kaybı mı var? Marka/model ve arızanın fotoğrafını WhatsApp’tan paylaşın; servis uygunluğunu değerlendirelim.'},
  {id:'monitor-whatsapp',title:'Monitör teknik servis',caption:'Monitörünüzde görüntü sorunu mu var? Marka/model, arıza belirtisi ve ilçenizi WhatsApp’tan iletin.'},
+ {id:'fault-whatsapp',title:'Arıza bilgisi toplama',caption:'Cihazınızın marka/modelini, arıza belirtisini ve ilçenizi WhatsApp’tan paylaşın. Fotoğraf veya kısa video değerlendirmemize yardımcı olur.'},
  {id:'reels-whatsapp',title:'Servis Reels tanıtımı',caption:'Teknik servis sürecimizi yakından görün. Cihazınızın marka/modeli ve arıza bilgisiyle WhatsApp’tan bize ulaşın.'}
  ].map(draft=>({...draft,evidence:'UNTESTED_TEMPLATE',destination:'WHATSAPP',
  dailyBudgetTry:120,accountDailyCapTry:200,initialStatus:'PAUSED',

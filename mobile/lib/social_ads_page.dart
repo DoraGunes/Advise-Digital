@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'dart:math';
 
 import 'api.dart';
@@ -861,6 +862,7 @@ class _SocialAdsPageState extends State<SocialAdsPage> {
     final timing = strategyReport?['timing'] is Map
       ? strategyReport!['timing'] as Map : {};
     final paid = timing['paid'] is Map ? timing['paid'] as Map : {};
+    final research = strategyReport?['research'] is Map ? strategyReport!['research'] as Map : {};
     return Column(crossAxisAlignment: CrossAxisAlignment.start,children: [
       OutlinedButton.icon(
         onPressed: _preflightLoading || creating || !canOperate ? null : _checkMeta,
@@ -877,6 +879,19 @@ class _SocialAdsPageState extends State<SocialAdsPage> {
       if (strategyReport != null) ...[
         if (strategyReport!['error'] != null) Text('${strategyReport!['error']}')
         else ...[
+          const Text('Hazır WhatsApp reklam metinleri',style:TextStyle(fontWeight:FontWeight.bold)),
+          const Text('Metin taslağı kopyalanabilir. Meta nesnesi henüz yok; hedefleme ve WhatsApp yetkisi ayrı doğrulanmalı.'),
+          for(final row in (research['adDrafts'] is List ? research['adDrafts'] as List : []))
+            if(row is Map) Card(child:Padding(padding:const EdgeInsets.all(12),
+              child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[
+                Text('${row['title']}'),
+                Text('${row['caption']}'),
+                const Text('Mesaj maliyeti: henüz ölçülmedi · 120 TL/reklam · toplam 200 TL/gün'),
+                Text('${row['note']}'),
+                TextButton(onPressed:() async {
+                  await Clipboard.setData(ClipboardData(text:'${row['caption']}'));
+                },child:const Text('Metni kopyala')),
+              ]))),
           Text('Ölçülmüş reklam örneği: ${performance['paidCount'] ?? 0}'),
           Text('${paid['reason'] ?? 'Saat geçmişi henüz ölçülmedi.'}'),
           Text('Saat örneği: ${paid['sampleSize'] ?? 0}'),

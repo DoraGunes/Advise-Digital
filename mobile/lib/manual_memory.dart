@@ -41,6 +41,7 @@ class _ManualMemoryPanelState extends State<ManualMemoryPanel> {
     final timing = data['timing'] is Map ? data['timing'] as Map : {};
     final posts = data['posts'] is List ? data['posts'] as List : [];
     final ads = data['adHistory'] is List ? data['adHistory'] as List : [];
+    final learning = data['learning'] is Map ? data['learning'] as Map : {};
     final research = data['research'] is Map ? data['research'] as Map : {};
     return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
       Row(children: [
@@ -54,6 +55,30 @@ class _ManualMemoryPanelState extends State<ManualMemoryPanel> {
       if (loading) const LinearProgressIndicator()
       else if (error != null) Text(error!)
       else ...[
+        const Text('Kendi metin ve saat hafızan',style:TextStyle(fontWeight:FontWeight.bold)),
+        Text('${learning['note'] ?? 'Henüz metin analizi yok.'}'),
+        for(final row in (learning['keywords'] is List ? learning['keywords'] as List : []))
+          if(row is Map) Text('${row['text']} · ${row['postCount']} kayıt'),
+        for(final group in (learning['captionSuggestions'] is List ? learning['captionSuggestions'] as List : []))
+          if(group is Map) ...[
+            Text('${group['mediaType']} için kendi metinlerin'),
+            for(final row in (group['examples'] is List ? group['examples'] as List : []))
+              if(row is Map) ...[
+                Text('${row['caption']}'),
+                if(widget.onUseCaption != null)
+                  TextButton(onPressed:()=>widget.onUseCaption!('${row['caption']}'),
+                    child:const Text('Bu metni taslağa al')),
+              ],
+          ],
+        for(final group in (learning['timingChecks'] is List ? learning['timingChecks'] as List : []))
+          if(group is Map) ...[
+            Text('${group['slot']} · ${group['timezone']} · ${group['label']}'),
+            Text('Uyumlu farklı yayın: ${group['alignedCount']} · tolerans: ${learning['timingToleranceMinutes']} dakika'),
+            for(final row in (group['trials'] is List ? group['trials'] as List : []))
+              if(row is Map) Text('Seçilen: ${row['plannedAt']} · kayıtlı yayın: ${row['recordedPublishedAt']} · fark: ${row['deltaMinutes']} dk'),
+            Text('${group['note']}'),
+          ],
+        const SizedBox(height:16),
         const Text('Araştırma kitaplığı — henüz bu hesapta denenmedi', style: TextStyle(fontWeight: FontWeight.bold)),
         Text('${research['disclaimer'] ?? 'Sunucu araştırma kitaplığı henüz yok.'}'),
         for (final row in (research['timing'] is List ? research['timing'] as List : []))
