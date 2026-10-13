@@ -49,7 +49,7 @@ function Invoke-StageProcess([string]$Executable,[string]$Arguments,[string]$Wor
   $process=New-Object Diagnostics.Process
   $process.StartInfo=$info
   try {
-    'STAGE_CHILD executableExists='+(Test-Path -LiteralPath $info.FileName -PathType Leaf)+' workingDirectoryExists='+(Test-Path -LiteralPath $info.WorkingDirectory -PathType Container)+' nodeExecutable='+([IO.Path]::GetFileName($info.FileName) -ieq 'node.exe')
+    $script:lastChildState='STAGE_CHILD executableExists='+(Test-Path -LiteralPath $info.FileName -PathType Leaf)+' workingDirectoryExists='+(Test-Path -LiteralPath $info.WorkingDirectory -PathType Container)+' nodeExecutable='+([IO.Path]::GetFileName($info.FileName) -ieq 'node.exe')
     [void]$process.Start()
     $stdout=$process.StandardOutput.ReadToEndAsync()
     $stderr=$process.StandardError.ReadToEndAsync()
@@ -143,6 +143,7 @@ try {
 } catch {
   $allowed=@('UNSAFE_PATH','BACKEND_NOT_FOUND','ENV_MISSING','UNSAFE_STAGE_PATH','STAGE_ALREADY_EXISTS','NPM_NOT_FOUND','NODE_VERSION_UNSUPPORTED','SOURCE_MANIFEST_FAILED','SOURCE_FILE_MISSING','SOURCE_HASH_FAILED','STAGING_CHILD_TIMEOUT','STAGING_CHILD_FAILED','UNEXPECTED_STAGE_ENV','PRODUCTION_ENV_CHANGED')
   if($allowed -ccontains $_.Exception.Message){$reason=$_.Exception.Message}
+  if($script:lastChildState){$script:lastChildState}
   $inner=$_.Exception.InnerException
   $type=if($inner){$inner.GetType().Name}else{$_.Exception.GetType().Name}
   $native=if($inner -is [ComponentModel.Win32Exception]){$inner.NativeErrorCode}else{0}
