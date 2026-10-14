@@ -57,13 +57,7 @@ if(pageToken){
 const permissions=await get('me/permissions');
 const granted=new Set((permissions.data.data||[]).filter(row=>row.status==='granted').map(row=>row.permission));
 console.log('WA_PERMISSIONS pagesList='+granted.has('pages_show_list')+' ok='+permissions.ok+' ads='+granted.has('ads_management')+' page='+granted.has('pages_read_engagement')+' management='+granted.has('whatsapp_business_management')+' messaging='+granted.has('whatsapp_business_messaging'));
-try{
- await meta.validateRadiusTargeting({latitude:40.7356,longitude:31.6061,radius:200,distance_unit:'kilometer'},c);
- console.log('RADIUS_ONLY accepted=True radiusKm=200 whatsappNotEvaluated=True');
-}catch(error){
- const cause=error.cause||error;
- console.log('RADIUS_ONLY accepted=False radiusKm=200 http='+(Number(cause.status)||0)+' code='+(Number(cause.providerCode)||0)+' subcode='+(Number(cause.providerSubcode)||0)+' whatsappNotEvaluated=True');
-}
+
 '@
  'PROCESS_VERIFIED=True AUTOMATION_DISABLED=True'
  Push-Location $backend
