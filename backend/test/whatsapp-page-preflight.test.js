@@ -25,16 +25,16 @@ test('Page-linked Business app is verified with ads permissions, no WABA or mess
  assert.equal(result.whatsappAssetVerified,true);assert.equal(calls.length,3);
  assert.ok(calls.every(row=>row.method==='GET'));
 }));
-test('Unknown or false Page linkage fails closed even with stored WABA IDs',async()=>{
- for(const flags of [{},{business:false,number:false}])await fixture({...flags,waba:true,management:true},async(c,calls)=>{
+test('Unknown or false Page linkage without verified Cloud assets fails closed',async()=>{
+ for(const flags of [{},{business:false,number:false}])await fixture({...flags,waba:false,management:false},async(c,calls)=>{
   await assert.rejects(()=>adsPreflight(c,{destination:'WHATSAPP'}),{code:'META_WHATSAPP_MISSING'});
   assert.ok(calls.every(row=>row.method==='GET'));
  });
 });
-test('Cloud phone fallback requires Page linkage, management permission and matching phone, not message-send permission',async()=>{
+test('Cloud phone fallback keeps matching WABA verification without message-send permission',async()=>{
  await fixture({business:false,number:true,waba:true,management:true},async c=>{
   const result=await adsPreflight(c,{destination:'WHATSAPP'});
-  assert.equal(result.whatsappVerificationSource,'WABA_PHONE_WITH_PAGE');
+  assert.equal(result.whatsappVerificationSource,'WABA_PHONE');
  });
  await fixture({business:false,number:true,waba:true,management:true,mismatch:true},async c=>{
   await assert.rejects(()=>adsPreflight(c,{destination:'WHATSAPP'}),{code:'META_WHATSAPP_MISSING'});

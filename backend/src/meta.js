@@ -147,7 +147,6 @@ export async function adsPreflight(credentials={}, {destination='FACEBOOK_INSTAG
     whatsappAssetVerified=true;
     whatsappVerificationSource='PAGE_LINK';
   } else if(whatsappDestination) {
-    if(!whatsappPageFlags.hasNumber)fail('META_WHATSAPP_MISSING','Meta bağlı Sayfada WhatsApp numarası doğrulamadı.');
     if(!c.metaWhatsappWabaId||!c.metaWhatsappPhoneNumberId)fail('META_WHATSAPP_MISSING','WhatsApp Business Account ve telefon varlığı yapılandırılmamış.');
     if(!granted.has('whatsapp_business_management'))fail('META_WHATSAPP_MISSING','WhatsApp Business yönetim ve mesajlaşma izinleri doğrulanamadı.');
     let waba;
@@ -157,7 +156,7 @@ export async function adsPreflight(credentials={}, {destination='FACEBOOK_INSTAG
     try {phoneNumbers=await collection(`${c.metaWhatsappWabaId}/phone_numbers`,c,'id',500);} catch {fail('META_WHATSAPP_MISSING','WhatsApp Business Account telefon listesi okunamadı.');}
     if(!Array.isArray(phoneNumbers?.data)||!phoneNumbers.data.some(phone=>String(phone.id||'')===c.metaWhatsappPhoneNumberId))fail('META_WHATSAPP_MISSING','Yapılandırılmış telefon numarası bu WhatsApp Business Account içinde bulunamadı.');
     whatsappAssetVerified=true;
-    whatsappVerificationSource='WABA_PHONE_WITH_PAGE';
+    whatsappVerificationSource='WABA_PHONE';
   }
   return {ok:true,accountId:c.adAccountId,pageId:c.pageId,instagramId:linked,currency:account.currency,timezone:account.timezone_name,objective:'OUTCOME_ENGAGEMENT',optimizationGoal:'CONVERSATIONS',destination:normalizedDestination,whatsappPageFlags,whatsappAssetVerified,whatsappVerificationSource,checkedAt:new Date().toISOString(),limitations:['Meta yaratım sırasında ek işletme, ödeme veya içerik kısıtlaması bildirebilir.']};
 }
