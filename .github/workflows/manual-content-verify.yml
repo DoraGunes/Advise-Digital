@@ -64,3 +64,24 @@ jobs:
           if(!$js){throw 'Embedded probe missing.'}
           $js | node --input-type=module --check
           if($LASTEXITCODE -ne 0){throw 'Embedded Node syntax failed.'}
+      - name: Parse identity probe and embedded JavaScript
+        shell: powershell
+        run: |
+          $file=Join-Path $env:GITHUB_WORKSPACE 'tools/AdVise-Meta-Ad-Identity.ps1'
+          $tokens=$null;$errors=$null
+          [void][Management.Automation.Language.Parser]::ParseFile($file,[ref]$tokens,[ref]$errors)
+          if($errors.Count){throw 'Identity probe syntax failed.'}
+          $s=Get-Content $file -Raw
+          if($s.Contains('Mint-ReadOnlyToken') -or $s.Contains('Stop-Process') -or $s.Contains('WriteAllText') -or $s.Contains("-Method Post")){throw 'Identity probe has forbidden operation.'}
+          $js=[regex]::Match($s,"(?s)\`$js=@'\r?\n(.*?)\r?\n'@").Groups[1].Value
+          if(!$js){throw 'Embedded probe missing.'}
+          $js | node --input-type=module --check
+          if($LASTEXITCODE -ne 0){throw 'Embedded identity syntax failed.'}
+  identity-read-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: node --test tools/test/Meta-Ad-Identity.test.mjs
