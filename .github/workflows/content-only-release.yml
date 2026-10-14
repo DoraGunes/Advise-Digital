@@ -1,0 +1,137 @@
+name: Content-only Windows and Android 16.2.1
+on:
+  push:
+    branches: [feat/content-only-2026-10-14]
+    paths: [.github/workflows/content-only-release.yml]
+permissions:
+  contents: read
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: mobile
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: eb2358df0df555981c8fb3b9acd4a43759172f43
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.47.5'
+          channel: stable
+          cache: true
+      - run: flutter pub get
+      - run: flutter analyze
+      - run: flutter test
+  windows:
+    needs: verify
+    if: contains(github.event.head_commit.message, '[android-only]') == false
+    runs-on: windows-latest
+    timeout-minutes: 35
+    defaults:
+      run:
+        working-directory: mobile
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: eb2358df0df555981c8fb3b9acd4a43759172f43
+      - name: Verify pinned source
+        shell: pwsh
+        run: |
+          if ((git rev-parse HEAD).Trim() -cne 'eb2358df0df555981c8fb3b9acd4a43759172f43') { throw 'Source mismatch' }
+          if (!(Select-String -Path pubspec.yaml -Pattern '^version: 16\.2\.1\+20$' -Quiet)) { throw 'Version mismatch' }
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.47.5'
+          channel: stable
+          cache: true
+      - run: flutter pub get
+      - run: flutter config --enable-windows-desktop
+      - run: flutter build windows --release --dart-define=ADVISE_API_URL=https://advisedigital.poyrazteknikservis.com.tr
+      - name: Verify bundle and write instructions
+        shell: pwsh
+        run: |
+          $bundle='build/windows/x64/runner/Release'
+          foreach($name in @('advise_digital.exe','flutter_windows.dll','data/icudtl.dat','data/flutter_assets/AssetManifest.bin','data/flutter_assets/assets/memory_research.json')) {
+            if (!(Test-Path (Join-Path $bundle $name))) { throw ('Bundle missing: '+$name) }
+          }
+          $exe=Join-Path $bundle 'advise_digital.exe'
+          $v=(Get-Item $exe).VersionInfo
+          if ($v.FileMajorPart -ne 16 -or $v.FileMinorPart -ne 2 -or $v.FileBuildPart -ne 1 -or $v.FilePrivatePart -ne 20) { throw 'EXE version mismatch' }
+          'WINDOWS_VERSION='+$v.FileVersion
+          'WINDOWS_EXE_SHA256='+(Get-FileHash $exe -Algorithm SHA256).Hash
+          @(
+            'AdVise Digital 16.2.1+20 - Windows',
+            'Source: eb2358df0df555981c8fb3b9acd4a43759172f43',
+            'Default API: https://advisedigital.poyrazteknikservis.com.tr',
+            'Extract ALL files together; close the previous client, run advise_digital.exe.',
+            'Existing API and session preferences are preserved.',
+            'This package does not deploy or restart the backend.',
+            'Content-only workspace: manual photos, Reels, queue and Memory Palace.',
+            'Advertising is managed outside this application in Meta Ads Manager.',
+            'Choosing a publication time does not enable automatic publishing.',
+            'Manual memory can read existing authenticated posts on an older backend.',
+            'Saved content requires manual publication confirmation; ambiguous results must be reconciled before retrying.'
+          ) | Set-Content (Join-Path $bundle 'README-WINDOWS.txt') -Encoding UTF8
+      - uses: actions/upload-artifact@v4
+        with:
+          name: AdVise-Digital-Windows-16.2.1-20
+          path: mobile/build/windows/x64/runner/Release/
+          if-no-files-found: error
+          retention-days: 30
+  android:
+    needs: verify
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    defaults:
+      run:
+        working-directory: mobile
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: eb2358df0df555981c8fb3b9acd4a43759172f43
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.47.5'
+          channel: stable
+          cache: true
+      - name: Verify pinned source
+        run: |
+          test "$(git rev-parse HEAD)" = 'eb2358df0df555981c8fb3b9acd4a43759172f43'
+          grep -E '^version: 16\.2\.1\+20$' pubspec.yaml
+          grep -F 'android.permission.INTERNET' android/app/src/main/AndroidManifest.xml
+      - run: flutter pub get
+      - run: flutter build apk --release --dart-define=ADVISE_API_URL=https://advisedigital.poyrazteknikservis.com.tr
+      - name: Verify APK and instructions
+        run: |
+          test -s build/app/outputs/flutter-apk/app-release.apk
+          mkdir -p build/verified-android
+          cp build/app/outputs/flutter-apk/app-release.apk build/verified-android/AdVise-Digital-16.2.1-20.apk
+          python3 - <<'PY'
+          import os,glob,subprocess,zipfile,hashlib,pathlib
+          p=pathlib.Path('build/verified-android/AdVise-Digital-16.2.1-20.apk')
+          root=os.environ.get('ANDROID_SDK_ROOT') or os.environ.get('ANDROID_HOME')
+          aapt=sorted(glob.glob(root+'/build-tools/*/aapt'))[-1]
+          badging=subprocess.check_output([aapt,'dump','badging',str(p)],text=True)
+          assert "versionName='16.2.1'" in badging and "versionCode='20'" in badging
+          assert "android.permission.INTERNET" in badging
+          with zipfile.ZipFile(p) as z:
+              assert 'assets/flutter_assets/assets/memory_research.json' in z.namelist()
+          print('ANDROID_APK_VERIFIED=True VERSION=16.2.1+20')
+          print('ANDROID_APK_SHA256='+hashlib.sha256(p.read_bytes()).hexdigest())
+          pathlib.Path('build/verified-android/README-ANDROID.txt').write_text(
+              'AdVise Digital 16.2.1+20\nSource: eb2358df0df555981c8fb3b9acd4a43759172f43\nDefault API: https://advisedigital.poyrazteknikservis.com.tr\n'
+              'Extract the APK and install it on your own Android device. This is a sideload test package using the project debug signing configuration, not a Play Store release.\n'
+              'No backend deploy/restart. Manual content-only workspace; advertisements are managed in Meta Ads Manager.\n'
+              'No automatic replies, activation or publishing. Existing API/session preferences are preserved.\n',encoding='utf-8')
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: AdVise-Digital-Android-16.2.1-20
+          path: mobile/build/verified-android/
+          if-no-files-found: error
+          retention-days: 30
