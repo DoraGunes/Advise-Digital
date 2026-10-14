@@ -249,7 +249,7 @@ class _ProductShellState extends State<ProductShell> {
         child: Material(
             color: Theme.of(context).colorScheme.surface,
             child: SafeArea(
-                child: Column(children: [
+                child: ListView(children: [
           Padding(
               padding: const EdgeInsets.fromLTRB(20, 24, 20, 28),
               child: Row(children: [
@@ -289,7 +289,6 @@ class _ProductShellState extends State<ProductShell> {
                       style: const TextStyle(fontWeight: FontWeight.w600)),
                   onTap: () => _go(ProductDestination.values[i]),
                 )),
-          const Spacer(),
           if (widget.user['role'] == 'ADMIN')
             const Padding(
                 padding: EdgeInsets.all(16),
