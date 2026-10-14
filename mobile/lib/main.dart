@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import 'api.dart';
+import 'manual_memory.dart';
 import 'config.dart';
 import 'key_page.dart';
 import 'v78_pages.dart';
@@ -254,7 +255,7 @@ class _LoginPageState extends State<LoginPage> {
                                     Theme.of(context).textTheme.headlineMedium),
                             const SizedBox(height: 8),
                             Text(
-                                'İçerik, reklam ve sonuçlarını AdVise ile yönet.',
+                                'Fotoğraf ve Reels içeriklerini hazırla, sıraya koy ve paylaş.',
                                 style: TextStyle(
                                     color: Theme.of(context)
                                         .colorScheme
@@ -311,7 +312,7 @@ class _LoginPageState extends State<LoginPage> {
                                   children: [
                                     const ProductStatusChip(
                                         label:
-                                            'Yapay zekâ ile daha anlaşılır reklam yönetimi',
+                                            'Kendi içeriklerin, kendi yayın planın',
                                         tone: 'ai'),
                                     const SizedBox(height: 24),
                                     const Text(
@@ -324,7 +325,7 @@ class _LoginPageState extends State<LoginPage> {
                                             letterSpacing: -1.5)),
                                     const SizedBox(height: 22),
                                     const Text(
-                                        'İçeriğini hazırla. Kampanyanı yönet.\nAdVise sonuçlardan öğrensin.',
+                                        'İçeriğini hazırla. Sıranı belirle.\nPaylaşımı sen başlat.',
                                         style: TextStyle(
                                             color: Color(0xFFBCBDD1),
                                             fontSize: 18,
@@ -2815,7 +2816,7 @@ class _MainDrawer extends StatelessWidget {
       for (final entry in const [
         (ProductDestination.home, 'Ana Sayfa', Icons.space_dashboard_outlined),
         (ProductDestination.studio, 'İçerik Stüdyosu', Icons.auto_awesome_outlined),
-        (ProductDestination.ads, 'Reklamlar', Icons.campaign_outlined),
+        (ProductDestination.ads, 'Hafıza Sarayı', Icons.psychology_outlined),
         (ProductDestination.planner, 'Plan', Icons.calendar_month_outlined),
         (ProductDestination.more, 'Daha Fazla', Icons.grid_view_rounded),
       ])
@@ -2829,7 +2830,7 @@ class _MainDrawer extends StatelessWidget {
               } else {
                 final page = switch (entry.$1) {
                   ProductDestination.studio => const AiContentStudioPage(),
-                  ProductDestination.ads => const DecisionHubPage(),
+                  ProductDestination.ads => const ManualMemoryPage(),
                   ProductDestination.planner => const ContentQueuePage(),
                   ProductDestination.more => SettingsPage(admin: admin),
                   _ =>
@@ -3213,7 +3214,7 @@ class _PoweredBy extends StatelessWidget {
               Icon(Icons.auto_awesome_rounded,
                   size: compact ? 12 : 14, color: c),
               const SizedBox(width: 4),
-              Text('Powered by AdVise AI',
+              Text('Powered by AdVise Digital',
                   style: TextStyle(
                       fontSize: compact ? 10 : 11,
                       fontWeight: FontWeight.w700,

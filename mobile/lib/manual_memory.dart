@@ -40,7 +40,6 @@ class _ManualMemoryPanelState extends State<ManualMemoryPanel> {
     final performance = data['performance'] is Map ? data['performance'] as Map : {};
     final timing = data['timing'] is Map ? data['timing'] as Map : {};
     final posts = data['posts'] is List ? data['posts'] as List : [];
-    final ads = data['adHistory'] is List ? data['adHistory'] as List : [];
     final learning = data['learning'] is Map ? data['learning'] as Map : {};
     final research = data['research'] is Map ? data['research'] as Map : {};
     return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
@@ -50,7 +49,7 @@ class _ManualMemoryPanelState extends State<ManualMemoryPanel> {
         IconButton(tooltip: 'Hafızayı yenile', onPressed: loading ? null : _load,
           icon: const Icon(Icons.refresh)),
       ]),
-      const Text('Kaydedilmiş metinler, seçtiğin saatler ve ölçülmüş sonuçlar. Bütçe veya yayın saati kendiliğinden değiştirilmez.'),
+      const Text('Kaydedilmiş metinlerin ve seçtiğin paylaşım saatlerin. Yayın saati kendiliğinden değiştirilmez.'),
       const SizedBox(height: 12),
       if (loading) const LinearProgressIndicator()
       else if (error != null) Text(error!)
@@ -97,7 +96,7 @@ class _ManualMemoryPanelState extends State<ManualMemoryPanel> {
         const SizedBox(height: 16),
         if(data['source']=='CLIENT_READ_ONLY_HISTORY') const Text('Hafıza mevcut sunucunun kendi gönderi kayıtlarından hazırlanıyor. Merkezi reklam ölçümü henüz yok.'),
         Text('İçerik: ${data['postCount'] ?? 0} · Yayınlanan: ${data['publishedCount'] ?? 0} · Ölçüm: ${performance['recordCount'] ?? 0}'),
-        for (final mode in ['organic', 'paid']) ...[
+        for (final mode in ['organic']) ...[
           const SizedBox(height: 12),
           Text(mode == 'paid' ? 'Reklam saat geçmişi' : 'Gönderi saat geçmişi',
             style: const TextStyle(fontWeight: FontWeight.bold)),
@@ -126,14 +125,6 @@ class _ManualMemoryPanelState extends State<ManualMemoryPanel> {
                   child: const Text('Yalnız metni taslağa kopyala')),
             ]))),
         const SizedBox(height: 16),
-        const Text('Elle oluşturulan reklam geçmişi',
-          style: TextStyle(fontWeight: FontWeight.bold)),
-        if (ads.isEmpty) const Text('Henüz reklam oluşturma kaydı yok.'),
-        for (final row in ads.take(10))
-          if (row is Map)
-            ListTile(contentPadding: EdgeInsets.zero,
-              title: Text('${row['destination'] ?? 'Hedef kaydedilmemiş'} · ${row['status'] ?? 'UNKNOWN'}'),
-              subtitle: Text('Günlük bütçe: ${row['dailyBudget'] ?? 'Kaydedilmemiş'} · ${row['locationMode'] ?? ''} · ${row['at'] ?? ''}')),
       ],
     ]);
   }

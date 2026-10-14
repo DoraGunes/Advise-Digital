@@ -1,0 +1,23 @@
+name: Content-only client verification
+on:
+  push:
+    branches: [feat/content-only-2026-10-14]
+permissions:
+  contents: read
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: mobile
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.47.5'
+          channel: stable
+          cache: true
+      - run: flutter pub get
+      - run: dart format lib/content_home.dart lib/product_more.dart
+      - run: flutter analyze
+      - run: flutter test test/content_only_navigation_test.dart
