@@ -3,7 +3,7 @@ on:
   pull_request:
     branches: [feat/manual-content-local-memory-2026-10-13]
   push:
-    branches: [fix/publication-tracking-ad-presets-2026-10-13]
+    branches: [fix/whatsapp-page-preflight-2026-10-14]
 permissions:
   contents: read
 concurrency:
@@ -11,6 +11,7 @@ concurrency:
   cancel-in-progress: true
 jobs:
   backend:
+    if: contains(github.event.head_commit.message, '[probe-only]') == false
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -28,6 +29,7 @@ jobs:
           for file in src/*.js; do node --check "$file" || exit; done
           npm test
   flutter-tests:
+    if: contains(github.event.head_commit.message, '[probe-only]') == false
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -42,3 +44,44 @@ jobs:
       - run: flutter pub get
       - run: flutter analyze
       - run: flutter test
+  probe-syntax:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Parse read-only probe in Windows PowerShell 5
+        shell: powershell
+        run: |
+          $tokens=$null;$errors=$null
+          [void][Management.Automation.Language.Parser]::ParseFile((Join-Path $env:GITHUB_WORKSPACE 'tools/AdVise-WhatsApp-Readonly.ps1'),[ref]$tokens,[ref]$errors)
+          if($errors.Count){throw 'Probe syntax failed.'}
+          $s=Get-Content tools/AdVise-WhatsApp-Readonly.ps1 -Raw
+          if($s.Contains('Mint-ReadOnlyToken') -or $s.Contains('Stop-Process') -or $s.Contains('WriteAllText') -or $s.Contains("-Method Post")){throw 'Probe has forbidden operation.'}
+      - name: Parse embedded Node probe without running it
+        shell: powershell
+        run: |
+          $s=Get-Content tools/AdVise-WhatsApp-Readonly.ps1 -Raw
+          $js=[regex]::Match($s,"(?s)\`$js=@'\r?\n(.*?)\r?\n'@").Groups[1].Value
+          if(!$js){throw 'Embedded probe missing.'}
+          $js | node --input-type=module --check
+          if($LASTEXITCODE -ne 0){throw 'Embedded Node syntax failed.'}
+      - name: Parse identity probe and embedded JavaScript
+        shell: powershell
+        run: |
+          $file=Join-Path $env:GITHUB_WORKSPACE 'tools/AdVise-Meta-Ad-Identity.ps1'
+          $tokens=$null;$errors=$null
+          [void][Management.Automation.Language.Parser]::ParseFile($file,[ref]$tokens,[ref]$errors)
+          if($errors.Count){throw 'Identity probe syntax failed.'}
+          $s=Get-Content $file -Raw
+          if($s.Contains('Mint-ReadOnlyToken') -or $s.Contains('Stop-Process') -or $s.Contains('WriteAllText') -or $s.Contains("-Method Post")){throw 'Identity probe has forbidden operation.'}
+          $js=[regex]::Match($s,"(?s)\`$js=@'\r?\n(.*?)\r?\n'@").Groups[1].Value
+          if(!$js){throw 'Embedded probe missing.'}
+          $js | node --input-type=module --check
+          if($LASTEXITCODE -ne 0){throw 'Embedded identity syntax failed.'}
+  identity-read-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: node --test tools/test/Meta-Ad-Identity.test.mjs
