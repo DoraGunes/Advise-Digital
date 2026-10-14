@@ -3,7 +3,7 @@ on:
   pull_request:
     branches: [feat/manual-content-local-memory-2026-10-13]
   push:
-    branches: [fix/publication-tracking-ad-presets-2026-10-13]
+    branches: [fix/whatsapp-page-preflight-2026-10-14]
 permissions:
   contents: read
 concurrency:
@@ -42,3 +42,15 @@ jobs:
       - run: flutter pub get
       - run: flutter analyze
       - run: flutter test
+  probe-syntax:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Parse read-only probe in Windows PowerShell 5
+        shell: powershell
+        run: |
+          $tokens=$null;$errors=$null
+          [void][Management.Automation.Language.Parser]::ParseFile((Join-Path $env:GITHUB_WORKSPACE 'tools/AdVise-WhatsApp-Readonly.ps1'),[ref]$tokens,[ref]$errors)
+          if($errors.Count){throw 'Probe syntax failed.'}
+          $s=Get-Content tools/AdVise-WhatsApp-Readonly.ps1 -Raw
+          if($s.Contains('Mint-ReadOnlyToken') -or $s.Contains('Stop-Process') -or $s.Contains('WriteAllText') -or $s.Contains("-Method Post")){throw 'Probe has forbidden operation.'}
