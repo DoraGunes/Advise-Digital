@@ -3,5 +3,5 @@ class AppConfig {
     'ADVISE_API_URL',
     defaultValue: 'https://advisedigital.poyrazteknikservis.com.tr',
   );
-  static const String appName = 'AdVise AI';
+  static const String appName = 'AdVise Digital';
 }

@@ -1,7 +1,7 @@
 name: advise_digital
-description: AdVise Digital manual advertising and content workspace
+description: AdVise Digital manual Instagram content workspace
 publish_to: "none"
-version: 16.2.0+19
+version: 16.2.1+20
 
 environment:
   sdk: ">=3.3.0 <4.0.0"

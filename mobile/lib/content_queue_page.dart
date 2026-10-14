@@ -739,7 +739,7 @@ class _ContentQueuePageState extends State<ContentQueuePage> {
     final queuedCount = _queued
         .where((item) =>
             item is Map &&
-            ['QUEUED', 'RETRY']
+            ['READY', 'QUEUED', 'RETRY']
                 .contains(item['publishStatus']?.toString().toUpperCase()))
         .length;
     final publishedCount = _queued
@@ -816,7 +816,7 @@ class _ContentQueuePageState extends State<ContentQueuePage> {
                                             fontWeight: FontWeight.w900)),
                                     const SizedBox(height: 5),
                                     Text(
-                                        'Bir içeriği planla, sıradakileri ekle; saat yaklaşınca otomatik paylaşım çalışsın.',
+                                        'İçerikleri sıraya koy. Saat seçmek otomatik yayın başlatmaz; paylaşımı sen onaylarsın.',
                                         style: TextStyle(
                                             color: Colors.white
                                                 .withValues(alpha: .84),
@@ -953,7 +953,7 @@ class _ContentQueuePageState extends State<ContentQueuePage> {
                                 label: const Text('Yenile')),
                           ]),
                           Text(
-                              'Saati seç, sırayı değiştir, metni düzenle ve yayın planını önizle.',
+                              'Yayın saatine göre sırayı gör, metni düzenle ve paylaşımı elle başlat.',
                               style: TextStyle(
                                   color: Theme.of(context)
                                       .colorScheme

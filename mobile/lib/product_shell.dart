@@ -1,7 +1,8 @@
 import 'package:flutter/material.dart';
 
 import 'api.dart';
-import 'product_dashboard.dart';
+import 'content_home.dart';
+import 'manual_memory.dart';
 import 'product_more.dart';
 import 'product_modules.dart';
 import 'product_onboarding.dart';
@@ -64,21 +65,21 @@ class _ProductShellState extends State<ProductShell> {
   static const _labels = [
     'Ana Sayfa',
     'İçerik Stüdyosu',
-    'Reklamlar',
-    'Plan',
+    'Hafıza Sarayı',
+    'İçerik Kuyruğu',
     'Daha Fazla'
   ];
   static const _icons = [
     Icons.space_dashboard_outlined,
     Icons.auto_awesome_outlined,
-    Icons.campaign_outlined,
+    Icons.psychology_outlined,
     Icons.calendar_month_outlined,
     Icons.grid_view_rounded
   ];
   static const _activeIcons = [
     Icons.space_dashboard_rounded,
     Icons.auto_awesome_rounded,
-    Icons.campaign_rounded,
+    Icons.psychology_rounded,
     Icons.calendar_month_rounded,
     Icons.grid_view_rounded
   ];
@@ -126,10 +127,10 @@ class _ProductShellState extends State<ProductShell> {
       ? widget.destinationBuilders![index]()
       : switch (index) {
           1 => const AiContentStudioPage(),
-          2 => const AdsCenterPage(),
+          2 => const ManualMemoryPage(),
           3 => const ContentQueuePage(),
           4 => const ProductMorePage(),
-          _ => const ProductDashboardPage(),
+          _ => const ContentHomePage(),
         };
 
   Widget _navigationBody() => Stack(children: [
@@ -248,7 +249,7 @@ class _ProductShellState extends State<ProductShell> {
         child: Material(
             color: Theme.of(context).colorScheme.surface,
             child: SafeArea(
-                child: Column(children: [
+                child: ListView(children: [
           Padding(
               padding: const EdgeInsets.fromLTRB(20, 24, 20, 28),
               child: Row(children: [
@@ -288,7 +289,6 @@ class _ProductShellState extends State<ProductShell> {
                       style: const TextStyle(fontWeight: FontWeight.w600)),
                   onTap: () => _go(ProductDestination.values[i]),
                 )),
-          const Spacer(),
           if (widget.user['role'] == 'ADMIN')
             const Padding(
                 padding: EdgeInsets.all(16),
@@ -297,9 +297,9 @@ class _ProductShellState extends State<ProductShell> {
           Padding(
               padding: const EdgeInsets.all(16),
               child: ProductInsightCard(
-                  title: 'AdVise öğreniyor',
+                  title: 'Kendi içerik hafızan',
                   body:
-                      'İçerik ve kampanya sonuçların bir sonraki öneriyi geliştirir.')),
+                      'Metinlerini ve paylaşım saatlerini sakla. Yayınlar yalnızca senin onayınla başlar.')),
           ListTile(
               leading: const Icon(Icons.logout_rounded),
               title: const Text('Çıkış yap'),
