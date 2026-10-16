@@ -11,6 +11,10 @@ const tenantsFile = path.join(root, 'tenants.json');
 const licensesFile = path.join(root, 'licenses.json');
 const logsFile = path.join(root, 'logs.json');
 const postsFile = path.join(root, 'posts.json');
+const proFile = path.join(root, 'pro.json');
+const aiMemoryFile = path.join(root, 'ai_memory.json');
+const performanceMemoryFile = path.join(root, 'performance_memory.json');
+const adOperationsFile = path.join(root, 'ad_operations.json');
 
 export const SYSTEM_TENANT_ID = 'system';
 
@@ -323,34 +327,76 @@ export function publicTenant(tenant) {
   return safe;
 }
 
-async function _deleteTenantCascade(tenantId) {
+async function _deleteTenantCascade(tenantId, {uploadRoot, actorId = '', onPhase} = {}) {
   if (!tenantId || tenantId === SYSTEM_TENANT_ID) throw new Error('Sistem hesabı silinemez.');
   const tenants = await getTenants();
   const tenant = tenants.find(t => t.id === tenantId);
   if (!tenant) throw new Error('Müşteri bulunamadı.');
-  await saveTenants(tenants.filter(t => t.id !== tenantId));
-
-  const users = await getUsers();
-  await saveUsers(users.filter(u => u.tenantId !== tenantId));
-
-  const settings = await readJson(settingsFile, {});
-  if (settings && typeof settings === 'object' && !Array.isArray(settings)) {
-    delete settings[tenantId];
-    await writeJson(settingsFile, settings);
+  const uploadDir = path.resolve(uploadRoot || path.resolve(root, '../uploads'));
+  const files = [tenantsFile, usersFile, settingsFile, logsFile, postsFile, licensesFile, proFile, aiMemoryFile, performanceMemoryFile, adOperationsFile];
+  const snapshots = new Map();
+  for (const filePath of files) {
+    const exists = await fs.access(filePath).then(() => true).catch(() => false);
+    snapshots.set(filePath, {exists, value: exists ? await readJson(filePath, null) : null});
   }
+  const uploadSnapshots = new Map();
+  const restore = async () => {
+    for (const [filePath, snapshot] of snapshots) {
+      if (snapshot.exists) await writeJson(filePath, snapshot.value);
+      else await fs.rm(filePath, {force:true}).catch(() => {});
+    }
+    for (const [filePath, bytes] of uploadSnapshots) {
+      await fs.mkdir(path.dirname(filePath), {recursive:true});
+      await fs.writeFile(filePath, bytes, {flag:'w'});
+    }
+  };
+  const tenantPosts = snapshots.get(postsFile).value.filter(x => (x.tenantId || SYSTEM_TENANT_ID) === tenantId);
+  const uploadPaths = [...new Set(tenantPosts.flatMap(post => [post.filePath, post.coverPath]).filter(Boolean).map(value => path.resolve(String(value))))]
+    .filter(filePath => filePath === uploadDir || filePath.startsWith(`${uploadDir}${path.sep}`));
+  try {
+    const users = snapshots.get(usersFile).value || [];
+    const logs = snapshots.get(logsFile).value || [];
+    const pro = snapshots.get(proFile).value || {};
+    const aiMemory = snapshots.get(aiMemoryFile).value || {};
+    const performanceMemory = snapshots.get(performanceMemoryFile).value || {};
+    const adOperations = snapshots.get(adOperationsFile).value;
+    const removedPosts = tenantPosts;
+    const removedUsers = users.filter(u => u.tenantId === tenantId);
+    const filteredLogs = logs.filter(x => (x.tenantId || SYSTEM_TENANT_ID) !== tenantId);
+    const filteredPro = Object.fromEntries(Object.entries(pro).map(([key, rows]) => [key, Array.isArray(rows) ? rows.filter(row => row.tenantId !== tenantId) : rows]));
+    const filteredAiMemory = {...aiMemory, tenants:{...(aiMemory.tenants || {})}};
+    const filteredPerformanceMemory = {...performanceMemory, tenants:{...(performanceMemory.tenants || {})}};
+    delete filteredAiMemory.tenants[tenantId];
+    delete filteredPerformanceMemory.tenants[tenantId];
+    const audit = {type:'CUSTOMER_DELETED', tenantId, companyName:tenant.companyName, actorId:String(actorId || ''), removed:{posts:removedPosts.length, users:removedUsers.length, uploads:uploadPaths.length}, at:new Date().toISOString()};
+    filteredLogs.unshift({...audit, tenantId:SYSTEM_TENANT_ID});
 
-  const logs = await readJson(logsFile, []);
-  await writeJson(logsFile, logs.filter(x => (x.tenantId || SYSTEM_TENANT_ID) !== tenantId));
-
-  const posts = await readJson(postsFile, []);
-  const removedPosts = posts.filter(x => (x.tenantId || SYSTEM_TENANT_ID) === tenantId);
-  await writeJson(postsFile, posts.filter(x => (x.tenantId || SYSTEM_TENANT_ID) !== tenantId));
-
-  const licenses = await readJson(licensesFile, []);
-  const unassigned = licenses.map(x => x.tenantId === tenantId ? ({...x, tenantId:null, status:'UNUSED', assignedAt:null}) : x);
-  await writeJson(licensesFile, unassigned);
-
-  return {tenant, removedPostsCount: removedPosts.length, removedUserCount: users.filter(u => u.tenantId === tenantId).length};
+    const writes = [
+      [tenantsFile, snapshots.get(tenantsFile).value.filter(t => t.id !== tenantId)],
+      [usersFile, users.filter(u => u.tenantId !== tenantId)],
+      [settingsFile, Object.fromEntries(Object.entries(snapshots.get(settingsFile).value || {}).filter(([key]) => key !== tenantId))],
+      // The system audit must be materialized even if this is the first log file.
+      [logsFile, filteredLogs, true],
+      [postsFile, snapshots.get(postsFile).value.filter(x => (x.tenantId || SYSTEM_TENANT_ID) !== tenantId)],
+      [licensesFile, (snapshots.get(licensesFile).value || []).map(x => x.tenantId === tenantId ? ({...x, tenantId:null, status:'UNUSED', assignedAt:null}) : x)],
+      [proFile, filteredPro],
+      [aiMemoryFile, filteredAiMemory],
+      [performanceMemoryFile, filteredPerformanceMemory],
+      [adOperationsFile, Array.isArray(adOperations) ? adOperations.filter(row => row.tenantId !== tenantId) : adOperations]
+    ];
+    for (const [filePath, value, forceWrite] of writes) {
+      if (forceWrite || snapshots.get(filePath).exists) await writeJson(filePath, value);
+    }
+    await onPhase?.('before-upload-delete');
+    for (const filePath of uploadPaths) {
+      const bytes = await fs.readFile(filePath).catch(error => error.code === 'ENOENT' ? null : Promise.reject(error));
+      if (bytes) { uploadSnapshots.set(filePath, bytes); await fs.rm(filePath, {force:true}); }
+    }
+    return {tenant, removedPosts, removedPostsCount:removedPosts.length, removedUserCount:removedUsers.length, removedUploadCount:uploadSnapshots.size, audit};
+  } catch (error) {
+    await restore().catch(rollbackError => { error.rollbackError = rollbackError; });
+    throw error;
+  }
 }
 
 async function _getSettings(tenantId = SYSTEM_TENANT_ID) {

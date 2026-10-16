@@ -1136,12 +1136,8 @@ app.post('/api/admin/customers/:tenantId/extend', allowRoles('ADMIN'), async (re
 
 app.delete('/api/admin/customers/:tenantId', allowRoles('ADMIN'), async (req, res) => {
   try {
-    const result = await deleteTenantCascade(req.params.tenantId);
-    for (const post of result.removedPosts || []) {
-      if (post.filePath) await fs.rm(post.filePath, {force:true}).catch(()=>{});
-    }
-    await addLog('system', {type:'CUSTOMER_DELETED', tenantId:req.params.tenantId, companyName:result.tenant.companyName});
-    res.json({ok:true, tenantId:req.params.tenantId});
+    const result = await deleteTenantCascade(req.params.tenantId, {uploadRoot:uploadDir, actorId:req.user.id});
+    res.json({ok:true, tenantId:req.params.tenantId, removed:{posts:result.removedPostsCount, users:result.removedUserCount, uploads:result.removedUploadCount}, audit:result.audit});
   } catch (e) { res.status(400).json({error:e.message}); }
 });
 
