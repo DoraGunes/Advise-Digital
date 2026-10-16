@@ -26,7 +26,7 @@ export const config = {
   metaWhatsappWabaId: (process.env.META_WHATSAPP_WABA_ID || '').trim(),
   metaWhatsappPhoneNumberId: (process.env.META_WHATSAPP_PHONE_NUMBER_ID || '').trim(),
   instagramUsername: (process.env.INSTAGRAM_USERNAME || '').trim(),
-  metaOAuthScopes: (process.env.META_OAUTH_SCOPES || 'ads_management,business_management,pages_show_list,pages_read_engagement,instagram_basic,instagram_content_publish').split(',').map(x => x.trim()).filter(Boolean),
+  metaOAuthScopes: (process.env.META_OAUTH_SCOPES || 'ads_read,ads_management,business_management,pages_show_list,pages_read_engagement,instagram_basic,instagram_content_publish').split(',').map(x => x.trim()).filter(Boolean),
   publicBaseUrl: (process.env.PUBLIC_BASE_URL || 'http://localhost:3001').replace(/\/+$/, ''),
   publishMaxRetries: Math.max(1, Math.min(5, Number(process.env.PUBLISH_MAX_RETRIES || 3))),
   publishRetryMinutes: Math.max(1, Math.min(120, Number(process.env.PUBLISH_RETRY_MINUTES || 10))),

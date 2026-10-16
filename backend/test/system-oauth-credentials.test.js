@@ -71,7 +71,7 @@ test('system media listing, ad creation and publishing all use the already selec
     result={id:String({campaigns:1001,adsets:1002,adcreatives:1003,ads:1004}[endpoint])};
    }
   }else if(endpoint==='act_246')result={account_id:'246',currency:'TRY',account_status:1,disable_reason:0,timezone_name:'Europe/Istanbul',user_tasks:['ADVERTISE']};
-  else if(endpoint==='permissions')result={data:[{permission:'ads_management',status:'granted'},{permission:'pages_read_engagement',status:'granted'}]};
+  else if(endpoint==='permissions')result={data:[{permission:'ads_read',status:'granted'},{permission:'ads_management',status:'granted'},{permission:'pages_read_engagement',status:'granted'}]};
   else if(endpoint==='456')result={id:'456',is_published:true,instagram_business_account:{id:'789'}};
   else if(endpoint==='media'){assert.ok(url.pathname.endsWith('/789/media'));result={data:[{id:'901',media_type:'IMAGE'}]};}
   else if(['1005','1007'].includes(endpoint))result={status_code:'FINISHED'};

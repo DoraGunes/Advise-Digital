@@ -49,6 +49,8 @@ Telefon bağlantısı yine:
 
 Uygulamada **Meta & Instagram → META / INSTAGRAM BAĞLA** düğmesine bas. Backend, Facebook Login for Business Configuration ID'si ile OAuth URL'sini oluşturur. Callback tamamlanınca backend tenant'a token ve keşfedilen Page/Instagram/Ad Account bilgilerini kaydeder.
 
+Reklam listesini, ön kontrolü ve ölçümleri okuyabilmek için OAuth isteği `ads_read` ve reklam oluşturup yönetebilmek için `ads_management` izinlerini ister. Development modunda bunu yalnızca App Role kullanıcılarıyla test edebilirsin; Live modunda `ads_read` için gerekli erişim/review durumu Meta panelinde tamamlanmış olmalıdır.
+
 ## Güvenlik
 
 App Secret ve erişim tokenlarını APK içine koyma ve sohbet üzerinden paylaşma. Üretimde HTTPS kullan.

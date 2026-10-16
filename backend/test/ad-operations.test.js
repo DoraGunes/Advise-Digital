@@ -72,7 +72,7 @@ function mockWhatsAppPreflight({wabaVisible=true,phoneId='phone-789',permissions
     const url=new URL(input),path=url.pathname.split('/').filter(Boolean),endpoint=path.at(-1);
     let result;
     if(endpoint==='act_123')result={id:'act_123',account_id:'123',currency:'TRY',account_status:1,disable_reason:0,timezone_name:'Europe/Istanbul',user_tasks:['ADVERTISE']};
-    else if(endpoint==='permissions')result={data:[{permission:'ads_management',status:'granted'},{permission:'pages_read_engagement',status:'granted'},...permissions.map(permission=>({permission,status:'granted'}))]};
+    else if(endpoint==='permissions')result={data:[{permission:'ads_read',status:'granted'},{permission:'ads_management',status:'granted'},{permission:'pages_read_engagement',status:'granted'},...permissions.map(permission=>({permission,status:'granted'}))]};
     else if(endpoint==='456')result={id:'456',is_published:true,instagram_business_account:{id:'789'},has_whatsapp_business_number:false,has_whatsapp_number:false};
     else if(endpoint==='waba-456'){wabaReads++;if(!wabaVisible)return new Response(JSON.stringify({error:{code:200,message:'permission denied'}}),{status:403});result={id:'waba-456'};}
     else if(endpoint==='phone_numbers'){phoneReads++;result={data:[{id:phoneId}]};}
@@ -123,7 +123,7 @@ test('authenticated HTTP create passes preflight, resumes rejection and returns 
       assert.equal(new URLSearchParams(options.body).get('status'),endpoint==='adcreatives'?null:'PAUSED');
       result={id:String({campaigns:1001,adsets:1002,adcreatives:1003,ads:1004}[endpoint])};
     } else if(endpoint==='act_123')result={id:'act_123',account_id:'123',currency:'TRY',account_status:1,disable_reason:0,timezone_name:'Europe/Istanbul',user_tasks:['ADVERTISE']};
-    else if(endpoint==='permissions')result={data:[{permission:'ads_management',status:'granted'},{permission:'pages_read_engagement',status:'granted'},{permission:'whatsapp_business_management',status:'granted'},{permission:'whatsapp_business_messaging',status:'granted'}]};
+    else if(endpoint==='permissions')result={data:[{permission:'ads_read',status:'granted'},{permission:'ads_management',status:'granted'},{permission:'pages_read_engagement',status:'granted'},{permission:'whatsapp_business_management',status:'granted'},{permission:'whatsapp_business_messaging',status:'granted'}]};
     else if(endpoint==='waba-456')result={id:'waba-456'};
     else if(endpoint==='phone_numbers')result={data:[{id:'phone-789'}]};
     else if(endpoint==='456')result={id:'456',is_published:true,instagram_business_account:{id:'789'},has_whatsapp_number:true};
@@ -155,7 +155,7 @@ test('WhatsApp preflight failure returns actionable status without creating Meta
     const url=new URL(input);if(url.hostname==='127.0.0.1')return native(input,options);
     if(options.method==='POST'){metaWrites++;return new Response(JSON.stringify({id:'unexpected'}),{status:200});}
     const endpoint=url.pathname.split('/').at(-1);
-    const result=endpoint==='act_123'?{id:'act_123',account_id:'123',currency:'TRY',account_status:1,disable_reason:0,timezone_name:'Europe/Istanbul',user_tasks:['ADVERTISE']}:endpoint==='permissions'?{data:[{permission:'ads_management',status:'granted'},{permission:'pages_read_engagement',status:'granted'}]}:{id:'456',is_published:true,instagram_business_account:{id:'789'},has_whatsapp_business_number:false,has_whatsapp_number:false};
+    const result=endpoint==='act_123'?{id:'act_123',account_id:'123',currency:'TRY',account_status:1,disable_reason:0,timezone_name:'Europe/Istanbul',user_tasks:['ADVERTISE']}:endpoint==='permissions'?{data:[{permission:'ads_read',status:'granted'},{permission:'ads_management',status:'granted'},{permission:'pages_read_engagement',status:'granted'}]}:{id:'456',is_published:true,instagram_business_account:{id:'789'},has_whatsapp_business_number:false,has_whatsapp_number:false};
     return new Response(JSON.stringify(result),{status:200});
   };
   try {

@@ -133,7 +133,7 @@ export async function adsPreflight(credentials={}, {destination='FACEBOOK_INSTAG
   if(account.currency!=='TRY')fail('META_CURRENCY_UNSUPPORTED','Bu reklam akışı TRY para birimindeki hesapları destekliyor.');
   if(!account.timezone_name)fail('META_PREFLIGHT_UNAVAILABLE','Reklam hesabının saat dilimi doğrulanamadı. Bağlantıyı kontrol edin.');
   const granted=new Set((permissions.data||[]).filter(row=>row.status==='granted').map(row=>row.permission));
-  if(!granted.has('ads_management')||!granted.has('pages_read_engagement'))fail('META_PERMISSION_DENIED','Reklam yönetimi ve Sayfa erişim izinlerini yeniden verin.');
+  if(!granted.has('ads_read')||!granted.has('ads_management')||!granted.has('pages_read_engagement'))fail('META_PERMISSION_DENIED','Reklam okuma/yönetme ve Sayfa erişim izinlerini yeniden verin.');
   if(!Array.isArray(account.user_tasks)||!account.user_tasks.some(task=>['ADVERTISE','MANAGE'].includes(task)))fail('META_PERMISSION_DENIED','Seçili reklam hesabında reklam oluşturma yetkisi doğrulanamadı.');
   if(String(page.id)!==c.pageId||page.is_published!==true)fail('META_PAGE_UNAVAILABLE','Bağlı Sayfa erişimi veya yayın durumu doğrulanamadı.');
   const linked=String(page.instagram_business_account?.id||page.connected_instagram_account?.id||'');
