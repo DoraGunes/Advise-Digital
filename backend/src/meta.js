@@ -397,6 +397,10 @@ export async function createAdCreativeFromInstagramMedia({name,instagramMediaId,
     object_story_spec:{page_id:identity.pageId}
   };
 
+  // source_instagram_media_id is itself the promoted object. Sending an
+  // additional object_story_spec makes Meta reject the creative as ambiguous.
+  delete body.object_story_spec;
+
   if(destination==='WHATSAPP')body.call_to_action={type:'WHATSAPP_MESSAGE',value:{app_destination:'WHATSAPP'}};
   return request(`act_${c.adAccountId}/adcreatives`,{method:'POST',credentials:c,body,timeoutMs:15000});
 }
