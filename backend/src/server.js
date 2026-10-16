@@ -35,6 +35,7 @@ import {withTenantLock} from './persistence.js';
 import {tenantCredentials,metaReady,budgetGuard,activationGuard,withAdAccountLock} from './automation-safety.js';
 import {metaOAuthCallback,startMetaOAuth,metaAssets,selectMetaAssets} from './meta-oauth.js';
 import {productOverview,productReport,onboardingStatus,saveOnboarding,productStrategy} from './product.js';
+import {publicPage} from './public-pages.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const uploadDir = path.resolve(process.env.ADVISE_UPLOAD_DIR || path.resolve(__dirname, '../uploads'));
@@ -165,6 +166,14 @@ app.set('trust proxy', true);
 app.use(cors());
 app.use(express.json({limit: '2mb'}));
 app.use('/uploads', express.static(uploadDir));
+
+// Public informational pages are deliberately isolated from /api so the API
+// authentication and response contracts remain unchanged.
+app.get(['/', '/privacy', '/terms', '/data-deletion'], (req, res) => {
+  const page = publicPage(req.path);
+  if (!page) return res.status(404).send('Not found');
+  res.type('html').send(page);
+});
 
 app.get('/health', (_req, res) => res.json({
   ok: true,
