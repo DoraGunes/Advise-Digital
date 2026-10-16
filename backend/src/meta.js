@@ -215,6 +215,27 @@ export async function createAdSet({name,campaignId,dailyBudget,targeting,optimiz
 
 const adLocationKeyCache = new Map();
 
+function normalizeAdGeoLabel(value) {
+  return normalizeLocationName(String(value || '').replace(/\([^)]*\)/g, ' '))
+    .replace(/\b(?:province|ilce|il)\b/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+export function selectAdGeoLocation(rows, requestedName) {
+  const requested = normalizeLocationName(requestedName);
+  const candidates = (Array.isArray(rows) ? rows : []).filter(row =>
+    String(row?.country_code || '').toUpperCase() === 'TR' &&
+    String(row?.type || '').toLowerCase() === 'city' &&
+    String(row?.key || row?.id || '').trim()
+  );
+  const exact = candidates.filter(row => normalizeLocationName(row.name) === requested);
+  const normalized = candidates.filter(row => normalizeAdGeoLabel(row.name) === requested);
+  const matches = exact.length ? exact : normalized;
+  if (matches.length !== 1) return null;
+  return matches[0];
+}
+
 export async function resolveAdGeoTargeting(mode='COUNTRY', locations=[], credentials={}) {
   if (mode === 'COUNTRY') return {geo_locations:{countries:['TR']}, locationMode:'COUNTRY', locations:['Türkiye']};
   const cityNames = provinceNamesForTargeting(mode, locations);
@@ -235,13 +256,8 @@ export async function resolveAdGeoTargeting(mode='COUNTRY', locations=[], creden
         }
       });
       const rows = Array.isArray(result?.data) ? result.data : [];
-      const exact = rows.find(row =>
-        String(row?.country_code || '').toUpperCase() === 'TR' &&
-        String(row?.type || '').toLowerCase() === 'city' &&
-        normalizeLocationName(row?.name) === cacheKey &&
-        String(row?.key || row?.id || '').trim()
-      );
-      const key = String(exact?.key || exact?.id || '').trim();
+      const match = selectAdGeoLocation(rows, name);
+      const key = String(match?.key || match?.id || '').trim();
       if (!key) {
         missing.push(name);
         return null;
