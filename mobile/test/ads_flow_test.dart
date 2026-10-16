@@ -70,6 +70,28 @@ void main() {
             'tenant:user', {'budget': 200}, 'changed-request-id'),
         'changed-request-id');
   });
+
+  testWidgets(
+      'ads page offers the Meta connection center when media access is unavailable',
+      (tester) async {
+    Api.setHttpClientForTesting(MockClient((request) async {
+      if (request.url.path == '/api/instagram/media') {
+        return http.Response(
+            jsonEncode({'error': 'Meta bağlantısı kurulmadı.'}), 502,
+            headers: {'content-type': 'application/json'});
+      }
+      return http.Response(jsonEncode({'ok': true}), 200,
+          headers: {'content-type': 'application/json'});
+    }));
+    await tester.pumpWidget(MaterialApp(
+        theme: ProductTheme.light, home: const SocialAdsPage()));
+    await tester.pump(const Duration(seconds: 1));
+    await tester.pumpAndSettle();
+    expect(find.text('Meta bağlantısı gerekli'), findsOneWidget);
+    expect(find.text('Meta bağlantısını aç'), findsOneWidget);
+    expect(find.text('Tekrar dene'), findsOneWidget);
+  });
+
   Future<void> openStrategy(
       WidgetTester tester, Future<http.Response> Function() action,
       {Future<http.Response> Function(http.Request)? createAction,

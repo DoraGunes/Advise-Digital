@@ -5,6 +5,7 @@ import 'api.dart';
 import 'app_error.dart';
 import 'product_ui.dart';
 import 'ad_presets.dart';
+import 'v78_pages.dart' show MetaConnectionPage;
 
 class SocialAdsPage extends StatefulWidget {
   final String? initialMediaId;
@@ -508,6 +509,14 @@ String _presetCost(String id){
     );
   }
 
+  Future<void> _openMetaConnection() async {
+    if (creating) return;
+    await Navigator.of(context).push(
+      MaterialPageRoute<void>(builder: (_) => const MetaConnectionPage()),
+    );
+    if (mounted) await _load();
+  }
+
   String _mediaType(Map<String, dynamic> item) {
     final type = item['media_type']?.toString().toUpperCase() ?? 'MEDIA';
     if (type == 'VIDEO') return 'REELS / VİDEO';
@@ -566,7 +575,25 @@ String _presetCost(String id){
             child: loading
                 ? const ProductLoadingSkeleton()
                 : error != null
-                    ? ProductErrorState(message: error!, onRetry: _load)
+                    ? ProductEmptyState(
+                        title: 'Meta bağlantısı gerekli',
+                        body: error!,
+                        icon: Icons.link_off_outlined,
+                        action: Wrap(
+                            alignment: WrapAlignment.center,
+                            spacing: 12,
+                            runSpacing: 8,
+                            children: [
+                              OutlinedButton.icon(
+                                  onPressed: creating ? null : _load,
+                                  icon: const Icon(Icons.refresh),
+                                  label: const Text('Tekrar dene')),
+                              FilledButton.icon(
+                                  onPressed:
+                                      creating ? null : _openMetaConnection,
+                                  icon: const Icon(Icons.link),
+                                  label: const Text('Meta bağlantısını aç')),
+                            ]))
                     : LayoutBuilder(
                         builder: (ctx, size) => Stepper(
                               type: size.maxWidth >= 1300 && MediaQuery.textScalerOf(ctx).scale(1) <= 1.2
@@ -710,12 +737,22 @@ String _presetCost(String id){
                                               'Yayınlanmış Instagram gönderilerinden birini seç.'),
                                           const SizedBox(height: 14),
                                           if (media.isEmpty)
-                                            const ProductEmptyState(
+                                            ProductEmptyState(
                                                 title: 'Gönderi bulunamadı',
                                                 body:
                                                     'Önce İçerik Stüdyosu’ndan içerik yayınla veya Meta bağlantısını kontrol et.',
                                                 icon: Icons
-                                                    .photo_library_outlined),
+                                                    .photo_library_outlined,
+                                                action: canOperate
+                                                    ? OutlinedButton.icon(
+                                                        onPressed: creating
+                                                            ? null
+                                                            : _openMetaConnection,
+                                                        icon: const Icon(
+                                                            Icons.link),
+                                                        label: const Text(
+                                                            'Meta bağlantısını aç'))
+                                                    : null),
                                           SizedBox(
                                               height: media.isEmpty ? 0 : 400,
                                               child: GridView.builder(
