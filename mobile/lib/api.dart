@@ -653,6 +653,8 @@ class Api {
           await _request('PUT', '/api/settings', body: values));
   static Future<Map<String, dynamic>> runAutomation() async =>
       Map<String, dynamic>.from(await _request('POST', '/api/automation/run'));
+  static Future<Map<String, dynamic>> runOneTimeAutomation() async =>
+      Map<String, dynamic>.from(await _request('POST', '/api/automation/one-time', body: {'confirm': true}));
   static Future<List<dynamic>> logs() async => List<dynamic>.from(
       (await _request('GET', '/api/logs'))['data'] ?? const []);
   static Future<void> status(String id, String statusValue) async =>

@@ -886,6 +886,8 @@ class _ProductAutomationPageState extends State<ProductAutomationPage> {
   bool loading = true, busy = false;
   String? error;
   final fields = <String, TextEditingController>{};
+  final selectedAccounts = TextEditingController();
+  String optimizationPermission = 'OFF';
   static const labels = {
     'geminiAdsDailyCap': 'Hesap geneli günlük üst limit (TL)',
     'maxDailyBudget': 'Reklam grubu günlük üst limit (TL)',
@@ -908,6 +910,7 @@ class _ProductAutomationPageState extends State<ProductAutomationPage> {
     for (final c in fields.values) {
       c.dispose();
     }
+    selectedAccounts.dispose();
     super.dispose();
   }
 
@@ -918,6 +921,10 @@ class _ProductAutomationPageState extends State<ProductAutomationPage> {
       settings = _map(result[0]);
       user = _map(_map(result[1])['user']);
       logs = _rows(result[2]);
+      optimizationPermission = '${settings['optimizationPermission'] ?? 'OFF'}'.toUpperCase();
+      selectedAccounts.text = (settings['optimizationAdAccountIds'] is List)
+          ? (settings['optimizationAdAccountIds'] as List).join(', ')
+          : '';
       for (final e in fields.entries) {
         e.value.text = '${settings[e.key] ?? 0}';
       }
@@ -928,25 +935,30 @@ class _ProductAutomationPageState extends State<ProductAutomationPage> {
     if (mounted) setState(() => loading = false);
   }
 
-  Future<void> _save() async {
+  Future<bool> _save() async {
     final values = <String, dynamic>{};
     for (final e in fields.entries) {
       final n = double.tryParse(e.value.text.replaceAll(',', '.'));
       if (n == null || n < 0) {
         _snack(context, 'Limitlere geçerli bir sayı gir.');
-        return;
+        return false;
       }
       values[e.key] = n;
     }
-    if ((settings['enabled'] == true || settings['geminiAdsAuto'] == true) &&
+    final accountIds = selectedAccounts.text.split(',').map((x) => x.trim()).where((x) => x.isNotEmpty).toSet().toList();
+    if (optimizationPermission != 'OFF' && accountIds.isEmpty) {
+      _snack(context, 'Optimizasyon için en az bir reklam hesabı seçin.');
+      return false;
+    }
+    if ((settings['enabled'] == true || settings['geminiAdsAuto'] == true || optimizationPermission != 'OFF') &&
         _num(values['geminiAdsDailyCap']) < 1) {
       _snack(context,
           'Otomasyonu açmadan önce hesap günlük üst limitini belirle.');
-      return;
+      return false;
     }
     if (_num(values['minDailyBudget']) > _num(values['maxDailyBudget'])) {
       _snack(context, 'Alt limit üst limitten büyük olamaz.');
-      return;
+      return false;
     }
     for (final key in [
       'enabled',
@@ -957,16 +969,20 @@ class _ProductAutomationPageState extends State<ProductAutomationPage> {
     ]) {
       values[key] = false;
     }
+    values['optimizationPermission'] = optimizationPermission;
+    values['optimizationAdAccountIds'] = accountIds;
     setState(() => busy = true);
     try {
       settings = await Api.saveSettings(values);
       if (mounted)
         ScaffoldMessenger.of(context).showSnackBar(
             const SnackBar(content: Text('Otomasyon limitleri kaydedildi.')));
+      if (mounted) setState(() => busy = false);
+      return true;
     } catch (e) {
       if (mounted) _snack(context, e);
+      return false;
     }
-    if (mounted) setState(() => busy = false);
   }
 
   @override
@@ -985,6 +1001,35 @@ class _ProductAutomationPageState extends State<ProductAutomationPage> {
                             'Elle belirlediğin bütçe sınırları ve kayıtlı işlem geçmişi.'),
                     const SizedBox(height: 18),
                     const Text('Otomatik reklam yönetimi ve otomatik yayın kapalı. Reklamı ve paylaşımı ayrı ayrı elle onaylayın.'),
+                    const SizedBox(height: 16),
+                    ProductSurface(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                      const Text('Reklam optimizasyon izni', style: TextStyle(fontWeight: FontWeight.w800)),
+                      const SizedBox(height: 6),
+                      const Text('OFF: yalnızca okuma. ONE_TIME: tek değerlendirme. CONTINUOUS: seçili hesapta 12 saatte bir değerlendirme.'),
+                      const SizedBox(height: 10),
+                      DropdownButtonFormField<String>(
+                        value: optimizationPermission,
+                        decoration: const InputDecoration(labelText: 'İzin seviyesi'),
+                        items: const [
+                          DropdownMenuItem(value: 'OFF', child: Text('Kapalı')),
+                          DropdownMenuItem(value: 'ONE_TIME', child: Text('Tek seferlik optimizasyon')),
+                          DropdownMenuItem(value: 'CONTINUOUS', child: Text('Sürekli optimizasyon')),
+                        ],
+                        onChanged: canEdit && !busy ? (value) { if (value != null) setState(() => optimizationPermission = value); } : null,
+                      ),
+                      const SizedBox(height: 10),
+                      TextField(controller: selectedAccounts, enabled: canEdit && !busy,
+                        decoration: const InputDecoration(labelText: 'Seçili reklam hesabı ID’leri', hintText: 'Örn. 123456789, 987654321')),
+                      if (optimizationPermission == 'ONE_TIME' && canEdit) ...[
+                        const SizedBox(height: 10),
+                        OutlinedButton.icon(onPressed: busy ? null : () async {
+                          setState(() => busy = true);
+                          try { if (await _save()) { final result = await Api.runOneTimeAutomation(); if (mounted) _snack(context, 'Tek seferlik değerlendirme tamamlandı: ${result['actions']?.length ?? 0} kayıt.'); } }
+                          catch (e) { if (mounted) _snack(context, e); }
+                          if (mounted) setState(() => busy = false);
+                        }, icon: const Icon(Icons.play_arrow_outlined), label: const Text('Tek seferlik değerlendirmeyi çalıştır')),
+                      ],
+                    ])),
                     const SizedBox(height: 16),
                     ProductSurface(
                         child: LayoutBuilder(
