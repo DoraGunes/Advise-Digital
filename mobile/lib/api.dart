@@ -103,6 +103,11 @@ class ApiException implements Exception, UserFacingFailure {
       'GEMINI_PROVIDER_ERROR':
           'Gemini sağlayıcısı isteği tamamlayamadı. Biraz sonra yeniden deneyin.',
     };
+    if (code == 'META_WHATSAPP_MISSING' &&
+        message.trim().isNotEmpty &&
+        message.trim() != 'İstek başarısız.') {
+      return message.trim();
+    }
     final safe = known[code];
     if (safe != null) {
       const stages = {

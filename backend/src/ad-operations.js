@@ -10,7 +10,10 @@ export function operationFailure(error,stage,correlationId) {
   const raw=String(error?.message||'');
   const safe=raw.length<=220&&!/[{}<>\r\n]|https?:|token|secret|bearer|api.?key/i.test(raw)&&/[çğıöşüÇĞİÖŞÜ]/.test(raw);
   const reason=messages[code]||(safe?raw:'Reklam isteği tamamlanamadı. Bağlantı ve hesap ayarlarını kontrol edin.');
-  return {ok:false,code,stage,retryable:error?.retryable===true,userMessage:`${reason} (Adım: ${stage})`,error:reason,correlationId};
+  const providerFailure=Number.isFinite(Number(error?.providerCode))||Number.isFinite(Number(error?.providerSubcode))
+    ? {status:Number(error?.status)||null,code:Number(error?.providerCode)||null,subcode:Number(error?.providerSubcode)||null,trace:/^[a-zA-Z0-9_-]{1,120}$/.test(String(error?.providerTrace||''))?String(error.providerTrace):null}
+    : null;
+  return {ok:false,code,stage,retryable:error?.retryable===true,userMessage:`${reason} (Adım: ${stage})`,error:reason,providerFailure,correlationId};
 }
 export async function getAdOperation(tenantId,key) {
   const rows=await readJsonFile(file,[]);

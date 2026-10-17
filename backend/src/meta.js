@@ -151,10 +151,14 @@ export async function adsPreflight(credentials={}, {destination='FACEBOOK_INSTAG
       if(!c.metaWhatsappWabaId||!c.metaWhatsappPhoneNumberId)fail('META_WHATSAPP_MISSING','Meta bağlı Sayfada WhatsApp numarası veya doğrulanmış WhatsApp varlığı bulunamadı.');
       if(!granted.has('whatsapp_business_management'))fail('META_WHATSAPP_MISSING','WhatsApp Business yönetim izni doğrulanamadı.');
       let waba;
-      try {waba=await request(c.metaWhatsappWabaId,{credentials:c,query:{fields:'id'}});} catch {fail('META_WHATSAPP_MISSING','Yapılandırılmış WhatsApp Business Account okunamadı.');}
+      try {waba=await request(c.metaWhatsappWabaId,{credentials:c,query:{fields:'id'}});} catch (error) {
+        throw Object.assign(new Error('Yapılandırılmış WhatsApp Business Account okunamadı.'),{code:'META_WHATSAPP_MISSING',status:error?.status,providerCode:error?.providerCode,providerSubcode:error?.providerSubcode,providerTrace:error?.providerTrace,retryable:false});
+      }
       if(String(waba?.id||'')!==c.metaWhatsappWabaId)fail('META_WHATSAPP_MISSING','Yapılandırılmış WhatsApp Business Account bulunamadı.');
       let phoneNumbers;
-      try {phoneNumbers=await collection(`${c.metaWhatsappWabaId}/phone_numbers`,c,'id',500);} catch {fail('META_WHATSAPP_MISSING','WhatsApp Business Account telefon listesi okunamadı.');}
+      try {phoneNumbers=await collection(`${c.metaWhatsappWabaId}/phone_numbers`,c,'id',500);} catch (error) {
+        throw Object.assign(new Error('WhatsApp Business Account telefon listesi okunamadı.'),{code:'META_WHATSAPP_MISSING',status:error?.status,providerCode:error?.providerCode,providerSubcode:error?.providerSubcode,providerTrace:error?.providerTrace,retryable:false});
+      }
       if(!Array.isArray(phoneNumbers?.data)||!phoneNumbers.data.some(phone=>String(phone.id||'')===c.metaWhatsappPhoneNumberId))fail('META_WHATSAPP_MISSING','Yapılandırılmış telefon numarası bu WhatsApp Business Account içinde bulunamadı.');
       whatsappAssetVerified=true;
       whatsappVerificationSource='WABA_PHONE';
