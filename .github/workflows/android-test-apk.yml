@@ -36,6 +36,8 @@ jobs:
 
       - name: Configure Android SDK
         uses: android-actions/setup-android@v3
+        with:
+          packages: platform-tools
 
       - name: Configure Flutter stable
         uses: subosito/flutter-action@v2
