@@ -148,6 +148,17 @@ export async function adsPreflight(credentials={}, {destination='FACEBOOK_INSTAG
       whatsappAssetVerified=true;
       whatsappVerificationSource='PAGE_LINK';
     } else {
+      const existingAdSets=await collection(`act_${c.adAccountId}/adsets`,c,'id,destination_type,promoted_object,status,effective_status',500);
+      const pageLinkedWhatsAppAdSet=(existingAdSets.data||[]).find(row=>
+        String(row.destination_type||'').toUpperCase().includes('WHATSAPP')&&
+        String(row.promoted_object?.page_id||'')===String(c.pageId)
+      );
+      if(pageLinkedWhatsAppAdSet) {
+        whatsappAssetVerified=true;
+        whatsappVerificationSource='EXISTING_ADSET';
+      }
+    }
+    if(!whatsappAssetVerified) {
       if(!c.metaWhatsappWabaId||!c.metaWhatsappPhoneNumberId)fail('META_WHATSAPP_MISSING','Meta bağlı Sayfada WhatsApp numarası veya doğrulanmış WhatsApp varlığı bulunamadı.');
       if(!granted.has('whatsapp_business_management'))fail('META_WHATSAPP_MISSING','WhatsApp Business yönetim izni doğrulanamadı.');
       let waba;
@@ -221,8 +232,9 @@ export async function createAdSet({name,campaignId,dailyBudget,targeting,optimiz
   const amountTl=Number(dailyBudget);
   if(!Number.isFinite(amountTl)||amountTl<=0) throw new Error('Geçersiz günlük bütçe.');
   const amountMinor=Math.round(amountTl * 100);
-  const body={name,campaign_id:campaignId,daily_budget:amountMinor,billing_event:billingEvent,optimization_goal:optimizationGoal,destination_type:destinationType,bid_strategy:'LOWEST_COST_WITHOUT_CAP',targeting:targeting||{geo_locations:{countries:['TR']}},status:'PAUSED'};
-  if(pageId||c.pageId) body.promoted_object={page_id:pageId||c.pageId};
+  const providerDestinationType=destinationType==='WHATSAPP'?'MESSAGING_INSTAGRAM_DIRECT_WHATSAPP':destinationType;
+  const body={name,campaign_id:campaignId,daily_budget:amountMinor,billing_event:billingEvent,optimization_goal:optimizationGoal,destination_type:providerDestinationType,bid_strategy:'LOWEST_COST_WITHOUT_CAP',targeting:targeting||{geo_locations:{countries:['TR']}},status:'PAUSED'};
+  if(pageId||c.pageId) body.promoted_object={page_id:pageId||c.pageId,...(destinationType==='WHATSAPP'?{smart_pse_enabled:true}:{})};
   return request(`act_${c.adAccountId}/adsets`,{method:'POST',credentials:c,body,timeoutMs:15000});
 }
 

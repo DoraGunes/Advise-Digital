@@ -66,7 +66,7 @@ test('retired Gemini cannot invoke even an injected client or leak provider payl
 test('read timeout is bounded and supplies cancellation signal',async()=>{
   let signal;await assert.rejects(boundedRead(value=>{signal=value;return new Promise(()=>{});},10),{code:'ETIMEDOUT'});assert.equal(signal.aborted,true);
 });
-function mockWhatsAppPreflight({wabaVisible=true,phoneId='phone-789',pageBusinessNumber=false,pageNumber=pageBusinessNumber,permissions=['whatsapp_business_management','whatsapp_business_messaging']}={}) {
+function mockWhatsAppPreflight({wabaVisible=true,phoneId='phone-789',pageBusinessNumber=false,pageNumber=pageBusinessNumber,existingPageLinkedAdSet=false,permissions=['whatsapp_business_management','whatsapp_business_messaging']}={}) {
   let wabaReads=0,phoneReads=0;
   global.fetch=async input=>{
     const url=new URL(input),path=url.pathname.split('/').filter(Boolean),endpoint=path.at(-1);
@@ -74,6 +74,7 @@ function mockWhatsAppPreflight({wabaVisible=true,phoneId='phone-789',pageBusines
     if(endpoint==='act_123')result={id:'act_123',account_id:'123',currency:'TRY',account_status:1,disable_reason:0,timezone_name:'Europe/Istanbul',user_tasks:['ADVERTISE']};
     else if(endpoint==='permissions')result={data:[{permission:'ads_read',status:'granted'},{permission:'ads_management',status:'granted'},{permission:'pages_read_engagement',status:'granted'},...permissions.map(permission=>({permission,status:'granted'}))]};
     else if(endpoint==='456')result={id:'456',is_published:true,instagram_business_account:{id:'789'},has_whatsapp_business_number:pageBusinessNumber,has_whatsapp_number:pageNumber};
+    else if(endpoint==='adsets')result={data:existingPageLinkedAdSet?[{id:'adset-1',destination_type:'MESSAGING_INSTAGRAM_DIRECT_WHATSAPP',promoted_object:{page_id:'456'},status:'PAUSED',effective_status:'PAUSED'}]:[]};
     else if(endpoint==='waba-456'){wabaReads++;if(!wabaVisible)return new Response(JSON.stringify({error:{code:200,message:'permission denied'}}),{status:403});result={id:'waba-456'};}
     else if(endpoint==='phone_numbers'){phoneReads++;result={data:[{id:phoneId}]};}
     else result={data:[]};
@@ -104,6 +105,15 @@ test('WhatsApp asset preflight: Page-linked number flag passes without Cloud WAB
     assert.deepEqual(result.whatsappPageFlags,{hasBusinessNumber:false,hasNumber:true});
     assert.equal(result.whatsappAssetVerified,true);
     assert.equal(result.whatsappVerificationSource,'PAGE_LINK');
+    assert.equal(mock.wabaReads,0);assert.equal(mock.phoneReads,0);
+  } finally {global.fetch=native;}
+});
+test('WhatsApp asset preflight: existing accepted Page-linked ad set is independent evidence',async()=>{
+  const native=global.fetch,mock=mockWhatsAppPreflight({existingPageLinkedAdSet:true,permissions:[]});
+  try {
+    const result=await adsPreflight({...whatsappCredentials,metaWhatsappWabaId:'',metaWhatsappPhoneNumberId:''},{destination:'WHATSAPP'});
+    assert.equal(result.whatsappAssetVerified,true);
+    assert.equal(result.whatsappVerificationSource,'EXISTING_ADSET');
     assert.equal(mock.wabaReads,0);assert.equal(mock.phoneReads,0);
   } finally {global.fetch=native;}
 });

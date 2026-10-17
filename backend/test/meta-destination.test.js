@@ -25,7 +25,7 @@ test('Instagram Direct preflight does not incorrectly require WhatsApp assets',a
     ]};
     else if(pathname.endsWith('/act_12345'))data={account_id:'12345',account_status:1,disable_reason:0,currency:'TRY',timezone_name:'Europe/Istanbul',user_tasks:['ADVERTISE']};
     else if(pathname.endsWith('/67890'))data={id:'67890',is_published:true,instagram_business_account:{id:'11111'}};
-    else if(pathname.endsWith('/act_12345/adsets'))data={id:'adset-1'};
+    else if(pathname.endsWith('/act_12345/adsets'))data=opts.method==='POST'?{id:'adset-1'}:{data:[]};
     else throw new Error('Unexpected Meta API call: '+pathname);
     return {ok:true,status:200,text:async()=>JSON.stringify(data)};
   };
@@ -38,7 +38,7 @@ test('Instagram Direct preflight does not incorrectly require WhatsApp assets',a
     const created=await createAdSet({name:'Instagram test',campaignId:'c-1',dailyBudget:150,
       targeting:{geo_locations:{countries:['TR']}},destinationType:'INSTAGRAM_DIRECT',credentials});
     assert.equal(created.id,'adset-1');
-    const post=calls.find(x=>x.pathname.endsWith('/adsets'));
+    const post=calls.find(x=>x.pathname.endsWith('/adsets')&&x.method==='POST');
     assert.equal(new URLSearchParams(post.body).get('destination_type'),'INSTAGRAM_DIRECT');
     assert.equal(new URLSearchParams(post.body).get('status'),'PAUSED');
   } finally {globalThis.fetch=oldFetch;}
