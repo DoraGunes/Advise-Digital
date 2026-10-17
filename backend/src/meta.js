@@ -142,7 +142,7 @@ export async function adsPreflight(credentials={}, {destination='FACEBOOK_INSTAG
   let whatsappAssetVerified=false;
   let whatsappVerificationSource=null;
   if(whatsappDestination) {
-    if(whatsappPageFlags.hasBusinessNumber) {
+    if(whatsappPageFlags.hasBusinessNumber||whatsappPageFlags.hasNumber) {
       // Click-to-WhatsApp ads can use the number linked to the Facebook Page.
       // A WABA/Phone Number ID is only needed for the separate Cloud API path.
       whatsappAssetVerified=true;
