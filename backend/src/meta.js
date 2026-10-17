@@ -140,18 +140,27 @@ export async function adsPreflight(credentials={}, {destination='FACEBOOK_INSTAG
   if(!linked||linked!==String(c.metaInstagramUserId||c.instagramUserId))fail('META_INSTAGRAM_MISMATCH','Sayfaya bağlı Instagram hesabını Bağlantılar ekranından yeniden seçin.');
   const whatsappPageFlags={hasBusinessNumber:page.has_whatsapp_business_number===true,hasNumber:page.has_whatsapp_number===true};
   let whatsappAssetVerified=false;
+  let whatsappVerificationSource=null;
   if(whatsappDestination) {
-    if(!c.metaWhatsappWabaId||!c.metaWhatsappPhoneNumberId)fail('META_WHATSAPP_MISSING','WhatsApp Business Account ve telefon varlığı yapılandırılmamış.');
-    if(!granted.has('whatsapp_business_management')||!granted.has('whatsapp_business_messaging'))fail('META_WHATSAPP_MISSING','WhatsApp Business yönetim ve mesajlaşma izinleri doğrulanamadı.');
-    let waba;
-    try {waba=await request(c.metaWhatsappWabaId,{credentials:c,query:{fields:'id'}});} catch {fail('META_WHATSAPP_MISSING','Yapılandırılmış WhatsApp Business Account okunamadı.');}
-    if(String(waba?.id||'')!==c.metaWhatsappWabaId)fail('META_WHATSAPP_MISSING','Yapılandırılmış WhatsApp Business Account bulunamadı.');
-    let phoneNumbers;
-    try {phoneNumbers=await collection(`${c.metaWhatsappWabaId}/phone_numbers`,c,'id',500);} catch {fail('META_WHATSAPP_MISSING','WhatsApp Business Account telefon listesi okunamadı.');}
-    if(!Array.isArray(phoneNumbers?.data)||!phoneNumbers.data.some(phone=>String(phone.id||'')===c.metaWhatsappPhoneNumberId))fail('META_WHATSAPP_MISSING','Yapılandırılmış telefon numarası bu WhatsApp Business Account içinde bulunamadı.');
-    whatsappAssetVerified=true;
+    if(whatsappPageFlags.hasBusinessNumber) {
+      // Click-to-WhatsApp ads can use the number linked to the Facebook Page.
+      // A WABA/Phone Number ID is only needed for the separate Cloud API path.
+      whatsappAssetVerified=true;
+      whatsappVerificationSource='PAGE_LINK';
+    } else {
+      if(!c.metaWhatsappWabaId||!c.metaWhatsappPhoneNumberId)fail('META_WHATSAPP_MISSING','Meta bağlı Sayfada WhatsApp numarası veya doğrulanmış WhatsApp varlığı bulunamadı.');
+      if(!granted.has('whatsapp_business_management'))fail('META_WHATSAPP_MISSING','WhatsApp Business yönetim izni doğrulanamadı.');
+      let waba;
+      try {waba=await request(c.metaWhatsappWabaId,{credentials:c,query:{fields:'id'}});} catch {fail('META_WHATSAPP_MISSING','Yapılandırılmış WhatsApp Business Account okunamadı.');}
+      if(String(waba?.id||'')!==c.metaWhatsappWabaId)fail('META_WHATSAPP_MISSING','Yapılandırılmış WhatsApp Business Account bulunamadı.');
+      let phoneNumbers;
+      try {phoneNumbers=await collection(`${c.metaWhatsappWabaId}/phone_numbers`,c,'id',500);} catch {fail('META_WHATSAPP_MISSING','WhatsApp Business Account telefon listesi okunamadı.');}
+      if(!Array.isArray(phoneNumbers?.data)||!phoneNumbers.data.some(phone=>String(phone.id||'')===c.metaWhatsappPhoneNumberId))fail('META_WHATSAPP_MISSING','Yapılandırılmış telefon numarası bu WhatsApp Business Account içinde bulunamadı.');
+      whatsappAssetVerified=true;
+      whatsappVerificationSource='WABA_PHONE';
+    }
   }
-  return {ok:true,accountId:c.adAccountId,pageId:c.pageId,instagramId:linked,currency:account.currency,timezone:account.timezone_name,objective:'OUTCOME_ENGAGEMENT',optimizationGoal:'CONVERSATIONS',destination:normalizedDestination,whatsappPageFlags,whatsappAssetVerified,checkedAt:new Date().toISOString(),limitations:['Meta yaratım sırasında ek işletme, ödeme veya içerik kısıtlaması bildirebilir.']};
+  return {ok:true,accountId:c.adAccountId,pageId:c.pageId,instagramId:linked,currency:account.currency,timezone:account.timezone_name,objective:'OUTCOME_ENGAGEMENT',optimizationGoal:'CONVERSATIONS',destination:normalizedDestination,whatsappPageFlags,whatsappAssetVerified,whatsappVerificationSource,checkedAt:new Date().toISOString(),limitations:['Meta yaratım sırasında ek işletme, ödeme veya içerik kısıtlaması bildirebilir.']};
 }
 
 export async function accountInsights(credentials={}, {since,until,timeIncrement,level='account'}={}) {
