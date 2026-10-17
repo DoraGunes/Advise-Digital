@@ -46,7 +46,10 @@ export async function runAdOperation({tenantId,requestId,payload,prepare,steps,c
     }
     if(operation?.status==='SUCCEEDED')return operation.result;
     if(operation?.status==='RECONCILE'||operation?.status==='RUNNING'&&operation?.startedStage)throw Object.assign(new Error('Meta sonucunu kontrol edin.'),{code:'AD_RECONCILE_REQUIRED'});
-    operation??={tenantId,requestId,fingerprint,correlationId:randomUUID(),status:'RUNNING',stage:'preflight',ids:{},createdAt:new Date().toISOString()};
+    operation??={tenantId,requestId,fingerprint,payload,correlationId:randomUUID(),status:'RUNNING',stage:'preflight',ids:{},createdAt:new Date().toISOString()};
+    // Persist only the sanitized operation input supplied by the caller. The
+    // payload contains no credentials and is required for safe, exact resume.
+    operation.payload=payload;
     let writing=false;
     try {
       operation.status='RUNNING';operation.stage='preflight';await save(operation);
