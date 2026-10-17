@@ -1008,7 +1008,8 @@ class _ProductAutomationPageState extends State<ProductAutomationPage> {
                       const Text('OFF: yalnızca okuma. ONE_TIME: tek değerlendirme. CONTINUOUS: seçili hesapta 12 saatte bir değerlendirme.'),
                       const SizedBox(height: 10),
                       DropdownButtonFormField<String>(
-                        value: optimizationPermission,
+                        initialValue: optimizationPermission,
+                        isExpanded: true,
                         decoration: const InputDecoration(labelText: 'İzin seviyesi'),
                         items: const [
                           DropdownMenuItem(value: 'OFF', child: Text('Kapalı')),
