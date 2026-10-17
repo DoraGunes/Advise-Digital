@@ -8,15 +8,19 @@ const response=(body,status=200)=>({ok:status>=200&&status<300,status,json:async
 
 test('content Gemini returns an editable, cleaned draft without side effects',async()=>{
   const calls=[];
-  const result=await runGeminiContent({task:'AD_COPY',input:{title:'Fixture'},settings,transport:async(url,options)=>{calls.push({url,body:JSON.parse(options.body)});return response({modelVersion:'gemini-3.8-flash',usageMetadata:{totalTokenCount:12},candidates:[{content:{parts:[{text:'Başlık ✨\nAna metin #gereksiz\nKesin sonuç garanti eder.'}]}}]});}});
+  const result=await runGeminiContent({task:'AD_COPY',input:{title:'televizyon ekranı',analysis:'Görüntüde kırık televizyon ekranı ve teknik servis çalışanı görülüyor.'},settings,transport:async(url,options)=>{calls.push({url,body:JSON.parse(options.body)});return response({modelVersion:'gemini-3.8-flash',usageMetadata:{totalTokenCount:12},candidates:[{content:{parts:[{text:'{"headline":"Kırık televizyon ekranınız için teknik servis","description":"Ekran hasarı için televizyon ve panel onarımı konusunda bilgi alın.","cta":"Servis talebi oluşturun"}'}]}}]});}});
   assert.equal(result.ok,true);assert.equal(result.editable,true);assert.equal(result.model,'gemini-3.8-flash');assert.equal(result.sideEffects.length,0);
-  assert.ok(!result.text.includes('✨'));assert.ok(!result.text.includes('#gereksiz'));assert.equal(calls.length,1);assert.match(calls[0].url,/generativelanguage\.googleapis\.com/);assert.ok(!calls[0].body.access_token);assert.ok(!calls[0].body.ad_account_id);
+  assert.equal(result.headline,'Kırık televizyon ekranınız için teknik servis');assert.equal(result.cta,'Servis talebi oluşturun');assert.equal(result.quality.hasCliche,false);assert.equal(calls.length,1);assert.match(calls[0].url,/generativelanguage\.googleapis\.com/);assert.ok(!calls[0].body.access_token);assert.ok(!calls[0].body.ad_account_id);
+});
+
+test('ungrounded generic copy is rejected and asks for verified context',async()=>{
+  await assert.rejects(()=>runGeminiContent({task:'AD_COPY',input:{analysis:'Görüntüde yalnızca belirsiz bir iç mekân var.'},settings,transport:async()=>response({candidates:[{content:{parts:[{text:'{"headline":"İşinizi geleceğe taşıyacak çözümler","description":"Stratejik çözümlerle tanışın.","cta":"Daha fazla bilgi"}'}]}}]})}),error=>error.code==='GEMINI_CONTENT_NOT_GROUNDED');
 });
 
 test('photo and Reels analysis use inline media only and never Meta or queue',async()=>{
   const calls=[];
   for(const mediaType of ['image/jpeg','video/mp4']) await runGeminiContent({task:'ANALYZE',input:{mediaType},mediaBuffer:Buffer.from('fixture'),mediaType,settings,transport:async(url,options)=>{calls.push({url,body:JSON.parse(options.body)});return response({candidates:[{content:{parts:[{text:'Görülen unsurlar ve doğrulanması gereken noktalar.'}]}}]});}});
-  assert.equal(calls.length,2);for(const call of calls){const parts=call.body.contents[0].parts;assert.ok(parts.some(part=>part.inlineData?.data));assert.ok(!/facebook|meta|ads|queue|scheduler/i.test(call.url));}
+  assert.equal(calls.length,2);for(const call of calls){const parts=call.body.contents[0].parts;const media=parts.find(part=>part.inlineData);assert.ok(media?.inlineData?.data);assert.equal(media.inlineData.mimeType,call.body.contents[0].parts[1].inlineData.mimeType);assert.ok(!/facebook|meta|ads|queue|scheduler/i.test(call.url));}
 });
 
 test('Gemini provider failures fail closed and remain retryable only for transient errors',async()=>{

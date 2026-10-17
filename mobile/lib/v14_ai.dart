@@ -97,13 +97,31 @@ class _AiContentStudioPageState extends State<AiContentStudioPage> {
     if (!editable || media == null) return;
     setState(() { aiBusy = true; error = null; });
     try {
-      final result = await Api.contentStudioAiFromFile(media!.path,
-        mediaFile: media, task: aiTask, input: {
+      final baseInput = <String, dynamic>{
           'title': title.text.trim(),
           'context': caption.text.trim(),
           'mediaType': format,
           'allowHashtags': false,
+        };
+      Map<String, dynamic> result;
+      if (aiTask == 'AD_COPY') {
+        // The copy request must carry the analysis; this prevents a generic
+        // text-only prompt from losing the selected image's subject.
+        final analysis = await Api.contentStudioAiFromFile(media!.path,
+          mediaFile: media, task: 'ANALYZE', input: baseInput);
+        final analysisText = analysis['text']?.toString().trim() ?? '';
+        if (analysisText.isEmpty) {
+          throw const FormatException('Görsel güvenilir biçimde tanımlanamadı. Ürün veya hizmet bilgisini girin.');
+        }
+        result = await Api.contentStudioAi(task: 'AD_COPY', input: {
+          ...baseInput,
+          'analysis': analysisText,
+          'requireGrounded': true,
         });
+      } else {
+        result = await Api.contentStudioAiFromFile(media!.path,
+          mediaFile: media, task: aiTask, input: baseInput);
+      }
       final text = result['text']?.toString().trim() ?? '';
       if (text.isEmpty) throw const FormatException('Gemini taslak üretmedi.');
       if (mounted) setState(() { aiDraft.text = text; error = null; });
