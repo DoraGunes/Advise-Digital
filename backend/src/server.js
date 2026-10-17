@@ -36,6 +36,7 @@ import {tenantCredentials,metaReady,budgetGuard,activationGuard,withAdAccountLoc
 import {metaOAuthCallback,startMetaOAuth,metaAssets,selectMetaAssets} from './meta-oauth.js';
 import {productOverview,productReport,onboardingStatus,saveOnboarding,productStrategy} from './product.js';
 import {publicPage} from './public-pages.js';
+import {geminiContentStatus,runGeminiContent} from './gemini-content.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const uploadDir = path.resolve(process.env.ADVISE_UPLOAD_DIR || path.resolve(__dirname, '../uploads'));
@@ -122,6 +123,7 @@ const upload = multer({
 // Cover-specific limits and decoder validation permit extensionless browser
 // blobs without trusting their filename or multipart Content-Type.
 const coverUpload=multer({storage,limits:{fileSize:MAX_COVER_BYTES,files:1,fields:5,parts:6}});
+const aiStudioUpload=multer({storage:multer.memoryStorage(),limits:{fileSize:20*1024*1024,files:1,fields:20,parts:25},fileFilter:(_req,file,cb)=>mediaKind(file)==='OTHER'?cb(new Error('Desteklenmeyen analiz medyası.')):cb(null,true)});
 
 function hasMetaCredentials(credentials = {}) {
   return metaReady(credentials);
@@ -654,6 +656,15 @@ app.get('/api/notifications', async (req, res) => { try { res.json(await notific
 app.put('/api/notifications', allowRoles('ADMIN','CUSTOMER_ADMIN'), async (req, res) => { try { const result=await saveNotificationPrefs(req.user.tenantId, req.body || {}); await addLog(req.user.tenantId,{type:'NOTIFICATION_PREFS_UPDATED',actorId:req.user.id}); res.json(result); } catch (e) { res.status(400).json({error:e.message}); } });
 app.get('/api/security/overview', async (req, res) => { try { res.json(await securityOverview(req.user.tenantId)); } catch (e) { res.status(500).json({error:e.message}); } });
 app.get('/api/ai/status', async (_req, res) => res.json(aiStatus()));
+app.get('/api/content-studio/ai/status', async (_req,res) => res.json(geminiContentStatus()));
+app.post('/api/content-studio/ai', allowRoles('ADMIN','CUSTOMER_ADMIN','MANAGER','OPERATOR'), async (req,res) => {
+  try { res.json(await runGeminiContent({task:req.body?.task,input:req.body||{}})); }
+  catch(e) { res.status(e.status||503).json({ok:false,code:e.code||'GEMINI_CONTENT_ERROR',error:e.message,retryable:e.retryable===true}); }
+});
+app.post('/api/content-studio/ai/from-file', allowRoles('ADMIN','CUSTOMER_ADMIN','MANAGER','OPERATOR'), aiStudioUpload.single('media'), async (req,res) => {
+  try { res.json(await runGeminiContent({task:req.body?.task,input:req.body||{},mediaBuffer:req.file?.buffer||null,mediaType:req.file?.mimetype||''})); }
+  catch(e) { res.status(e.status||503).json({ok:false,code:e.code||'GEMINI_CONTENT_ERROR',error:e.message,retryable:e.retryable===true}); }
+});
 app.get('/api/ai/memory', async (req, res) => { try { res.json(await getMemorySummary(req.user.tenantId)); } catch(e) { res.status(500).json({error:e.message}); } });
 app.get('/api/ai/performance-memory', async (req,res)=>{
   try { res.json(await getPerformanceMemorySummary(req.user.tenantId)); }

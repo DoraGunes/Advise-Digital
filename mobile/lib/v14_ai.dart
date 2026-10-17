@@ -15,11 +15,12 @@ class AiContentStudioPage extends StatefulWidget {
   State<AiContentStudioPage> createState() => _AiContentStudioPageState();
 }
 class _AiContentStudioPageState extends State<AiContentStudioPage> {
-  final title = TextEditingController(), caption = TextEditingController();
+  final title = TextEditingController(), caption = TextEditingController(), aiDraft = TextEditingController();
   XFile? media;
   String format = 'POST';
   DateTime? schedule;
-  bool busy = false, canOperate = false, accessStarted = false;
+  bool busy = false, aiBusy = false, canOperate = false, accessStarted = false;
+  String aiTask = 'AD_COPY';
   bool uncertain = false, confirming = false;
   String? savedId, savedStatus, error;
   @override
@@ -44,8 +45,8 @@ class _AiContentStudioPageState extends State<AiContentStudioPage> {
     }
   }
   @override
-  void dispose() { title.dispose(); caption.dispose(); super.dispose(); }
-  bool get editable => canOperate && !busy && !confirming && savedId == null && !uncertain;
+  void dispose() { title.dispose(); caption.dispose(); aiDraft.dispose(); super.dispose(); }
+  bool get editable => canOperate && !busy && !aiBusy && !confirming && savedId == null && !uncertain;
   Future<void> _pick() async {
     if (!editable) return;
     try {
@@ -91,6 +92,26 @@ class _AiContentStudioPageState extends State<AiContentStudioPage> {
       return;
     }
     setState(() { schedule = selected; error = null; });
+  }
+  Future<void> _runAi() async {
+    if (!editable || media == null) return;
+    setState(() { aiBusy = true; error = null; });
+    try {
+      final result = await Api.contentStudioAiFromFile(media!.path,
+        mediaFile: media, task: aiTask, input: {
+          'title': title.text.trim(),
+          'context': caption.text.trim(),
+          'mediaType': format,
+          'allowHashtags': false,
+        });
+      final text = result['text']?.toString().trim() ?? '';
+      if (text.isEmpty) throw const FormatException('Gemini taslak üretmedi.');
+      if (mounted) setState(() { aiDraft.text = text; error = null; });
+    } catch (e) {
+      if (mounted) setState(() => error = AppError.message(e));
+    } finally {
+      if (mounted) setState(() => aiBusy = false);
+    }
   }
   Future<void> _save() async {
     if (!editable || media == null) return;
@@ -146,8 +167,8 @@ class _AiContentStudioPageState extends State<AiContentStudioPage> {
   @override
   Widget build(BuildContext context) => Scaffold(
     appBar: AppBar(title: const Text('İçerik Stüdyosu'), actions: [
-      TextButton.icon(onPressed: busy ? null : _queue,
-        icon: const Icon(Icons.calendar_month), label: const Text('İçerik Kuyruğu')),
+      IconButton(onPressed: busy ? null : _queue,
+        tooltip: 'İçerik Kuyruğu', icon: const Icon(Icons.calendar_month)),
     ]),
     body: SingleChildScrollView(padding: const EdgeInsets.all(20),
       child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
@@ -183,6 +204,32 @@ class _AiContentStudioPageState extends State<AiContentStudioPage> {
         const SizedBox(height: 12),
         TextField(controller: caption, enabled: editable,maxLines: 6,
           decoration: const InputDecoration(labelText: 'Gönderi açıklaması ve hashtagler')),
+        const SizedBox(height: 14),
+        if (canOperate) Card(child: Padding(padding: const EdgeInsets.all(14), child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start, children: [
+          const Text('İsteğe bağlı Gemini yardımcısı', style: TextStyle(fontWeight: FontWeight.w800)),
+          const SizedBox(height: 4),
+          const Text('Taslak üretir; Meta reklamı, bütçe, kuyruk ve paylaşım işlemi yapmaz.'),
+          const SizedBox(height: 10),
+          DropdownButtonFormField<String>(initialValue: aiTask, isExpanded: true, decoration: const InputDecoration(labelText: 'Yardım türü'),
+            items: const [
+              DropdownMenuItem(value:'ANALYZE',child:Text('Fotoğraf/Reels analizi')),
+              DropdownMenuItem(value:'AD_COPY',child:Text('Reklam metni taslağı')),
+              DropdownMenuItem(value:'STRATEGY',child:Text('Strateji önerisi')),
+            ], onChanged: editable ? (value) { if (value != null) setState(() => aiTask = value); } : null),
+          const SizedBox(height: 10),
+          SizedBox(width: double.infinity, child: OutlinedButton.icon(onPressed: editable && media != null ? _runAi : null,
+            icon: aiBusy ? const SizedBox(width:18,height:18,child:CircularProgressIndicator(strokeWidth:2)) : const Icon(Icons.auto_awesome_outlined),
+            label: Text(aiBusy ? 'Gemini hazırlanıyor…' : 'Gemini ile taslak hazırla'))),
+          if (aiDraft.text.isNotEmpty) ...[
+            const SizedBox(height: 10),
+            TextField(controller: aiDraft, enabled: editable, maxLines: 8,
+              decoration: const InputDecoration(labelText: 'Düzenlenebilir Gemini taslağı')),
+            const SizedBox(height: 6),
+            SizedBox(width: double.infinity, child: TextButton.icon(onPressed: editable ? () => setState(() => caption.text = aiDraft.text) : null,
+              icon: const Icon(Icons.edit_note), label: const Text('Taslağı açıklamaya aktar'))),
+          ],
+        ]))),
         const SizedBox(height: 12),
         OutlinedButton.icon(onPressed: editable ? _pickSchedule : null,
           icon: const Icon(Icons.schedule),label: const Text('Tarih ve saat seç')),

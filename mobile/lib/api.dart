@@ -1001,6 +1001,43 @@ class Api {
   }
   static Future<Map<String, dynamic>> aiStatus() async =>
       Map<String, dynamic>.from(await _request('GET', '/api/ai/status'));
+  static Future<Map<String, dynamic>> contentStudioAiStatus() async =>
+      Map<String, dynamic>.from(await _request('GET', '/api/content-studio/ai/status'));
+  static Future<Map<String, dynamic>> contentStudioAi({
+    required String task,
+    Map<String, dynamic> input = const {},
+  }) async => Map<String, dynamic>.from(await _request(
+      'POST', '/api/content-studio/ai', body:{'task':task,...input}));
+  static Future<Map<String, dynamic>> contentStudioAiFromFile(
+    String path, {
+    required String task,
+    XFile? mediaFile,
+    Map<String, dynamic> input = const {},
+  }) async {
+    final base = await baseUrl();
+    final authToken = await token();
+    final request = http.MultipartRequest(
+      'POST', _uri(base, '/api/content-studio/ai/from-file', null));
+    request.headers['Accept'] = 'application/json';
+    if (authToken.isNotEmpty) request.headers['Authorization'] = 'Bearer $authToken';
+    request.fields['task'] = task;
+    for (final entry in input.entries) {
+      if (entry.value != null) request.fields[entry.key] = entry.value.toString();
+    }
+    request.files.add(await _mediaPart('media', path, file: mediaFile));
+    try {
+      final response = await _client.send(request)
+          .then(http.Response.fromStream)
+          .timeout(const Duration(seconds: 120));
+      final data = _decode(response.body);
+      _checkUploadResponse(response, data, authToken);
+      if (data is! Map) throw const ApiException('Gemini içerik yanıtı geçersiz.');
+      return Map<String, dynamic>.from(data);
+    } on ApiException { rethrow; }
+      on TimeoutException { throw const ApiException('Gemini içerik analizi zaman aşımına uğradı.'); }
+      on http.ClientException catch (e) { throw ApiException('Gemini içerik bağlantısı kurulamadı.', details:e.message); }
+      catch (_) { throw const ApiException('Gemini içerik analizi tamamlanamadı.'); }
+  }
   static Future<Map<String, dynamic>> aiMemory() async =>
       Map<String, dynamic>.from(await _request('GET', '/api/ai/memory'));
   static Future<Map<String, dynamic>> applyHashtagStrategy({

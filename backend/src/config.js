@@ -41,5 +41,9 @@ export const config = {
     'onsite_conversion.messaging_conversation_started_7d,messaging_conversation_started_7d')
     .split(',')
     .map(x => x.trim())
-    .filter(Boolean)
+    .filter(Boolean),
+  geminiContentStudioEnabled: String(process.env.GEMINI_CONTENT_STUDIO_ENABLED || 'false').toLowerCase() === 'true',
+  geminiContentApiKey: (process.env.GEMINI_API_KEY || '').trim(),
+  geminiContentModel: (process.env.GEMINI_MODEL || 'gemini-3.8-flash').trim(),
+  geminiContentApiBase: (process.env.GEMINI_API_BASE || 'https://generativelanguage.googleapis.com/v1beta').replace(/\/+$/, '')
 };
