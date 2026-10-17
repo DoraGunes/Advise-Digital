@@ -466,10 +466,16 @@ app.get('/api/ads/presets/preflight',async(req,res)=>{
    if(!selected)throw Object.assign(new Error('İçerik bu Instagram hesabına ait değil.'),{code:'META_MEDIA_MISMATCH'});
    assertPresetMedia(policy.preset,selected);mediaVerified=true;
   }
-  res.json({...ready,ok:true,mediaVerified,presetId:policy.preset.id,presetVersion:AD_PRESET_VERSION,
+  const response={...ready,ok:true,mediaVerified,presetId:policy.preset.id,presetVersion:AD_PRESET_VERSION,
    accountDailyCap:policy.settings.geminiAdsDailyCap,perAdCap:120,automaticReply:false,initialStatus:'PAUSED',
-   targeting:{mode:audience.locationMode,locations:audience.locations,radius:policy.radius}});
- }catch(error){res.status(422).json(operationFailure(error,'preflight',crypto.randomUUID()));}
+   targeting:{mode:audience.locationMode,locations:audience.locations,radius:policy.radius}};
+  console.info('[WHATSAPP PREFLIGHT]',{status:200,code:null,stage:'complete',providerFailure:null,verificationSource:response.whatsappVerificationSource||null});
+  res.json(response);
+ }catch(error){
+  const failure=operationFailure(error,'preflight',crypto.randomUUID());
+  console.info('[WHATSAPP PREFLIGHT]',{status:422,code:failure.code,stage:failure.stage,providerFailure:failure.providerFailure||null});
+  res.status(422).json(failure);
+ }
 });
 app.get('/api/ads/presets/results',async(req,res)=>{
  try{
