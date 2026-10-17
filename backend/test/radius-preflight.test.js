@@ -12,7 +12,7 @@ test('Unsupported radius stops after read-only estimate and never changes target
   assert.equal(JSON.parse(calls[0].url.searchParams.get('targeting_spec')).geo_locations.custom_locations[0].radius,200);
  }finally{globalThis.fetch=old;}
 });
-test('WhatsApp creative has a WhatsApp CTA and no automated greeting or bot payload',async()=>{
+test('WhatsApp creative uses the accepted destination-feed CTA shape',async()=>{
  const old=globalThis.fetch;let payload;
  globalThis.fetch=async(url,options)=>{
   if(options.method==='POST')payload=new URLSearchParams(options.body);
@@ -20,8 +20,14 @@ test('WhatsApp creative has a WhatsApp CTA and no automated greeting or bot payl
  };
  try{
   await createAdCreativeFromInstagramMedia({name:'fixture',instagramMediaId:'media',instagramUserId:'789',pageId:'456',destination:'WHATSAPP',credentials:creds});
-  const cta=JSON.parse(payload.get('call_to_action'));assert.equal(cta.type,'WHATSAPP_MESSAGE');
-  assert.equal(cta.value.app_destination,'WHATSAPP');
-  for(const key of ['page_welcome_message','message_template','asset_feed_spec','messenger_sponsored_message'])assert.equal(payload.has(key),false);
+  assert.equal(payload.has('call_to_action'),false);
+  const feed=JSON.parse(payload.get('asset_feed_spec'));
+  assert.equal(feed.optimization_type,'DOF_MESSAGING_DESTINATION');
+  assert.deepEqual(feed.call_to_actions.map(x=>x.type),['WHATSAPP_MESSAGE','INSTAGRAM_MESSAGE']);
+  assert.equal(feed.call_to_actions[0].value.app_destination,'WHATSAPP');
+  assert.equal(feed.call_to_actions[0].value.link,'https://api.whatsapp.com/send');
+  assert.equal(feed.call_to_actions[1].value.app_destination,'INSTAGRAM_DIRECT');
+  assert.equal(feed.additional_data.is_click_to_message,true);
+  for(const key of ['page_welcome_message','message_template','messenger_sponsored_message'])assert.equal(payload.has(key),false);
  }finally{globalThis.fetch=old;}
 });

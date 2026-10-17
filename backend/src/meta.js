@@ -442,7 +442,20 @@ export async function createAdCreativeFromInstagramMedia({name,instagramMediaId,
   // additional object_story_spec makes Meta reject the creative as ambiguous.
   delete body.object_story_spec;
 
-  if(destination==='WHATSAPP')body.call_to_action={type:'WHATSAPP_MESSAGE',value:{app_destination:'WHATSAPP'}};
+  if(destination==='WHATSAPP') {
+    // Meta's accepted Instagram-media WhatsApp shape uses the same
+    // destination-feed structure as the existing manual ad.  A root-level
+    // call_to_action with source_instagram_media_id is rejected with
+    // subcode 2061015; keep the CTA scoped to asset_feed_spec instead.
+    body.asset_feed_spec={
+      optimization_type:'DOF_MESSAGING_DESTINATION',
+      call_to_actions:[
+        {type:'WHATSAPP_MESSAGE',value:{app_destination:'WHATSAPP',link:'https://api.whatsapp.com/send'}},
+        {type:'INSTAGRAM_MESSAGE',value:{app_destination:'INSTAGRAM_DIRECT',link:'https://www.instagram.com/',app_link:`instagram://direct?userid=${identity.instagramUserId}`}}
+      ],
+      additional_data:{multi_share_end_card:false,is_click_to_message:true}
+    };
+  }
   return request(`act_${c.adAccountId}/adcreatives`,{method:'POST',credentials:c,body,timeoutMs:15000});
 }
 
