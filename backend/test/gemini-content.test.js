@@ -21,9 +21,21 @@ test('photo and Reels analysis use inline media only and never Meta or queue',as
 
 test('Gemini provider failures fail closed and remain retryable only for transient errors',async()=>{
   for(const [status,code,retryable] of [[404,'GEMINI_MODEL_UNAVAILABLE',false],[429,'GEMINI_RATE_LIMIT',true],[503,'GEMINI_PROVIDER_UNAVAILABLE',true]]){
-    await assert.rejects(()=>runGeminiContent({task:'STRATEGY',settings,transport:async()=>response({error:{code:status}},status)}),error=>error.code===code&&error.retryable===retryable&&error.providerCode===status);
+    let calls=0;
+    await assert.rejects(()=>runGeminiContent({task:'STRATEGY',settings,transport:async()=>{calls++;return response({error:{code:status}},status)}}),error=>error.code===code&&error.retryable===retryable&&error.providerCode===status);
+    assert.equal(calls,status===404?1:2);
   }
   await assert.rejects(()=>runGeminiContent({task:'AD_COPY',settings:{...settings,geminiContentStudioEnabled:false},transport:async()=>{throw new Error('must not call');}}),{code:'GEMINI_CONTENT_DISABLED'});
+});
+
+test('Gemini timeout is bounded and retry does not affect manual operations',async()=>{
+  let calls=0;
+  await assert.rejects(()=>runGeminiContent({task:'ANALYZE',settings:{...settings,geminiContentTimeoutMs:1000},transport:async(_url,options)=>{
+    calls++;
+    await new Promise((resolve,reject)=>options.signal.addEventListener('abort',()=>reject(Object.assign(new Error('aborted'),{name:'AbortError'})),{once:true}));
+    resolve();
+  }}),error=>error.code==='GEMINI_TIMEOUT'&&error.retryable===true);
+  assert.equal(calls,2);
 });
 
 test('content quality checks remain explicit and do not invent claims',()=>{

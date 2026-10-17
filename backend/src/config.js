@@ -45,5 +45,7 @@ export const config = {
   geminiContentStudioEnabled: String(process.env.GEMINI_CONTENT_STUDIO_ENABLED || 'false').toLowerCase() === 'true',
   geminiContentApiKey: (process.env.GEMINI_API_KEY || '').trim(),
   geminiContentModel: (process.env.GEMINI_MODEL || 'gemini-3.8-flash').trim(),
-  geminiContentApiBase: (process.env.GEMINI_API_BASE || 'https://generativelanguage.googleapis.com/v1beta').replace(/\/+$/, '')
+  geminiContentApiBase: (process.env.GEMINI_API_BASE || 'https://generativelanguage.googleapis.com/v1beta').replace(/\/+$/, ''),
+  geminiContentTimeoutMs: Math.max(1000, Math.min(120000, Number(process.env.GEMINI_CONTENT_TIMEOUT_MS || 30000))),
+  geminiContentMaxRetries: Math.max(0, Math.min(1, Number(process.env.GEMINI_CONTENT_MAX_RETRIES || 1)))
 };
