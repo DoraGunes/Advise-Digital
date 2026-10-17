@@ -22,7 +22,7 @@ import {
 import {getCampaigns, getAdSets, getAds, insights, setStatus, updateAdSetBudget, metaHealth, getInstagramMedia, createCampaign, createAdSet, createAdCreativeFromInstagramMedia, createAd, resolveAdGeoTargeting,resolveCredentials,adsPreflight,validateRadiusTargeting,getMetaAccount} from './meta.js';
 import {AD_CITIES, AD_REGIONS, provinceNamesForTargeting} from './ad-targeting.js';
 import {optimizeAds} from './optimizer.js';
-import {startScheduler, scheduleUploadedPost, scheduleUploadedPosts, publishDuePosts,publishPost,cancelScheduledPostState} from './scheduler.js';
+import {startScheduler, scheduleUploadedPost, scheduleUploadedPosts, publishDuePosts,publishPost,cancelScheduledPostState,setPublishingAutomation} from './scheduler.js';
 import {analyticsSummary, aiInsights, billingSummary, brandingSummary, saveBranding, notificationPrefs, saveNotificationPrefs, securityOverview, planCatalog, adminOverview} from './v78.js';
 import {dbHealth} from './db.js';
 import {aiAdvisor, performanceSummary, getAlerts, createAlert, markAlert, getLeads, createLead, updateLead, deleteLead, analyzeCreative, getCreatives, simulateBudget, createExperiment, getExperiments, updateExperiment, buildUtm, reportPack, agencyOverview} from './pro.js';
@@ -703,6 +703,13 @@ app.post('/api/ai/hashtags', async (req, res) => {
   } catch(e) { res.status(400).json({error:e.message}); }
 });
 app.get('/api/settings', async (req, res) => res.json(await getSettings(req.user.tenantId)));
+app.post('/api/publishing/automation', allowRoles('ADMIN','CUSTOMER_ADMIN','MANAGER','OPERATOR'), async (req,res)=>{
+  try {
+    if (typeof req.body?.enabled !== 'boolean') return res.status(400).json({error:'Otomatik yayın için enabled boolean olmalı.'});
+    const result=await setPublishingAutomation(req.user.tenantId,req.body.enabled,req.user.id);
+    res.json(result);
+  } catch(e) { res.status(400).json({error:e.message}); }
+});
 app.put('/api/settings', allowRoles('ADMIN', 'CUSTOMER_ADMIN'), async (req, res) => {
   try {
     const current=await getSettings(req.user.tenantId);

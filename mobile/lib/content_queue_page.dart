@@ -32,6 +32,7 @@ class _ContentQueuePageState extends State<ContentQueuePage> {
   List<dynamic> _queued = [];
   bool _loading = false;
   bool _initialLoading = true, _canEdit = false;
+  bool _autoPublish = false, _automationSaving = false;
   String? _error;
   String _view = 'ALL', _search = '';
   int _visibleLimit = 30;
@@ -59,6 +60,7 @@ class _ContentQueuePageState extends State<ContentQueuePage> {
       final me = await Api.me();
       final role = (me['user'] as Map?)?['role'];
       final pending = await Api.pendingPublications();
+      final settings = await Api.settings();
       for (final row in data.whereType<Map>()) {
         final id = row['id']?.toString() ?? '';
         if (row['publishStatus'] == 'PUBLISHED') {
@@ -75,6 +77,7 @@ class _ContentQueuePageState extends State<ContentQueuePage> {
           ? {...row,'publishStatus':'PUBLISH_UNKNOWN'} : row).toList();
         _canEdit =
             ['ADMIN', 'CUSTOMER_ADMIN', 'MANAGER', 'OPERATOR'].contains(role);
+        _autoPublish = settings['autoPublish'] == true;
         _error = null;
         _initialLoading = false;
       });
@@ -87,6 +90,38 @@ class _ContentQueuePageState extends State<ContentQueuePage> {
           _error = AppError.message(e);
           _initialLoading = false;
         });
+    }
+  }
+
+  Future<void> _toggleAutoPublish(bool enabled) async {
+    if (!_canEdit || _automationSaving || enabled == _autoPublish) return;
+    if (enabled) {
+      final confirmed = await showDialog<bool>(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          title: const Text('Otomatik yayınlamayı aç?'),
+          content: const Text('Yalnızca açıkça planladığın gelecek içerikler otomatik yayınlanır. Geçmiş tarihli içerikler yeniden tarih ve onay bekler.'),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Vazgeç')),
+            FilledButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Aç')),
+          ],
+        ),
+      ) ?? false;
+      if (!confirmed || !mounted) return;
+    }
+    setState(() => _automationSaving = true);
+    try {
+      final result = await Api.setPublishingAutomation(enabled);
+      if (!mounted) return;
+      setState(() => _autoPublish = result['autoPublish'] == true);
+      await _loadQueue();
+      if (mounted) _snack(_autoPublish
+          ? 'Otomatik yayın açık. Yeni ve gelecek tarihli onaylı içerikler planlanır.'
+          : 'Otomatik yayın kapalı. İçerikler manuel onay bekler.');
+    } catch (e) {
+      if (mounted) _snack(AppError.message(e));
+    } finally {
+      if (mounted) setState(() => _automationSaving = false);
     }
   }
 
@@ -910,8 +945,17 @@ class _ContentQueuePageState extends State<ContentQueuePage> {
                                       ),
                                     ],
                                     const SizedBox(height: 8),
+                                    SwitchListTile.adaptive(
+                                      contentPadding: EdgeInsets.zero,
+                                      title: const Text('Otomatik yayınlama', style: TextStyle(fontWeight: FontWeight.w800)),
+                                      subtitle: Text(_autoPublish
+                                          ? 'Açık: yalnızca gelecek tarihli, onaylı içerikler zamanında yayınlanır.'
+                                          : 'Kapalı: içerikler manuel onay bekler.'),
+                                      value: _autoPublish,
+                                      onChanged: _automationSaving ? null : _toggleAutoPublish,
+                                    ),
                                     const Text(
-                                      'Metni ve yayın saatini her içerikte elle düzenleyin. Kaydetme paylaşım başlatmaz.',
+                                      'Saat seçmek tek başına yayın başlatmaz. İçeriği ayrıca sıraya alıp onaylayın.',
                                     ),
                                     const SizedBox(height: 6),
                                     SizedBox(

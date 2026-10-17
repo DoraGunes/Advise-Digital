@@ -1,5 +1,5 @@
 import cron from 'node-cron';
-import {getSettings,getPosts,getLogs,addLog,savePosts,getTenants,getTenant} from './store.js';
+import {getSettings,saveSettings,getPosts,getLogs,addLog,savePosts,getTenants,getTenant} from './store.js';
 import {createCampaign,createAdSet,uploadAdImage,createAdCreative,createAdCreativeFromInstagramMedia,createAd,setStatus,instagramPublishMedia,getInstagramContainerStatus,resolveAdGeoTargeting,resolveCredentials} from './meta.js';
 import {config} from './config.js';
 import {seedTimeScore} from './rules.js';
@@ -41,6 +41,42 @@ export function cancelScheduledPostState(post={}) {
   post.publishError='';
   post.updatedAt=new Date().toISOString();
   return post;
+}
+
+function resetAutoPublishPost(post, reason) {
+  post.publishStatus='READY';
+  post.autoPublish=false;
+  post.nextPublishAt=null;
+  post.selectedTime=null;
+  post.updatedAt=new Date().toISOString();
+  post.publishError=reason;
+  return post;
+}
+
+export async function setPublishingAutomation(tenantId='system', enabled=false, actorId='') {
+  return withTenantLock(tenantId, async()=>{
+    const nextEnabled=enabled===true;
+    const posts=await getPosts(tenantId);
+    let resetCount=0;
+    for (const post of posts) {
+      const status=String(post.publishStatus||'').toUpperCase();
+      const due=post.nextPublishAt && Number.isFinite(Date.parse(post.nextPublishAt)) &&
+        Date.parse(post.nextPublishAt)<=Date.now();
+      const mustReset=!nextEnabled && ['QUEUED','RETRY'].includes(status) && post.autoPublish!==false;
+      const staleOnEnable=nextEnabled && due && ['QUEUED','RETRY'].includes(status) && post.autoPublish!==false;
+      if (mustReset || staleOnEnable) {
+        resetAutoPublishPost(post, staleOnEnable
+          ? 'Otomatik yayın açılırken geçmiş tarihli içerik yeniden onay bekliyor.'
+          : 'Otomatik yayın kapatıldı; içerik yeniden onay bekliyor.');
+        resetCount++;
+      }
+    }
+    if (resetCount) await savePosts(tenantId,posts);
+    const settings=await saveSettings(tenantId,{autoPublish:nextEnabled},{allowAutoPublish:true});
+    await addLog(tenantId,{type:'PUBLISH_AUTOMATION_CHANGED',enabled:nextEnabled,
+      resetCount,actorId:actorId||null,at:new Date().toISOString()});
+    return {autoPublish:Boolean(settings.autoPublish),resetCount};
+  });
 }
 
 function weekKey(date=new Date()) {

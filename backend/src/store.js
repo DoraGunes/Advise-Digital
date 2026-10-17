@@ -435,7 +435,7 @@ async function _getSettings(tenantId = SYSTEM_TENANT_ID) {
   if (Number(resolved.messageCostLimit) === 8) resolved.messageCostLimit = 2;
   if (Number(resolved.earlyMessageCostLimit) === 8) resolved.earlyMessageCostLimit = 2;
   // Legacy switches remain fail-closed; ad optimization uses its separate consent field.
-  Object.assign(resolved,{aiEnabled:false,geminiAdsAuto:false,enabled:false,autoPublish:false,autoBestTime:false});
+  Object.assign(resolved,{aiEnabled:false,geminiAdsAuto:false,enabled:false,autoBestTime:false});
   resolved.optimizationPermission=['OFF','ONE_TIME','CONTINUOUS'].includes(String(resolved.optimizationPermission).toUpperCase())
     ? String(resolved.optimizationPermission).toUpperCase() : 'OFF';
   resolved.optimizationAdAccountIds=Array.isArray(resolved.optimizationAdAccountIds)
@@ -443,7 +443,7 @@ async function _getSettings(tenantId = SYSTEM_TENANT_ID) {
   return clone(resolved);
 }
 
-async function _saveSettings(tenantId, input) {
+async function _saveSettings(tenantId, input, options = {}) {
   if (typeof tenantId === 'object') {
     input = tenantId;
     tenantId = SYSTEM_TENANT_ID;
@@ -473,7 +473,8 @@ async function _saveSettings(tenantId, input) {
     ? [...new Set(next.optimizationAdAccountIds.map(x=>String(x||'').replace(/^act_/,'').trim()).filter(Boolean))].slice(0,20) : [];
   next.geminiAdsAuto = Boolean(next.geminiAdsAuto);
   next.geminiAdsDailyCap = Math.max(0, Math.min(100000, Number(next.geminiAdsDailyCap) || 0));
-  Object.assign(next,{aiEnabled:false,geminiAdsAuto:false,enabled:false,autoPublish:false,autoBestTime:false});
+  Object.assign(next,{aiEnabled:false,geminiAdsAuto:false,enabled:false,autoBestTime:false});
+  if (options.allowAutoPublish !== true) next.autoPublish=false;
   next.autoMediaType = next.autoMediaType !== false;
   next.preventDuplicateContent = next.preventDuplicateContent !== false;
   next.publishMaxRetries = Math.max(1, Math.min(5, Number(next.publishMaxRetries || 3)));

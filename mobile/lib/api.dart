@@ -647,6 +647,9 @@ class Api {
       (await _request('GET', '/api/posts'))['data'] ?? const []);
   static Future<Map<String, dynamic>> settings() async =>
       Map<String, dynamic>.from(await _request('GET', '/api/settings'));
+  static Future<Map<String, dynamic>> setPublishingAutomation(bool enabled) async =>
+      Map<String, dynamic>.from(await _request('POST', '/api/publishing/automation',
+          body: {'enabled': enabled}));
   static Future<Map<String, dynamic>> saveSettings(
           Map<String, dynamic> values) async =>
       Map<String, dynamic>.from(
