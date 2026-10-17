@@ -363,7 +363,12 @@ export async function learnFromOutcome(tenantId,input={}){
     const key=postId+':'+(adId||'post');
     const previous=memory.outcomes.find(row=>row.key===key);
     if(previous)learnPatterns(memory,generation,-Number(previous.outcomeScore||0),false);
-    const outcome={key,at:nowIso(),postId,generationId:generation.id,adId,spend,messages,ctr,messageCost,outcomeScore};
+    const outcome={key,at:nowIso(),postId,generationId:generation.id,adId,spend,messages,ctr,messageCost,outcomeScore,
+      optimizationDecision:clean(input.optimizationDecision,80)||null,
+      optimizationReason:clean(input.optimizationReason,300)||null,
+      previousBudget:finiteOrNull(input.previousBudget),
+      newBudget:finiteOrNull(input.newBudget),
+      metaApiStatus:clean(input.metaApiStatus,60)||null};
     if(previous)Object.assign(previous,outcome);else memory.outcomes.push(outcome);
     generation.performanceSummary={
       score:outcomeScore,

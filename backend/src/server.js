@@ -709,7 +709,11 @@ app.put('/api/settings', allowRoles('ADMIN', 'CUSTOMER_ADMIN'), async (req, res)
     const nextAuto=Object.prototype.hasOwnProperty.call(req.body||{},'geminiAdsAuto') ? Boolean(req.body.geminiAdsAuto) : Boolean(current.geminiAdsAuto);
     const nextCap=Number(Object.prototype.hasOwnProperty.call(req.body||{},'geminiAdsDailyCap') ? req.body.geminiAdsDailyCap : current.geminiAdsDailyCap);
     const nextEnabled=Object.prototype.hasOwnProperty.call(req.body||{},'enabled')?req.body.enabled===true:current.enabled===true;
-    if((nextAuto||nextEnabled) && (!Number.isFinite(nextCap)||nextCap<1)) return res.status(400).json({error:'Otomatik reklam yönetimi için hesap günlük bütçe sınırını belirleyin.'});
+    const nextPermission=String(Object.prototype.hasOwnProperty.call(req.body||{},'optimizationPermission') ? req.body.optimizationPermission : current.optimizationPermission).toUpperCase();
+    const nextAccounts=Object.prototype.hasOwnProperty.call(req.body||{},'optimizationAdAccountIds') ? req.body.optimizationAdAccountIds : current.optimizationAdAccountIds;
+    if(!['OFF','ONE_TIME','CONTINUOUS'].includes(nextPermission)) return res.status(400).json({error:'Reklam optimizasyon izni OFF, ONE_TIME veya CONTINUOUS olmalı.'});
+    if(nextPermission!=='OFF' && (!Array.isArray(nextAccounts)||nextAccounts.length===0)) return res.status(400).json({error:'Optimizasyon için en az bir reklam hesabını açıkça seçin.'});
+    if((nextAuto||nextEnabled||nextPermission!=='OFF') && (!Number.isFinite(nextCap)||nextCap<1)) return res.status(400).json({error:'Otomatik reklam yönetimi için hesap günlük bütçe sınırını belirleyin.'});
     const result=await saveSettings(req.user.tenantId, req.body || {});
     const changedKeys=Object.keys(req.body||{}).filter(key=>!/(token|secret|password|key)/i.test(key)).slice(0,50);
     await addLog(req.user.tenantId,{type:'SETTINGS_UPDATED',actorId:req.user.id,changedKeys});
@@ -752,6 +756,18 @@ app.post('/api/automation/run', async (req, res) => {
     }
     res.json(await optimizeAds(req.user.tenantId));
   } catch (e) { res.status(502).json({error: e.message}); }
+});
+app.post('/api/automation/one-time', allowRoles('ADMIN','CUSTOMER_ADMIN','MANAGER'), async (req,res) => {
+  try {
+    if(req.body?.confirm !== true) return res.status(400).json({error:'Tek seferlik optimizasyon için confirm:true gerekir.'});
+    const tenantId=req.user.tenantId;
+    const settings=await getSettings(tenantId);
+    if(!['ONE_TIME','CONTINUOUS'].includes(String(settings.optimizationPermission).toUpperCase())) return res.status(403).json({error:'Tek seferlik optimizasyon için açık kullanıcı izni gerekli.'});
+    const result=await optimizeAds(tenantId,{mode:'ONE_TIME',requestedBy:req.user.id});
+    if(String(settings.optimizationPermission).toUpperCase()==='ONE_TIME') await saveSettings(tenantId,{optimizationPermission:'OFF'});
+    await addLog(tenantId,{type:'AD_OPTIMIZATION_PERMISSION_CONSUMED',mode:'ONE_TIME',actorId:req.user.id,at:new Date().toISOString()});
+    res.json(result);
+  } catch(e) { res.status(502).json({error:e.message}); }
 });
 app.get('/api/logs', async (req, res) => res.json({data: await getLogs(req.user.tenantId, req.query.limit || 200)}));
 

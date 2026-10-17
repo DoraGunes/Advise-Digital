@@ -68,6 +68,9 @@ const defaults = {
   earlyBudgetReductionPercent: 30,
   autoPublish: false,
   enabled: false,
+  // Explicit consent is separate from legacy feature flags. OFF is fail-closed.
+  optimizationPermission: 'OFF',
+  optimizationAdAccountIds: [],
   autoBestTime: true,
   geminiAdsAuto: false,
   geminiAdsDailyCap: 0,
@@ -431,8 +434,12 @@ async function _getSettings(tenantId = SYSTEM_TENANT_ID) {
   // that still carry the old 8 TL default are migrated to 2 TL automatically.
   if (Number(resolved.messageCostLimit) === 8) resolved.messageCostLimit = 2;
   if (Number(resolved.earlyMessageCostLimit) === 8) resolved.earlyMessageCostLimit = 2;
-  // Manual mode overrides old automation flags without migrating or erasing history.
+  // Legacy switches remain fail-closed; ad optimization uses its separate consent field.
   Object.assign(resolved,{aiEnabled:false,geminiAdsAuto:false,enabled:false,autoPublish:false,autoBestTime:false});
+  resolved.optimizationPermission=['OFF','ONE_TIME','CONTINUOUS'].includes(String(resolved.optimizationPermission).toUpperCase())
+    ? String(resolved.optimizationPermission).toUpperCase() : 'OFF';
+  resolved.optimizationAdAccountIds=Array.isArray(resolved.optimizationAdAccountIds)
+    ? [...new Set(resolved.optimizationAdAccountIds.map(x=>String(x||'').replace(/^act_/,'').trim()).filter(Boolean))].slice(0,20) : [];
   return clone(resolved);
 }
 
@@ -460,6 +467,10 @@ async function _saveSettings(tenantId, input) {
   next.earlyBudgetReductionPercent = Math.max(5, Math.min(90, Number(next.earlyBudgetReductionPercent)));
   next.autoPublish = Boolean(next.autoPublish);
   next.enabled = Boolean(next.enabled);
+  next.optimizationPermission=['OFF','ONE_TIME','CONTINUOUS'].includes(String(next.optimizationPermission||'').toUpperCase())
+    ? String(next.optimizationPermission).toUpperCase() : 'OFF';
+  next.optimizationAdAccountIds=Array.isArray(next.optimizationAdAccountIds)
+    ? [...new Set(next.optimizationAdAccountIds.map(x=>String(x||'').replace(/^act_/,'').trim()).filter(Boolean))].slice(0,20) : [];
   next.geminiAdsAuto = Boolean(next.geminiAdsAuto);
   next.geminiAdsDailyCap = Math.max(0, Math.min(100000, Number(next.geminiAdsDailyCap) || 0));
   Object.assign(next,{aiEnabled:false,geminiAdsAuto:false,enabled:false,autoPublish:false,autoBestTime:false});
